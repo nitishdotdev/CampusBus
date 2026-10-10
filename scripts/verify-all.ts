@@ -198,6 +198,14 @@ async function runAllTests() {
   // 5. Driver Trip Lifecycle & Occupancy
   let testTripId = '';
   try {
+    // Setup (not an assertion): the dev seed data and earlier interrupted runs can leave this driver with an
+    // active trip, and the one-active-trip-per-driver rule would then reject the trip started below.
+    await fetch(`${BASE_URL}/api/trips/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${driverToken}` },
+      body: JSON.stringify({}),
+    });
+
     // Driver starts trip
     const startRes = await fetch(`${BASE_URL}/api/trips/start`, {
       method: 'POST',
