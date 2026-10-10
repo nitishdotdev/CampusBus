@@ -8,6 +8,7 @@ import { createServer as createViteServer } from 'vite';
 import { initDatabase, checkDatabaseHealth } from './server/db';
 import { initSocketIO } from './server/socket';
 import { getJwtSecret } from './server/middleware/auth';
+import { resolveAllowedOrigins, buildCorsOptions } from './server/config/cors';
 import authRoutes from './server/routes/auth';
 import collegeRoutes from './server/routes/colleges';
 import scheduleRoutes from "./server/routes/schedules";
@@ -37,47 +38,10 @@ async function startServer() {
   const dbStatus = await initDatabase();
   console.log(`Database initialized: mode=${dbStatus.isPostgres ? 'PostgreSQL' : 'Embedded File Persistence'}`);
 
-  // CORS Configuration: Safe, configurable, and rejects wildcard in production
-  const isProduction = process.env.NODE_ENV === 'production';
-  const rawCorsOrigin = process.env.CORS_ORIGIN;
-
-  let allowedOrigins: string[] | boolean;
-
-  if (!rawCorsOrigin) {
-    if (isProduction) {
-      console.log('CORS: NODE_ENV=production and CORS_ORIGIN unset. Only same-origin requests allowed.');
-      allowedOrigins = false;
-    } else {
-      allowedOrigins = true;
-    }
-  } else {
-    const originsList = rawCorsOrigin.split(',').map((o) => o.trim()).filter(Boolean);
-    if (originsList.includes('*')) {
-      if (isProduction) {
-        throw new Error('FATAL: Wildcard "*" CORS_ORIGIN is prohibited in production mode. Specify explicit domain origins (e.g. https://campusmove.vercel.app).');
-      }
-      allowedOrigins = true;
-    } else {
-      if (isProduction) {
-        originsList.forEach((origin) => {
-          if (!origin.startsWith('https://') && !origin.startsWith('http://localhost') && origin !== 'localhost') {
-            throw new Error(`FATAL: CORS origin must be HTTPS in production: ${origin}`);
-          }
-        });
-        console.log(`✓ CORS configured for production origins: ${originsList.join(', ')}`);
-      }
-      allowedOrigins = originsList;
-    }
-  }
-
-  app.use(
-    cors({
-      origin: allowedOrigins,
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    })
-  );
+  // CORS: explicit allowlist from CORS_ORIGIN (see server/config/cors.ts)
+  const allowedOrigins = resolveAllowedOrigins();
+  console.log(`CORS allowlist: ${allowedOrigins.length ? allowedOrigins.join(', ') : '(none: same-origin only)'}`);
+  app.use(cors(buildCorsOptions(allowedOrigins)));
 
   // Body parser
   app.use(express.json({ limit: '5mb' }));

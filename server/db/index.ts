@@ -227,6 +227,7 @@ let memoryData: DatabaseData = {
 };
 
 import os from 'os';
+import { buildPgSsl } from './tls';
 
 function getWritableDataDir(): string {
   try {
@@ -809,7 +810,7 @@ export async function initDatabase(): Promise<{ isPostgres: boolean }> {
       console.log('Connecting to PostgreSQL database...');
       pool = new Pool({
         connectionString: dbUrl,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+        ssl: buildPgSsl(process.env, dbUrl),
         max: 10,
         idleTimeoutMillis: 30000,
       });
@@ -1848,26 +1849,31 @@ export const db = {
 
   // Analytics
   async getAnalytics(collegeId: string) {
-    const buses = await this.getBuses(collegeId);
-    const routes = await this.getRoutes(collegeId);
-    const trips = await this.getTrips(collegeId);
-    const alerts = await this.getEmergencyAlerts(collegeId);
+    const [buses, routes, trips, alerts] = await Promise.all([
+      this.getBuses(collegeId),
+      this.getRoutes(collegeId),
+      this.getTrips(collegeId),
+      this.getEmergencyAlerts(collegeId),
+    ]);
 
-    const activeBuses = buses.filter((b) => b.status === 'ACTIVE');
-    const totalPassengers = trips.reduce((acc, t) => acc + (t.current_occupancy || 0), 0);
-    const totalDistance = trips.reduce((acc, t) => acc + (t.distance_covered_km || 0), 0);
+    const startOfDayUtc = new Date();
+    startOfDayUtc.setUTCHours(0, 0, 0, 0);
+    const completed = trips.filter((t) => t.status === 'COMPLETED');
 
     return {
       fleetSize: buses.length,
-      activeBusesCount: activeBuses.length,
+      activeBusesCount: buses.filter((b) => b.status === 'ACTIVE').length,
       routesCount: routes.length,
-      completedTripsToday: trips.filter((t) => t.status === 'COMPLETED').length,
+      completedTripsToday: completed.filter((t) => t.end_time && new Date(t.end_time) >= startOfDayUtc).length,
+      completedTripsTotal: completed.length,
       activeTripsCount: trips.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'STARTED').length,
-      totalPassengersEstimated: totalPassengers + 3485,
-      onTimeRatePercent: 94.8,
-      gpsReliabilityPercent: 99.2,
       activeEmergenciesCount: alerts.filter((a) => a.status === 'ACTIVE').length,
-      totalDistanceCoveredKm: Math.round(totalDistance + 242.5),
+      totalDistanceCoveredKm: Math.round(trips.reduce((acc, t) => acc + (t.distance_covered_km || 0), 0) * 10) / 10,
+      // No schedule-adherence, boarding or GPS-quality measurements are collected yet,
+      // so these are reported as unavailable instead of invented.
+      onTimeRatePercent: null as number | null,
+      gpsReliabilityPercent: null as number | null,
+      totalPassengers: null as number | null,
     };
   },
 };

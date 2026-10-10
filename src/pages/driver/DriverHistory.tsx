@@ -9,7 +9,7 @@ export const DriverHistory: React.FC = () => {
   const completedTrips = trips.filter((t: Trip) => t.status === 'COMPLETED');
 
   const totalDistance = completedTrips.reduce((acc: number, t: Trip) => acc + (t.distanceCoveredKm || 0), 0);
-  const totalPassengers = completedTrips.reduce((acc: number, t: Trip) => acc + (t.currentOccupancy || 25), 0);
+  const avgDistance = completedTrips.length > 0 ? totalDistance / completedTrips.length : null;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -40,10 +40,10 @@ export const DriverHistory: React.FC = () => {
         </div>
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
           <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Est. Commuters
+            Avg. Trip Distance
           </div>
           <div className="text-2xl font-black text-blue-600 mt-1 font-mono">
-            {totalPassengers}
+            {avgDistance === null ? '—' : <>{avgDistance.toFixed(1)} <span className="text-sm font-normal text-slate-500">km</span></>}
           </div>
         </div>
       </div>
