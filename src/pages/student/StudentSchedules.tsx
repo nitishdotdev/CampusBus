@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, MapPin, AlertCircle, Loader } from 'lucide-react';
-import { AuthContext } from '../../store/AuthContext';
+import { apiClient } from '../../services/apiClient';
 
 interface Schedule {
   id: string;
@@ -16,7 +16,6 @@ interface Schedule {
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export function StudentSchedules() {
-  const { apiClient } = useContext(AuthContext) || {};
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,17 +32,17 @@ export function StudentSchedules() {
         if (selectedRoute) params.append('routeId', selectedRoute);
         if (selectedDay) params.append('operatingDay', selectedDay);
 
-        const response = await apiClient?.get(`/api/schedules?${params.toString()}`);
-        setSchedules(response?.data || []);
+        const response = await apiClient.get<any[]>(`/api/schedules?${params.toString()}`);
+        setSchedules(response || []);
       } catch (err: any) {
-        setError(err.response?.data?.error || 'Failed to load schedules');
+        setError(err?.message || 'Failed to load schedules');
       } finally {
         setLoading(false);
       }
     };
 
     fetchSchedules();
-  }, [selectedDay, selectedRoute, apiClient]);
+  }, [selectedDay, selectedRoute]);
 
   const routes = Array.from(new Set(schedules.map((s) => s.route_id)));
 

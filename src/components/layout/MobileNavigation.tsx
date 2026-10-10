@@ -10,6 +10,8 @@ import {
   History,
   ShieldAlert,
   Users,
+  Calendar,
+  MessageSquare,
 } from 'lucide-react';
 
 interface NavItem {
@@ -27,14 +29,8 @@ export const MobileNavigation: React.FC = () => {
     { to: '/student/live', label: 'Live Map', icon: Navigation },
     { to: '/student/routes', label: 'Routes', icon: RouteIcon },
     { to: '/student/notifications', label: 'Alerts', icon: Bell, badge: unreadCount },
-    <NavLink to="/student/schedules" className={navLinkClass}>
-  <Calendar className="w-5 h-5" />
-  <span>Schedules</span>
-</NavLink>
-<NavLink to="/student/complaints" className={navLinkClass}>
-  <MessageSquare className="w-5 h-5" />
-  <span>Feedback</span>
-</NavLink>
+    { to: '/student/schedules', label: 'Schedules', icon: Calendar },
+    { to: '/student/complaints', label: 'Feedback', icon: MessageSquare },
   ];
 
   const driverItems: NavItem[] = [
@@ -49,20 +45,14 @@ export const MobileNavigation: React.FC = () => {
     { to: '/admin/buses', label: 'Buses', icon: Bus },
     { to: '/admin/routes', label: 'Routes', icon: RouteIcon },
     { to: '/admin/alerts', label: 'Alerts', icon: ShieldAlert, badge: activeEmergencyCount },
-    <NavLink to="/admin/schedules" className={navLinkClass}>
-  <Calendar className="w-5 h-5" />
-  <span>Schedules</span>
-</NavLink>
-<NavLink to="/admin/complaints" className={navLinkClass}>
-  <MessageSquare className="w-5 h-5" />
-  <span>Complaints</span>
-</NavLink>
+    { to: '/admin/schedules', label: 'Schedules', icon: Calendar },
+    { to: '/admin/complaints', label: 'Complaints', icon: MessageSquare },
   ];
 
   const items = role === 'ADMIN' ? adminItems : role === 'DRIVER' ? driverItems : studentItems;
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 shadow-lg px-2 py-1 flex items-center justify-around pb-safe">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 shadow-lg px-2 py-1 flex items-center justify-around gap-1 overflow-x-auto pb-safe">
       {items.map((item) => {
         const Icon = item.icon;
         return (
@@ -71,7 +61,7 @@ export const MobileNavigation: React.FC = () => {
             to={item.to}
             end={item.to === '/student' || item.to === '/admin' || item.to === '/driver'}
             className={({ isActive }) =>
-              `flex flex-col items-center justify-center min-w-[56px] min-h-[46px] py-1 px-2 rounded-xl text-[10px] font-semibold transition-colors relative cursor-pointer ${
+              `flex flex-col items-center justify-center shrink-0 min-w-[56px] min-h-[46px] py-1 px-2 rounded-xl text-[10px] font-semibold transition-colors relative cursor-pointer ${
                 isActive ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
               }`
             }

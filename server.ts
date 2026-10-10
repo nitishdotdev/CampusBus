@@ -7,6 +7,7 @@ import { createServer as createViteServer } from 'vite';
 
 import { initDatabase, checkDatabaseHealth } from './server/db';
 import { initSocketIO } from './server/socket';
+import { getJwtSecret } from './server/middleware/auth';
 import authRoutes from './server/routes/auth';
 import collegeRoutes from './server/routes/colleges';
 import scheduleRoutes from "./server/routes/schedules";
@@ -23,6 +24,9 @@ const PORT = 3000;
 const HOST = '0.0.0.0';
 
 async function startServer() {
+  // Fail fast: in production this throws if JWT_SECRET is missing or weak.
+  getJwtSecret();
+
   const app = express();
   const server = http.createServer(app);
 

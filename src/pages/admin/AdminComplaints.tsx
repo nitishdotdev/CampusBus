@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageSquare, AlertCircle, CheckCircle, Clock, Loader } from 'lucide-react';
-import { AuthContext } from '../../store/AuthContext';
+import { apiClient } from '../../services/apiClient';
 
 interface Complaint {
   id: string;
@@ -15,7 +15,6 @@ interface Complaint {
 }
 
 export function AdminComplaints() {
-  const { apiClient } = useContext(AuthContext) || {};
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,25 +29,25 @@ export function AdminComplaints() {
         setLoading(true);
         setError(null);
         const params = filter !== 'ALL' ? `?status=${filter}` : '';
-        const res = await apiClient?.get(`/api/complaints${params}`);
-        setComplaints(res?.data || []);
+        const res = await apiClient.get<any[]>(`/api/complaints${params}`);
+        setComplaints(res || []);
       } catch (err: any) {
-        setError(err.response?.data?.error || 'Failed to load complaints');
+        setError(err?.message || 'Failed to load complaints');
       } finally {
         setLoading(false);
       }
     };
 
     fetchComplaints();
-  }, [filter, apiClient]);
+  }, [filter]);
 
   const handleStatusChange = async (id: string, newStatus: string) => {
     try {
-      await apiClient?.put(`/api/complaints/${id}`, { status: newStatus });
-      const res = await apiClient?.get('/api/complaints');
-      setComplaints(res?.data || []);
+      await apiClient.put<any[]>(`/api/complaints/${id}`, { status: newStatus });
+      const res = await apiClient.get<any[]>('/api/complaints');
+      setComplaints(res || []);
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update status');
+      alert(err?.message || 'Failed to update status');
     }
   };
 
@@ -59,17 +58,17 @@ export function AdminComplaints() {
     }
 
     try {
-      await apiClient?.put(`/api/complaints/${id}`, {
+      await apiClient.put<any[]>(`/api/complaints/${id}`, {
         adminResponse: response,
         status: 'IN_PROGRESS',
       });
 
-      const res = await apiClient?.get('/api/complaints');
-      setComplaints(res?.data || []);
+      const res = await apiClient.get<any[]>('/api/complaints');
+      setComplaints(res || []);
       setResponse('');
       setSelectedComplaint(null);
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to submit response');
+      alert(err?.message || 'Failed to submit response');
     }
   };
 

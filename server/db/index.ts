@@ -210,6 +210,8 @@ interface DatabaseData {
   locations: LocationRecord[];
   emergency_alerts: EmergencyAlertRecord[];
   notifications: NotificationRecord[];
+  schedules?: ScheduleRecord[];
+  complaints?: ComplaintRecord[];
 }
 
 let memoryData: DatabaseData = {
@@ -271,6 +273,16 @@ function loadFileDb(): boolean {
     // Fallback
   }
   return false;
+}
+
+// Generic accessors for collections kept in the file-backed store (used by schedules/complaints)
+function getFileBackedData<K extends 'schedules' | 'complaints'>(key: K): NonNullable<DatabaseData[K]> {
+  return ((memoryData as any)[key] ||= []) as NonNullable<DatabaseData[K]>;
+}
+
+function setFileBackedData<K extends 'schedules' | 'complaints'>(key: K, records: NonNullable<DatabaseData[K]>): void {
+  (memoryData as any)[key] = records;
+  saveFileDb();
 }
 
 // Seed default initial data
@@ -788,6 +800,10 @@ export async function initDatabase(): Promise<{ isPostgres: boolean }> {
   const dbUrl = process.env.DATABASE_URL;
   const isProduction = process.env.NODE_ENV === 'production';
 
+  if (isProduction && !dbUrl) {
+    throw new Error('FATAL: DATABASE_URL environment variable is strictly required in production mode. Local persistence fallback is disabled.');
+  }
+
   if (dbUrl) {
     try {
       console.log('Connecting to PostgreSQL database...');
@@ -838,8 +854,11 @@ export async function initDatabase(): Promise<{ isPostgres: boolean }> {
       client.release();
       return { isPostgres: true };
     } catch (err: any) {
-      console.error('Failed to initialize PostgreSQL. Falling back to memory/file persistence:', err?.message || err);
       pool = null;
+      if (isProduction) {
+        throw new Error(`FATAL: Failed to connect to PostgreSQL in production mode. Local persistence fallback is disabled. Cause: ${err?.message || err}`);
+      }
+      console.error('Failed to initialize PostgreSQL. Falling back to file persistence (development only):', err?.message || err);
     }
   }
 
@@ -941,39 +960,6 @@ export async function seedPostgresData(client: pg.PoolClient) {
     );
   }
 }
-export interface ScheduleRecord {
-  id: string;
-  college_id: string;
-  bus_id: string;
-  route_id: string;
-  departure_time: string; // HH:mm format
-  arrival_time?: string;
-  operating_days: string[]; // e.g., ["Monday", "Tuesday", ...]
-  status: 'ACTIVE' | 'INACTIVE' | 'CANCELLED';
-  notes?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ComplaintRecord {
-  id: string;
-  college_id: string;
-  student_id: string;
-  trip_id?: string;
-  bus_id?: string;
-  route_id?: string;
-  title: string;
-  description: string;
-  category: 'DRIVER_BEHAVIOR' | 'VEHICLE_CONDITION' | 'SCHEDULE_ISSUE' | 'CLEANLINESS' | 'SAFETY' | 'OTHER';
-  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
-  priority: 'LOW' | 'NORMAL' | 'HIGH';
-  admin_response?: string;
-  admin_id?: string;
-  responded_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 // ============================================
 // SCHEDULES - Database Functions
 // ============================================
@@ -1298,6 +1284,16 @@ export async function deleteComplaint(complaintId: string, collegeId: string): P
 // -------------------------------------------------------------
 
 export const db = {
+  getSchedules,
+  getScheduleById,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+  getComplaints,
+  getComplaintById,
+  createComplaint,
+  updateComplaint,
+  deleteComplaint,
   // Colleges
   async getColleges(): Promise<CollegeRecord[]> {
     if (pool) {

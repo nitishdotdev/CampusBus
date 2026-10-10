@@ -1,13 +1,37 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
+import crypto from 'crypto';
+
+const MIN_SECRET_LENGTH = 32;
+let ephemeralDevSecret: string | null = null;
+
+/**
+ * Returns the JWT signing secret.
+ * - A configured JWT_SECRET (>= 32 chars) is always used.
+ * - In production a missing or weak secret is a fatal error. There is no default.
+ * - Outside production a random per-process secret is generated, so tokens are
+ *   invalidated on restart and no secret is ever committed to source control.
+ */
 export function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
-  if (!secret || secret.length < 32) {
-    return 'campusmove_production_fallback_jwt_secret_key_minimum_64_characters_long_for_serverless_deployments';
+
+  if (secret && secret.length >= MIN_SECRET_LENGTH) {
+    return secret;
   }
 
-  return secret;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      `FATAL: JWT_SECRET environment variable is missing or shorter than ${MIN_SECRET_LENGTH} characters. ` +
+        'Set a high-entropy secret (e.g. `node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"`).'
+    );
+  }
+
+  if (!ephemeralDevSecret) {
+    ephemeralDevSecret = crypto.randomBytes(48).toString('hex');
+    console.warn('[auth] JWT_SECRET not set; using a random per-process secret (development only).');
+  }
+  return ephemeralDevSecret;
 }
 
 export interface AuthenticatedUser {
