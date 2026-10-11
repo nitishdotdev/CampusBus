@@ -1,4 +1,4 @@
-import { buildPgSsl } from './tls';
+import { buildPgConnection } from './tls';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -15,9 +15,10 @@ async function runMigration() {
   }
 
   console.log('Running PostgreSQL database schema migration...');
+  const pgConn = buildPgConnection(process.env, dbUrl);
   const pool = new Pool({
-    connectionString: dbUrl,
-    ssl: buildPgSsl(process.env, dbUrl),
+    connectionString: pgConn.connectionString,
+    ssl: pgConn.ssl,
   });
 
   const client = await pool.connect();

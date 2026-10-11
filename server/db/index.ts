@@ -227,7 +227,7 @@ let memoryData: DatabaseData = {
 };
 
 import os from 'os';
-import { buildPgSsl } from './tls';
+import { buildPgConnection } from './tls';
 
 function getWritableDataDir(): string {
   try {
@@ -808,9 +808,10 @@ export async function initDatabase(): Promise<{ isPostgres: boolean }> {
   if (dbUrl) {
     try {
       console.log('Connecting to PostgreSQL database...');
+      const pgConn = buildPgConnection(process.env, dbUrl);
       pool = new Pool({
-        connectionString: dbUrl,
-        ssl: buildPgSsl(process.env, dbUrl),
+        connectionString: pgConn.connectionString,
+        ssl: pgConn.ssl,
         max: 10,
         idleTimeoutMillis: 30000,
       });
