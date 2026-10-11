@@ -14,6 +14,7 @@ Decision rule:
 - Real users or operational records: continue with steps 1 to 6.
 
 ## Step 1 — mapping
+Target schemas now exist in `apps/api/src/infra/mongo/models` (see `DATABASE.md`). Note two differences from the legacy data: email uniqueness is per campus, and live position is its own collection. When reading the source database use `buildPgConnection` (`DATABASE_SSL_MODE=verify` for Render's external URL; `encrypt-private` only from inside Render's private network).
 | PostgreSQL | MongoDB | Notes |
 |---|---|---|
 | colleges | campuses | `legacyId` kept, unique |

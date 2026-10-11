@@ -11,7 +11,30 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    services:
+      # Disposable PostgreSQL for the legacy-store integration tests (schema, schedules/complaints).
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: campusmove_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      # Real MongoDB for the apps/api integration tests.
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CI_REQUIRE_INTEGRATION: '1'
+      PG_TEST_URL: postgres://postgres:postgres@localhost:5432/campusmove_test
+      MONGODB_TEST_URI: mongodb://localhost:27017
+      PG_TLS_TEST_URL: postgres://postgres:postgres@localhost:54330/postgres
+      PG_TLS_TEST_CA_FILE: ${{ github.workspace }}/.tls/ca.crt
+      PG_TLS_TEST_WRONG_DNS_URL: postgres://postgres:postgres@db-wrong.test:54330/postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,18 +42,33 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Type-check
+
+      # Separate TLS-enabled PostgreSQL with a private CA (setup differs from the plain service above).
+      - name: Start PostgreSQL with TLS (private CA)
+        run: |
+          mkdir -p .tls && cd .tls
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -subj "/CN=CampusMove Test CA" -days 2
+          openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj "/CN=localhost"
+          printf "subjectAltName=DNS:localhost" > ext.cnf
+          openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 2 -extfile ext.cnf
+          sudo chown 999:999 server.key server.crt && sudo chmod 600 server.key
+          docker run -d --name pgtls -p 54330:5432 -e POSTGRES_PASSWORD=postgres -v "$PWD":/certs:ro postgres:16 \
+            -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key
+          for i in $(seq 1 30); do docker exec pgtls pg_isready -U postgres && break || sleep 1; done
+          echo "127.0.0.1 db-wrong.test" | sudo tee -a /etc/hosts
+
+      - name: Type-check (web/server and strict apps/api)
         run: npm run lint
-      - name: Unit and regression tests (Vitest)
+      - name: Unit + integration tests (Vitest; fails if integration suites are skipped)
         run: npm test
       - name: Production build
         run: npm run build
-      - name: Integration suite (dev server, file-backed store)
+      - name: Legacy integration suite (dev server, file-backed store)
         run: |
           NODE_ENV=development PORT=3000 npx tsx server.ts > server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break || sleep 1; done
           npm run test:verify
       - name: Production-hardening checks
         run: npx tsx scripts/test-prod-hardening.ts
-      - name: Dependency audit (production + dev)
+      - name: Dependency audit
         run: npm audit --audit-level=high

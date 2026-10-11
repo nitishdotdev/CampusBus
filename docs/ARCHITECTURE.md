@@ -21,6 +21,10 @@ Status key: **Implemented** (verified in code), **Proposed** (not built).
 - The room is `college:<id>`; there is no per-route or per-student subscription check.
 These are Stage 4 work items and are covered by planned tests (see `IMPLEMENTATION_STATUS.md`).
 
+## 2b. apps/api (Implemented, tested, not connected to anything yet)
+New strict-TypeScript package-in-progress under `apps/api`, using the root `node_modules` until the workspace split:
+`domain/` (business rules, depend only on ports in `domain/types.ts`), `infra/mongo/` (connection-bound Mongoose models and repositories), `http/` (Express app factory), `realtime/` (Socket.IO gateway), `auth/` (access tokens), `compose.ts` (wiring). Business logic never imports Mongoose. See `GPS_TRACKING.md` and `DATABASE.md`. The legacy `server/` code is untouched and remains the running backend.
+
 ## 3. Target system (Proposed)
 ```
 apps/web  (React + Vite + TS + Tailwind + TanStack Query + Leaflet)  --> Vercel

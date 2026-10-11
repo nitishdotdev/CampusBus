@@ -15,21 +15,26 @@ The file-backed store holds the same entities in `.data/database.json` and is de
 ## Existing Mongoose stub (`server/db/mongodb.ts`)
 Unused and incomplete (string foreign keys, embedded stops, no indexes). It will be replaced, not extended.
 
-## Target MongoDB model (Proposed, not built)
-| Collection | Key fields | Indexes |
-|---|---|---|
-| `campuses` | name, shortCode | unique `shortCode` |
-| `users` | campusId, email, passwordHash, role, status (PENDING/ACTIVE/REJECTED/DISABLED), emailVerifiedAt, assignedRouteId?, assignedBusId? | unique `{campusId, email}` (decision: per-campus email uniqueness vs global, to be confirmed against existing data), `{campusId, role, status}` |
-| `routes` | campusId, code, name, color, stops[{_id, name, location(GeoJSON Point), order}] | unique `{campusId, code}`; unique stop `order` enforced in validation |
-| `buses` | campusId, number, capacity, status, driverId?, routeId? | unique `{campusId, number}`; unique sparse `driverId` |
-| `schedules` | campusId, routeId, busId, direction, days[], departTime | `{campusId, routeId, days}` |
-| `trips` | campusId, busId, driverId, routeId, status, startedAt, endedAt | partial unique `{busId}` and `{driverId}` where status ACTIVE |
-| `vehicleLocations` | busId (unique), tripId, location, speed, heading, accuracy, recordedAt, receivedAt | unique `busId` |
-| `telemetry` | eventId, tripId, busId, location, recordedAt, receivedAt | unique `{tripId, eventId}`; TTL on `receivedAt` (retention to be decided) |
-| `notifications`, `announcements`, `emergencyAlerts`, `complaints` | campusId, status, timestamps | `{campusId, createdAt:-1}`, `{campusId, status}` |
-| `auditLogs` | actorId, action, target, ip, at | `{campusId, at:-1}` |
-| `refreshTokens` | userId, tokenHash, family, expiresAt, revokedAt | TTL on `expiresAt`, `{userId}` |
+## MongoDB models (Implemented in `apps/api/src/infra/mongo/models`; not used by the running app)
+Models are bound to a connection (`createModels(conn)`), indexes are created by `ensureIndexes`. Ten collections: `users`, `buses`, `routes` (stops embedded, GeoJSON points), `schedules`, `trips`, `vehiclelocations`, `telemetries`, `notifications`, `emergencyalerts`, `auditevents`.
 
-Tenancy is enforced by always including `campusId` from the authenticated principal in every query and in every socket room name.
+| Collection | Constraints and indexes (all verified by `models-persistence.integration.test.ts`) |
+|---|---|
+| users | unique `{campusId, email}` (email lower-cased; per-campus, unlike the legacy global unique); `{campusId, role, status}`; `passwordHash` not selected by default; status PENDING/ACTIVE/REJECTED/DISABLED |
+| buses | unique `{campusId, number}`; unique sparse `driverId` (a driver drives one bus); capacity integer 1..200 |
+| routes | unique `{campusId, code}`; stop `order` unique within a route; stop coordinates validated; colour `#rrggbb` |
+| schedules | time `HH:MM`, days 0..6, direction enum; `{campusId, routeId, departTime}` |
+| trips | unique sparse `activeBusKey` and `activeDriverKey`, set only while ACTIVE; `{campusId, startedAt:-1}`, `{driverId, startedAt:-1}`, `{busId, startedAt:-1}` |
+| vehiclelocations | unique `busId` (one latest position per bus) |
+| telemetries | unique `{tripId, eventId}`; `{tripId, capturedAt}`; `{busId, capturedAt:-1}`; `{receivedAt}` for retention |
+| notifications / emergencyalerts / auditevents | enum and length validation; `{campusId, createdAt:-1}`, `{campusId, status, createdAt:-1}`, `{campusId, at:-1}` |
 
-Nothing in this section exists in code yet.
+Design choices and why:
+- **No TTL index, no partial index, no transactions.** Retention uses an explicit purge; active-trip uniqueness uses the sparse-key pattern; every write that must be atomic is a single-document operation. This keeps the code portable and testable on any MongoDB-compatible engine.
+- Pagination: `page` / `pageSize` with `pageSize` clamped to 1..100.
+- Every repository query takes `campusId` from the authenticated principal.
+
+Not yet implemented: user/route/bus/schedule CRUD repositories and HTTP routes, refresh tokens collection, audit writing, notification delivery.
+
+## What the tests ran against
+All Mongo tests in this repository were run in the sandbox against **FerretDB 1.24 (a MongoDB wire-protocol server backed by PostgreSQL), not MongoDB**, because MongoDB binaries cannot be downloaded there. CI is configured with a real `mongo:7` service, but CI has not run yet. Treat "verified on real MongoDB" as **not yet established**.
