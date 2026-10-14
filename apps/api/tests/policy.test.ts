@@ -7,7 +7,7 @@ import type { BusDTO, Principal, TripDTO, UserDTO, VehicleLocationDTO } from '..
 
 const campus = 'a'.repeat(24), other = 'b'.repeat(24);
 const bus: BusDTO = { id: '1'.repeat(24), campusId: campus, number: 'B1', capacity: 40, status: 'ACTIVE', driverId: '2'.repeat(24), routeId: '3'.repeat(24) };
-const user = (o: Partial<UserDTO>): UserDTO => ({ id: '9'.repeat(24), campusId: campus, role: 'STUDENT', status: 'ACTIVE', ...o });
+const user = (o: Partial<UserDTO> & {id?:string}): UserDTO => ({ id: '9'.repeat(24), campusId: campus, email: 'u@test.test', name: 'U', role: 'STUDENT', status: 'ACTIVE', emailVerifiedAt: null, ...o });
 const pr = (u: UserDTO, campusId = u.campusId): Principal => ({ userId: u.id, campusId, role: u.role });
 
 describe('canViewBus (pure policy)', () => {

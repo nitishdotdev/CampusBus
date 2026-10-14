@@ -2,6 +2,8 @@ import type { Connection } from 'mongoose';
 import { busSchema } from './bus';
 import { vehicleLocationSchema } from './location';
 import { auditEventSchema, emergencyAlertSchema, notificationSchema } from './ops';
+import { refreshTokenSchema } from './refresh-token';
+import { emailTokenSchema } from './email-token';
 import { routeSchema } from './route';
 import { scheduleSchema } from './schedule';
 import { telemetrySchema } from './telemetry';
@@ -21,6 +23,8 @@ export function createModels(conn: Connection) {
     Notification: conn.model('Notification', notificationSchema),
     EmergencyAlert: conn.model('EmergencyAlert', emergencyAlertSchema),
     AuditEvent: conn.model('AuditEvent', auditEventSchema),
+  RefreshToken: conn.model('RefreshToken', refreshTokenSchema),
+  EmailToken: conn.model('EmailToken', emailTokenSchema),
   };
 }
 export type Models = ReturnType<typeof createModels>;

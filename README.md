@@ -134,3 +134,46 @@ CampusMove is architected for a split deployment:
 ## 📄 License
 
 This project is licensed under the MIT License.
+
+
+---
+
+## Development Status
+
+This project is being rebuilt as a production-ready MERN application on the `feature/mern-rebuild` branch.
+
+**See these files for the current state:**
+- [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) — canonical progress record
+- [`docs/ACCEPTANCE_CHECKLIST.md`](docs/ACCEPTANCE_CHECKLIST.md) — 67-item completion checklist
+- [`docs/SESSION_HANDOFF.md`](docs/SESSION_HANDOFF.md) — exact stopping point and next tasks
+- [`docs/CONTINUATION_PROMPT.md`](docs/CONTINUATION_PROMPT.md) — prompt to continue in a new AI session
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design and migration strategy
+- [`docs/SECURITY.md`](docs/SECURITY.md) — security controls and known gaps
+- [`docs/GPS_TRACKING.md`](docs/GPS_TRACKING.md) — GPS pipeline and authorization rules
+- [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) — PostgreSQL → MongoDB plan
+
+### Quick start (dev, feature branch)
+
+```bash
+git checkout feature/mern-rebuild
+npm ci
+npm run dev          # legacy server + Vite frontend on :3000
+```
+
+### Running tests
+
+```bash
+npm run lint         # TypeScript checks (app + strict apps/api)
+npm test             # Vitest unit suite (no services needed)
+npm run build        # production build
+
+# With a disposable MongoDB (never production):
+MONGODB_TEST_URI=mongodb://127.0.0.1:27017 npm test
+
+# Legacy HTTP integration suite (needs dev server running):
+npm run test:verify
+```
+
+### Environment variables
+
+See [`.env.example`](.env.example) for all required variables.

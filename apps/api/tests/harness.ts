@@ -10,6 +10,7 @@ import type { Principal, Role } from '../src/domain/types';
 
 export const MONGO_URI = process.env.MONGODB_TEST_URI; // e.g. mongodb://127.0.0.1:27017 (a disposable server, never production)
 export const SECRET = 'test-secret-test-secret-test-secret-123456';
+export const REFRESH_SECRET = 'refresh-secret-refresh-secret-refresh-123456';
 export const T0 = new Date('2026-10-11T10:00:00.000Z');
 export const id = () => new Types.ObjectId().toString();
 
@@ -46,9 +47,15 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
   // The emitter is wired to the gateway after the HTTP server exists; until then (and always) we record emissions.
   let forward: (c: string, b: string, p: unknown) => void = () => {};
   const emitter = { emitLocation: (c: string, b: string, p: unknown) => { emitted.push({ campusId: c, busId: b, payload: p }); forward(c, b, p); } };
-  const services = createServices(models, config, emitter, clock.now);
+  const testEnv = { ...process.env, ACCESS_TOKEN_SECRET: SECRET, REFRESH_TOKEN_SECRET: REFRESH_SECRET } as NodeJS.ProcessEnv;
+  const services = createServices(models, config, emitter, undefined, { env: testEnv, accessTtlSeconds: 900, refreshTtlDays: 30, emailVerificationRequired: false, emailTokenTtlMinutes: 60, resetTokenTtlMinutes: 20, rateLimitLoginAttempts: 100, rateLimitWindowMs: 60_000 }, clock.now);
+  const repos = services.repos;
   const verifyToken = (t: string) => verifyAccessToken(t, SECRET);
-  const app = createApp({ ingest: services.ingest, trips: services.trips, live: services.live, verifyToken, allowedOrigins: [] });
+  const app = createApp({
+    ingest: services.ingest, trips: services.trips, live: services.live, auth: services.auth,
+    users: repos.users, buses: repos.buses, routes: repos.routes, tripRepo: repos.trips,
+    verifyToken, allowedOrigins: [],
+  });
   const server = http.createServer(app);
   const gateway = createGateway(server, { verifyToken, live: services.live, allowedOrigins: [] });
   forward = (c, b, p) => gateway.emitter.emitLocation(c, b, p);
