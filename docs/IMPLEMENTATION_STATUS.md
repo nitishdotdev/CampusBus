@@ -36,7 +36,7 @@ PostgreSQL TLS rebuilt after testing showed URL `sslmode` parameters override co
 - 113/113 tests pass with all services (FerretDB + local Postgres); 49/113 pass without services
 - CI: `.github/workflows/ci.yml` with Postgres 16, Mongo 7, TLS Postgres
 
-### Cycle 5 — not yet committed
+### Cycle 5 — commit `f7a1aee`
 - `AuthService` complete: register, login, Argon2id, refresh rotation, replay detection, logout/logout-all, email OTP verification, password reset, admin bootstrap, bcrypt→Argon2id live migration, login rate limiting
 - `RefreshTokenRepository`, `EmailTokenRepository`, RefreshToken and EmailToken Mongoose schemas
 - Extended `UserRepository`: findByEmail, create, updateStatus, verifyEmail, updatePassword, list, assignTransport
@@ -44,6 +44,13 @@ PostgreSQL TLS rebuilt after testing showed URL `sslmode` parameters override co
 - `ConsoleEmailSender` stub
 - HTTP app extended: `/api/v1/auth/*` (10 routes), `/api/v1/buses` (6 routes), `/api/v1/routes` (5 routes), `/api/v1/users` (4 routes), `/api/v1/trips` (3 routes)
 - Auth integration tests written (23 tests) — **not run to completion** due to FerretDB crashes under heavy load; tests are sound and should pass on real `mongod` or in CI
+
+### Cycle 6 — commit `6dc5f20`
+- `MongoScheduleRepository`, `MongoNotificationRepository`, `MongoEmergencyAlertRepository`
+- HTTP routes: `/api/v1/schedules` (4 routes), `/api/v1/notifications` (3 routes), `/api/v1/alerts` (4 routes)
+- `apps/api/tests/crud.integration.test.ts`: 30 tests — buses, routes, schedules, notifications, alerts, user management
+- All role authorization server-side (ADMIN for mutations; DRIVER can raise alerts; scoped reads)
+- Lint, strict apps/api type-check, and production build all verified passing
 
 ---
 
