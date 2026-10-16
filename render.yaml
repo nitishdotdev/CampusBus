@@ -13,6 +13,8 @@ services:
         fromDatabase:
           name: campusmove-db
           property: connectionString
+      - key: DATABASE_SSL_MODE
+        value: encrypt-private # fromDatabase resolves Render's INTERNAL URL: TLS is optional there and uses self-signed certificates, so verification cannot apply.
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGIN

@@ -1,13 +1,14 @@
+import { createOriginCheck } from './config/cors';
 import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { verifyToken } from './middleware/auth';
 
 let io: SocketIOServer | null = null;
 
-export function initSocketIO(server: HttpServer, corsOrigin: string | string[] | boolean = true): SocketIOServer {
+export function initSocketIO(server: HttpServer, allowedOrigins: string[]): SocketIOServer {
   io = new SocketIOServer(server, {
     cors: {
-      origin: corsOrigin === '*' ? true : corsOrigin,
+      origin: createOriginCheck(allowedOrigins),
       methods: ['GET', 'POST'],
       credentials: true,
     },

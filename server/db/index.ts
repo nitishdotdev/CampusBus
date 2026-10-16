@@ -210,6 +210,8 @@ interface DatabaseData {
   locations: LocationRecord[];
   emergency_alerts: EmergencyAlertRecord[];
   notifications: NotificationRecord[];
+  schedules?: ScheduleRecord[];
+  complaints?: ComplaintRecord[];
 }
 
 let memoryData: DatabaseData = {
@@ -225,6 +227,7 @@ let memoryData: DatabaseData = {
 };
 
 import os from 'os';
+import { buildPgConnection } from './tls';
 
 function getWritableDataDir(): string {
   try {
@@ -271,6 +274,16 @@ function loadFileDb(): boolean {
     // Fallback
   }
   return false;
+}
+
+// Generic accessors for collections kept in the file-backed store (used by schedules/complaints)
+function getFileBackedData<K extends 'schedules' | 'complaints'>(key: K): NonNullable<DatabaseData[K]> {
+  return ((memoryData as any)[key] ||= []) as NonNullable<DatabaseData[K]>;
+}
+
+function setFileBackedData<K extends 'schedules' | 'complaints'>(key: K, records: NonNullable<DatabaseData[K]>): void {
+  (memoryData as any)[key] = records;
+  saveFileDb();
 }
 
 // Seed default initial data
@@ -788,12 +801,17 @@ export async function initDatabase(): Promise<{ isPostgres: boolean }> {
   const dbUrl = process.env.DATABASE_URL;
   const isProduction = process.env.NODE_ENV === 'production';
 
+  if (isProduction && !dbUrl) {
+    throw new Error('FATAL: DATABASE_URL environment variable is strictly required in production mode. Local persistence fallback is disabled.');
+  }
+
   if (dbUrl) {
     try {
       console.log('Connecting to PostgreSQL database...');
+      const pgConn = buildPgConnection(process.env, dbUrl);
       pool = new Pool({
-        connectionString: dbUrl,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+        connectionString: pgConn.connectionString,
+        ssl: pgConn.ssl,
         max: 10,
         idleTimeoutMillis: 30000,
       });
@@ -838,8 +856,11 @@ export async function initDatabase(): Promise<{ isPostgres: boolean }> {
       client.release();
       return { isPostgres: true };
     } catch (err: any) {
-      console.error('Failed to initialize PostgreSQL. Falling back to memory/file persistence:', err?.message || err);
       pool = null;
+      if (isProduction) {
+        throw new Error(`FATAL: Failed to connect to PostgreSQL in production mode. Local persistence fallback is disabled. Cause: ${err?.message || err}`);
+      }
+      console.error('Failed to initialize PostgreSQL. Falling back to file persistence (development only):', err?.message || err);
     }
   }
 
@@ -941,39 +962,6 @@ export async function seedPostgresData(client: pg.PoolClient) {
     );
   }
 }
-export interface ScheduleRecord {
-  id: string;
-  college_id: string;
-  bus_id: string;
-  route_id: string;
-  departure_time: string; // HH:mm format
-  arrival_time?: string;
-  operating_days: string[]; // e.g., ["Monday", "Tuesday", ...]
-  status: 'ACTIVE' | 'INACTIVE' | 'CANCELLED';
-  notes?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ComplaintRecord {
-  id: string;
-  college_id: string;
-  student_id: string;
-  trip_id?: string;
-  bus_id?: string;
-  route_id?: string;
-  title: string;
-  description: string;
-  category: 'DRIVER_BEHAVIOR' | 'VEHICLE_CONDITION' | 'SCHEDULE_ISSUE' | 'CLEANLINESS' | 'SAFETY' | 'OTHER';
-  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
-  priority: 'LOW' | 'NORMAL' | 'HIGH';
-  admin_response?: string;
-  admin_id?: string;
-  responded_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 // ============================================
 // SCHEDULES - Database Functions
 // ============================================
@@ -1298,6 +1286,16 @@ export async function deleteComplaint(complaintId: string, collegeId: string): P
 // -------------------------------------------------------------
 
 export const db = {
+  getSchedules,
+  getScheduleById,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+  getComplaints,
+  getComplaintById,
+  createComplaint,
+  updateComplaint,
+  deleteComplaint,
   // Colleges
   async getColleges(): Promise<CollegeRecord[]> {
     if (pool) {
@@ -1852,26 +1850,31 @@ export const db = {
 
   // Analytics
   async getAnalytics(collegeId: string) {
-    const buses = await this.getBuses(collegeId);
-    const routes = await this.getRoutes(collegeId);
-    const trips = await this.getTrips(collegeId);
-    const alerts = await this.getEmergencyAlerts(collegeId);
+    const [buses, routes, trips, alerts] = await Promise.all([
+      this.getBuses(collegeId),
+      this.getRoutes(collegeId),
+      this.getTrips(collegeId),
+      this.getEmergencyAlerts(collegeId),
+    ]);
 
-    const activeBuses = buses.filter((b) => b.status === 'ACTIVE');
-    const totalPassengers = trips.reduce((acc, t) => acc + (t.current_occupancy || 0), 0);
-    const totalDistance = trips.reduce((acc, t) => acc + (t.distance_covered_km || 0), 0);
+    const startOfDayUtc = new Date();
+    startOfDayUtc.setUTCHours(0, 0, 0, 0);
+    const completed = trips.filter((t) => t.status === 'COMPLETED');
 
     return {
       fleetSize: buses.length,
-      activeBusesCount: activeBuses.length,
+      activeBusesCount: buses.filter((b) => b.status === 'ACTIVE').length,
       routesCount: routes.length,
-      completedTripsToday: trips.filter((t) => t.status === 'COMPLETED').length,
+      completedTripsToday: completed.filter((t) => t.end_time && new Date(t.end_time) >= startOfDayUtc).length,
+      completedTripsTotal: completed.length,
       activeTripsCount: trips.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'STARTED').length,
-      totalPassengersEstimated: totalPassengers + 3485,
-      onTimeRatePercent: 94.8,
-      gpsReliabilityPercent: 99.2,
       activeEmergenciesCount: alerts.filter((a) => a.status === 'ACTIVE').length,
-      totalDistanceCoveredKm: Math.round(totalDistance + 242.5),
+      totalDistanceCoveredKm: Math.round(trips.reduce((acc, t) => acc + (t.distance_covered_km || 0), 0) * 10) / 10,
+      // No schedule-adherence, boarding or GPS-quality measurements are collected yet,
+      // so these are reported as unavailable instead of invented.
+      onTimeRatePercent: null as number | null,
+      gpsReliabilityPercent: null as number | null,
+      totalPassengers: null as number | null,
     };
   },
 };

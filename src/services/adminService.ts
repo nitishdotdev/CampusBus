@@ -192,8 +192,8 @@ class AdminService {
       activeTripsCount: activeBuses,
       averageOccupancyPercent,
       activeEmergenciesCount: activeEmergencies,
-      onTimePerformanceRate: 0,
-      totalPassengersMovedToday: 0,
+      onTimePerformanceRate: null,
+      totalPassengersMovedToday: null,
     };
   }
 

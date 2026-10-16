@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageSquare, Send, AlertCircle, Loader } from 'lucide-react';
-import { AuthContext } from '../../store/AuthContext';
+import { apiClient } from '../../services/apiClient';
 
 interface Complaint {
   id: string;
@@ -17,7 +17,6 @@ interface Complaint {
 const CATEGORIES = ['DRIVER_BEHAVIOR', 'VEHICLE_CONDITION', 'SCHEDULE_ISSUE', 'CLEANLINESS', 'SAFETY', 'OTHER'];
 
 export function StudentComplaints() {
-  const { apiClient } = useContext(AuthContext) || {};
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,17 +34,17 @@ export function StudentComplaints() {
       try {
         setLoading(true);
         setError(null);
-        const response = await apiClient?.get('/api/complaints');
-        setComplaints(response?.data || []);
+        const response = await apiClient.get<any[]>('/api/complaints');
+        setComplaints(response || []);
       } catch (err: any) {
-        setError(err.response?.data?.error || 'Failed to load complaints');
+        setError(err?.message || 'Failed to load complaints');
       } finally {
         setLoading(false);
       }
     };
 
     fetchComplaints();
-  }, [apiClient]);
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -65,7 +64,7 @@ export function StudentComplaints() {
 
     try {
       setSubmitting(true);
-      await apiClient?.post('/api/complaints', {
+      await apiClient.post<any[]>('/api/complaints', {
         title: formData.title,
         description: formData.description,
         category: formData.category,
@@ -73,14 +72,14 @@ export function StudentComplaints() {
       });
 
       // Refresh complaints list
-      const response = await apiClient?.get('/api/complaints');
-      setComplaints(response?.data || []);
+      const response = await apiClient.get<any[]>('/api/complaints');
+      setComplaints(response || []);
 
       // Clear form
       setFormData({ title: '', description: '', category: 'OTHER', priority: 'NORMAL' });
       alert('Thank you! Your feedback has been submitted.');
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to submit complaint');
+      alert(err?.message || 'Failed to submit complaint');
     } finally {
       setSubmitting(false);
     }

@@ -230,6 +230,6 @@ export interface FleetStats {
   activeTripsCount: number;
   averageOccupancyPercent: number;
   activeEmergenciesCount: number;
-  onTimePerformanceRate: number; // e.g. 92%
-  totalPassengersMovedToday: number;
+  onTimePerformanceRate: number | null; // null = not measured
+  totalPassengersMovedToday: number | null; // null = not measured
 }

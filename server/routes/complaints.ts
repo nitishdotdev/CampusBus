@@ -9,7 +9,7 @@ const router = Router();
 router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const collegeId = req.user!.collegeId;
-    const userId = req.user!.id;
+    const userId = req.user!.userId;
     const role = req.user!.role;
     const status = req.query.status as string | undefined;
 
@@ -36,7 +36,7 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): P
 router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const collegeId = req.user!.collegeId;
-    const userId = req.user!.id;
+    const userId = req.user!.userId;
     const role = req.user!.role;
 
     const complaint = await db.getComplaintById(req.params.id, collegeId);
@@ -62,7 +62,7 @@ router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response)
 router.post('/', requireAuth, requireRole(['STUDENT']), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const collegeId = req.user!.collegeId;
-    const studentId = req.user!.id;
+    const studentId = req.user!.userId;
     const { title, description, category, tripId, busId, routeId, priority } = req.body;
 
     if (!title || !description) {
@@ -114,7 +114,7 @@ router.post('/', requireAuth, requireRole(['STUDENT']), async (req: Authenticate
 router.put('/:id', requireAuth, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const collegeId = req.user!.collegeId;
-    const adminId = req.user!.id;
+    const adminId = req.user!.userId;
     const { status, adminResponse, priority } = req.body;
 
     const existing = await db.getComplaintById(req.params.id, collegeId);

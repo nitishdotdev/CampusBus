@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calendar, Plus, Trash2, Edit2, Loader, AlertCircle } from 'lucide-react';
-import { AuthContext } from '../../store/AuthContext';
+import { apiClient } from '../../services/apiClient';
 
 interface Schedule {
   id: string;
@@ -25,7 +25,6 @@ interface Route {
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export function AdminSchedules() {
-  const { apiClient } = useContext(AuthContext) || {};
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [buses, setBuses] = useState<Bus[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -47,23 +46,23 @@ export function AdminSchedules() {
         setLoading(true);
         setError(null);
         const [schedulesRes, busesRes, routesRes] = await Promise.all([
-          apiClient?.get('/api/schedules'),
-          apiClient?.get('/api/buses'),
-          apiClient?.get('/api/routes'),
+          apiClient.get<any[]>('/api/schedules'),
+          apiClient.get<any[]>('/api/buses'),
+          apiClient.get<any[]>('/api/routes'),
         ]);
 
-        setSchedules(schedulesRes?.data || []);
-        setBuses(busesRes?.data || []);
-        setRoutes(routesRes?.data || []);
+        setSchedules(schedulesRes || []);
+        setBuses(busesRes || []);
+        setRoutes(routesRes || []);
       } catch (err: any) {
-        setError(err.response?.data?.error || 'Failed to load data');
+        setError(err?.message || 'Failed to load data');
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, [apiClient]);
+  }, []);
 
   const handleDayToggle = (day: string) => {
     setFormData((prev) => ({
@@ -85,14 +84,14 @@ export function AdminSchedules() {
     try {
       if (editingId) {
         // Update existing
-        await apiClient?.put(`/api/schedules/${editingId}`, {
+        await apiClient.put<any[]>(`/api/schedules/${editingId}`, {
           departureTime: formData.departureTime,
           arrivalTime: formData.arrivalTime,
           operatingDays: formData.operatingDays,
         });
       } else {
         // Create new
-        await apiClient?.post('/api/schedules', {
+        await apiClient.post<any[]>('/api/schedules', {
           busId: formData.busId,
           routeId: formData.routeId,
           departureTime: formData.departureTime,
@@ -102,14 +101,14 @@ export function AdminSchedules() {
       }
 
       // Refresh list
-      const response = await apiClient?.get('/api/schedules');
-      setSchedules(response?.data || []);
+      const response = await apiClient.get<any[]>('/api/schedules');
+      setSchedules(response || []);
 
       // Reset form
       setFormData({ busId: '', routeId: '', departureTime: '', arrivalTime: '', operatingDays: [] });
       setEditingId(null);
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to save schedule');
+      alert(err?.message || 'Failed to save schedule');
     }
   };
 
@@ -127,10 +126,10 @@ export function AdminSchedules() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this schedule?')) return;
     try {
-      await apiClient?.delete(`/api/schedules/${id}`);
+      await apiClient.delete<any[]>(`/api/schedules/${id}`);
       setSchedules(schedules.filter((s) => s.id !== id));
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to delete schedule');
+      alert(err?.message || 'Failed to delete schedule');
     }
   };
 

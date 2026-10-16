@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useApp } from '../../store/AppContext';
-import { Bus, MapPin, Route as RouteIcon, Bell, User, LayoutDashboard, Navigation, History, ShieldAlert, BarChart3, Users, Settings, Radio } from 'lucide-react';
+import { Bus, MapPin, Route as RouteIcon, Bell, User, LayoutDashboard, Navigation, History, ShieldAlert, BarChart3, Users, Settings, Radio, Calendar, MessageSquare } from 'lucide-react';
 
 interface SidebarNavItem {
   to: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number; badgeColor?: string;
@@ -16,14 +16,8 @@ export const Sidebar: React.FC = () => {
     { to: '/student/routes', label: 'Routes & Stops', icon: RouteIcon },
     { to: '/student/notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
     { to: '/student/profile', label: 'Profile', icon: User },
-<NavLink to="/student/schedules" className={navLinkClass}>
-  <Calendar className="w-5 h-5" />
-  <span>Schedules</span>
-</NavLink>
-<NavLink to="/student/complaints" className={navLinkClass}>
-  <MessageSquare className="w-5 h-5" />
-  <span>Feedback</span>
-</NavLink>
+    { to: '/student/schedules', label: 'Schedules', icon: Calendar },
+    { to: '/student/complaints', label: 'Feedback', icon: MessageSquare },
   ];
 
   const driverLinks: SidebarNavItem[] = [
@@ -41,14 +35,8 @@ export const Sidebar: React.FC = () => {
     { to: '/admin/alerts', label: 'Alerts', icon: ShieldAlert, badge: activeEmergencyCount, badgeColor: 'bg-rose-600' },
     { to: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
     { to: '/admin/settings', label: 'Settings', icon: Settings },
-    <NavLink to="/admin/schedules" className={navLinkClass}>
-  <Calendar className="w-5 h-5" />
-  <span>Schedules</span>
-</NavLink>
-<NavLink to="/admin/complaints" className={navLinkClass}>
-  <MessageSquare className="w-5 h-5" />
-  <span>Complaints</span>
-</NavLink>
+        { to: '/admin/schedules', label: 'Schedules', icon: Calendar },
+    { to: '/admin/complaints', label: 'Complaints', icon: MessageSquare },
   ];
 
   const links = role === 'ADMIN' ? adminLinks : role === 'DRIVER' ? driverLinks : studentLinks;
