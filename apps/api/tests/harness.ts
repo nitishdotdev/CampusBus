@@ -54,6 +54,7 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
   const app = createApp({
     ingest: services.ingest, trips: services.trips, live: services.live, auth: services.auth,
     users: repos.users, buses: repos.buses, routes: repos.routes, tripRepo: repos.trips,
+    ...(services as any).extraRepos,
     verifyToken, allowedOrigins: [],
   });
   const server = http.createServer(app);

@@ -207,6 +207,75 @@ export function createApp(deps: AppDeps) {
   }));
   app.use('/api/v1/users', userRouter);
 
+
+  // ─── Schedules ─────────────────────────────────────────────────────────────
+  {
+    const sr = express.Router();
+    const sch = (deps as any).schedules as { list: Function; create: Function; update: Function; delete: Function };
+    sr.get('/', auth, wrap(async (req, res) => {
+      const q = z.object({ routeId: z.string().optional(), day: z.coerce.number().int().min(0).max(6).optional(), active: z.enum(['true','false']).transform(v=>v==='true').optional(), page: z.coerce.number().int().min(1).optional(), pageSize: z.coerce.number().int().min(1).max(100).optional() }).parse(req.query);
+      res.json(await sch.list(req.principal.campusId, q));
+    }));
+    sr.post('/', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+      const b = z.object({ routeId: z.string().regex(/^[a-f0-9]{24}$/i), busId: z.string().regex(/^[a-f0-9]{24}$/i), direction: z.enum(['TO_CAMPUS','FROM_CAMPUS']), daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1), departTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), active: z.boolean().default(true) }).strict().parse(req.body);
+      res.status(201).json(await sch.create({ campusId: req.principal.campusId, ...b }));
+    }));
+    sr.patch('/:id', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+      const sc = await sch.update(req.principal.campusId, req.params['id']!, req.body);
+      if (!sc) throw new DomainError(404, 'SCHEDULE_NOT_FOUND');
+      res.json(sc);
+    }));
+    sr.delete('/:id', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+      if (!await sch.delete(req.principal.campusId, req.params['id']!)) throw new DomainError(404, 'SCHEDULE_NOT_FOUND');
+      res.status(204).send();
+    }));
+    app.use('/api/v1/schedules', sr);
+  }
+
+  // ─── Notifications ──────────────────────────────────────────────────────────
+  {
+    const nr = express.Router();
+    const notif = (deps as any).notifications as { list: Function; create: Function; delete: Function };
+    nr.get('/', auth, wrap(async (req, res) => {
+      const q = z.object({ routeId: z.string().optional(), page: z.coerce.number().int().min(1).optional(), pageSize: z.coerce.number().int().min(1).max(100).optional() }).parse(req.query);
+      res.json(await notif.list(req.principal.campusId, q));
+    }));
+    nr.post('/', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+      const b = z.object({ kind: z.enum(['ANNOUNCEMENT','DELAY','ROUTE_CHANGE','EMERGENCY']), priority: z.enum(['NORMAL','HIGH','URGENT']).default('NORMAL'), title: z.string().min(3).max(160), body: z.string().min(1).max(2000), routeId: z.string().regex(/^[a-f0-9]{24}$/i).optional(), expiresAt: z.string().datetime().optional() }).strict().parse(req.body);
+      res.status(201).json(await notif.create({ campusId: req.principal.campusId, createdBy: req.principal.userId, ...b, routeId: b.routeId ?? null, expiresAt: b.expiresAt ? new Date(b.expiresAt) : null }));
+    }));
+    nr.delete('/:id', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+      if (!await notif.delete(req.principal.campusId, req.params['id']!)) throw new DomainError(404, 'NOTIFICATION_NOT_FOUND');
+      res.status(204).send();
+    }));
+    app.use('/api/v1/notifications', nr);
+  }
+
+  // ─── Emergency alerts ───────────────────────────────────────────────────────
+  {
+    const alr = express.Router();
+    const alerts = (deps as any).alerts as { list: Function; create: Function; acknowledge: Function; resolve: Function };
+    alr.get('/', auth, requireRole('ADMIN', 'DRIVER'), wrap(async (req, res) => {
+      const q = z.object({ status: z.enum(['OPEN','ACKNOWLEDGED','RESOLVED']).optional(), page: z.coerce.number().int().min(1).optional(), pageSize: z.coerce.number().int().min(1).max(100).optional() }).parse(req.query);
+      res.json(await alerts.list(req.principal.campusId, q));
+    }));
+    alr.post('/', auth, requireRole('DRIVER'), wrap(async (req, res) => {
+      const b = z.object({ busId: z.string().regex(/^[a-f0-9]{24}$/i), tripId: z.string().regex(/^[a-f0-9]{24}$/i).optional(), message: z.string().max(1000).optional(), location: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional() }).parse(req.body);
+      res.status(201).json(await alerts.create({ campusId: req.principal.campusId, raisedBy: req.principal.userId, status: 'OPEN', ...b, tripId: b.tripId ?? null, message: b.message ?? null, location: b.location ?? null, acknowledgedBy: null, acknowledgedAt: null, resolvedBy: null, resolvedAt: null }));
+    }));
+    alr.post('/:id/acknowledge', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+      const a = await alerts.acknowledge(req.principal.campusId, req.params['id']!, req.principal.userId, new Date());
+      if (!a) throw new DomainError(404, 'ALERT_NOT_FOUND_OR_ACKNOWLEDGED');
+      res.json(a);
+    }));
+    alr.post('/:id/resolve', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+      const a = await alerts.resolve(req.principal.campusId, req.params['id']!, req.principal.userId, new Date());
+      if (!a) throw new DomainError(404, 'ALERT_NOT_FOUND_OR_RESOLVED');
+      res.json(a);
+    }));
+    app.use('/api/v1/alerts', alr);
+  }
+
   // ─── Error handler ────────────────────────────────────────────────────────
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof DomainError) { res.status(err.status).json({ error: err.code, ...(err.status === 400 && err.message !== err.code ? { detail: err.message } : {}) }); return; }

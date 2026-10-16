@@ -114,3 +114,43 @@ export interface TelemetryRepository {
   purgeReceivedBefore(cutoff: Date): Promise<number>;
 }
 export interface LiveEmitter { emitLocation(campusId: string, busId: string, payload: unknown): void }
+
+export type ScheduleDirection = 'TO_CAMPUS' | 'FROM_CAMPUS';
+export interface ScheduleDTO {
+  id: string; campusId: string; routeId: string; busId: string;
+  direction: ScheduleDirection; daysOfWeek: number[]; departTime: string; active: boolean;
+}
+export type NotificationKind = 'ANNOUNCEMENT' | 'DELAY' | 'ROUTE_CHANGE' | 'EMERGENCY';
+export type NotificationPriority = 'NORMAL' | 'HIGH' | 'URGENT';
+export interface NotificationDTO {
+  id: string; campusId: string; kind: NotificationKind; priority: NotificationPriority;
+  title: string; body: string; routeId?: string | null; createdBy: string;
+  expiresAt?: Date | null; createdAt: Date;
+}
+export type AlertStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
+export interface EmergencyAlertDTO {
+  id: string; campusId: string; busId: string; tripId?: string | null;
+  raisedBy: string; status: AlertStatus; message?: string | null;
+  location?: GeoPoint | null; createdAt: Date;
+  acknowledgedBy?: string | null; acknowledgedAt?: Date | null;
+  resolvedBy?: string | null; resolvedAt?: Date | null;
+}
+
+export interface ScheduleRepository {
+  findById(campusId: string, id: string): Promise<ScheduleDTO | null>;
+  list(campusId: string, opts: { routeId?: string; day?: number; active?: boolean; page?: number; pageSize?: number }): Promise<Page<ScheduleDTO>>;
+  create(s: Omit<ScheduleDTO, 'id'>): Promise<ScheduleDTO>;
+  update(campusId: string, id: string, patch: Partial<Omit<ScheduleDTO, 'id' | 'campusId'>>): Promise<ScheduleDTO | null>;
+  delete(campusId: string, id: string): Promise<boolean>;
+}
+export interface NotificationRepository {
+  list(campusId: string, opts: { routeId?: string; page?: number; pageSize?: number }): Promise<Page<NotificationDTO>>;
+  create(n: Omit<NotificationDTO, 'id' | 'createdAt'>): Promise<NotificationDTO>;
+  delete(campusId: string, id: string): Promise<boolean>;
+}
+export interface EmergencyAlertRepository {
+  list(campusId: string, opts: { status?: AlertStatus; page?: number; pageSize?: number }): Promise<Page<EmergencyAlertDTO>>;
+  create(a: Omit<EmergencyAlertDTO, 'id' | 'createdAt'>): Promise<EmergencyAlertDTO>;
+  acknowledge(campusId: string, id: string, byUserId: string, at: Date): Promise<EmergencyAlertDTO | null>;
+  resolve(campusId: string, id: string, byUserId: string, at: Date): Promise<EmergencyAlertDTO | null>;
+}

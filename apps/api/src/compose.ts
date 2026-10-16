@@ -23,8 +23,13 @@ export function createServices(
     config: { ...DEFAULT_AUTH_CONFIG, ...(authConfig ?? {}), env: authConfig?.env ?? process.env },
     now,
   });
+  const extraRepos = {
+    schedules: repos.schedules,
+    notifications: repos.notifications,
+    alerts: repos.alerts,
+  };
   return {
-    repos, auth,
+    repos, auth, extraRepos,
     ingest: new TelemetryIngestService({ ...repos, emitter, config, now }),
     trips: new TripService({ ...repos, config, now }),
     live: new LiveService({ ...repos, now }),

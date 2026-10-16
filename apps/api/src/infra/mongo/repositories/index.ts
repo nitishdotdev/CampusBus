@@ -2,9 +2,10 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { DomainError } from '../../../domain/errors';
 import type {
-  BusDTO, BusRepository, EmailSender, EmailTokenRepository, Page,
-  RefreshTokenRepository, RouteDTO, RouteRepository, StopDTO, TelemetryRecord,
-  TelemetryRepository, TripDTO, TripRepository, UserDTO, UserRepository,
+  AlertStatus, BusDTO, BusRepository, EmailSender, EmailTokenRepository,
+  EmergencyAlertDTO, EmergencyAlertRepository, NotificationDTO, NotificationRepository,
+  Page, RefreshTokenRepository, RouteDTO, RouteRepository, ScheduleDTO, ScheduleRepository,
+  StopDTO, TelemetryRecord, TelemetryRepository, TripDTO, TripRepository, UserDTO, UserRepository,
   VehicleLocationDTO, VehicleLocationRepository,
 } from '../../../domain/types';
 import type { Models } from '../models';
@@ -285,6 +286,9 @@ export class MongoTelemetryRepository implements TelemetryRepository {
 export function createRepositories(m: Models) {
   return {
     users: new MongoUserRepository(m),
+    schedules: new MongoScheduleRepository(m),
+    notifications: new MongoNotificationRepository(m),
+    alerts: new MongoEmergencyAlertRepository(m),
     refreshTokens: new MongoRefreshTokenRepository(m),
     emailTokens: new MongoEmailTokenRepository(m),
     buses: new MongoBusRepository(m),
@@ -293,4 +297,101 @@ export function createRepositories(m: Models) {
     live: new MongoVehicleLocationRepository(m),
     telemetry: new MongoTelemetryRepository(m),
   };
+}
+
+// ─── ScheduleRepository ───────────────────────────────────────────────────────
+const toSched = (d: any): import('../../../domain/types').ScheduleDTO => ({
+  id: str(d._id), campusId: str(d.campusId), routeId: str(d.routeId), busId: str(d.busId),
+  direction: d.direction, daysOfWeek: d.daysOfWeek, departTime: d.departTime, active: d.active ?? true,
+});
+export class MongoScheduleRepository implements ScheduleRepository {
+  constructor(private m: Models) {}
+  async findById(campusId: string, id: string) {
+    if (!isValidId(id) || !isValidId(campusId)) return null;
+    const d = await this.m.Schedule.findOne({ _id: id, campusId }).lean();
+    return d ? toSched(d) : null;
+  }
+  async list(campusId: string, opts: { routeId?: string; day?: number; active?: boolean; page?: number; pageSize?: number }) {
+    const { page, pageSize, skip } = pageOpts(opts);
+    const filter: Record<string, unknown> = { campusId };
+    if (opts.routeId) filter.routeId = opts.routeId;
+    if (opts.day !== undefined) filter.daysOfWeek = opts.day;
+    if (opts.active !== undefined) filter.active = opts.active;
+    const [docs, total] = await Promise.all([this.m.Schedule.find(filter).sort({ departTime: 1 }).skip(skip).limit(pageSize).lean(), this.m.Schedule.countDocuments(filter)]);
+    return { items: (docs as any[]).map(toSched), total, page, pageSize };
+  }
+  async create(s: Omit<ScheduleDTO, 'id'>) {
+    const d = await this.m.Schedule.create(s);
+    return toSched(d.toObject());
+  }
+  async update(campusId: string, id: string, patch: Partial<Omit<ScheduleDTO, 'id' | 'campusId'>>) {
+    if (!isValidId(id) || !isValidId(campusId)) return null;
+    const d = await this.m.Schedule.findOneAndUpdate({ _id: id, campusId }, { $set: patch }, { returnDocument: 'after' }).lean();
+    return d ? toSched(d) : null;
+  }
+  async delete(campusId: string, id: string) {
+    if (!isValidId(id) || !isValidId(campusId)) return false;
+    return (await this.m.Schedule.deleteOne({ _id: id, campusId })).deletedCount > 0;
+  }
+}
+
+// ─── NotificationRepository ──────────────────────────────────────────────────
+const toNotif = (d: any): import('../../../domain/types').NotificationDTO => ({
+  id: str(d._id), campusId: str(d.campusId), kind: d.kind, priority: d.priority,
+  title: d.title, body: d.body, routeId: optStr(d.routeId), createdBy: str(d.createdBy),
+  expiresAt: d.expiresAt ?? null, createdAt: d.createdAt,
+});
+export class MongoNotificationRepository implements NotificationRepository {
+  constructor(private m: Models) {}
+  async list(campusId: string, opts: { routeId?: string; page?: number; pageSize?: number }) {
+    const { page, pageSize, skip } = pageOpts(opts);
+    const filter: Record<string, unknown> = { campusId };
+    if (opts.routeId) filter.routeId = opts.routeId;
+    const [docs, total] = await Promise.all([this.m.Notification.find(filter).sort({ createdAt: -1 }).skip(skip).limit(pageSize).lean(), this.m.Notification.countDocuments(filter)]);
+    return { items: (docs as any[]).map(toNotif), total, page, pageSize };
+  }
+  async create(n: Omit<NotificationDTO, 'id' | 'createdAt'>) {
+    const d = await this.m.Notification.create(n);
+    return toNotif(d.toObject());
+  }
+  async delete(campusId: string, id: string) {
+    if (!isValidId(id) || !isValidId(campusId)) return false;
+    return (await this.m.Notification.deleteOne({ _id: id, campusId })).deletedCount > 0;
+  }
+}
+
+// ─── EmergencyAlertRepository ─────────────────────────────────────────────────
+const fromGeo = (g: any) => g ? { lat: g.coordinates[1], lng: g.coordinates[0] } : null;
+const toAlert = (d: any): import('../../../domain/types').EmergencyAlertDTO => ({
+  id: str(d._id), campusId: str(d.campusId), busId: str(d.busId), tripId: optStr(d.tripId),
+  raisedBy: str(d.raisedBy), status: d.status, message: d.message ?? null,
+  location: fromGeo(d.location), createdAt: d.createdAt,
+  acknowledgedBy: optStr(d.acknowledgedBy), acknowledgedAt: d.acknowledgedAt ?? null,
+  resolvedBy: optStr(d.resolvedBy), resolvedAt: d.resolvedAt ?? null,
+});
+export class MongoEmergencyAlertRepository implements EmergencyAlertRepository {
+  constructor(private m: Models) {}
+  async list(campusId: string, opts: { status?: AlertStatus; page?: number; pageSize?: number }) {
+    const { page, pageSize, skip } = pageOpts(opts);
+    const filter: Record<string, unknown> = { campusId };
+    if (opts.status) filter.status = opts.status;
+    const [docs, total] = await Promise.all([this.m.EmergencyAlert.find(filter).sort({ createdAt: -1 }).skip(skip).limit(pageSize).lean(), this.m.EmergencyAlert.countDocuments(filter)]);
+    return { items: (docs as any[]).map(toAlert), total, page, pageSize };
+  }
+  async create(a: Omit<EmergencyAlertDTO, 'id' | 'createdAt'>) {
+    const doc: any = { ...a };
+    if (a.location) doc.location = { type: 'Point', coordinates: [a.location.lng, a.location.lat] };
+    const d = await this.m.EmergencyAlert.create(doc);
+    return toAlert(d.toObject());
+  }
+  async acknowledge(campusId: string, id: string, byUserId: string, at: Date) {
+    if (!isValidId(id)) return null;
+    const d = await this.m.EmergencyAlert.findOneAndUpdate({ _id: id, campusId, status: 'OPEN' }, { $set: { status: 'ACKNOWLEDGED', acknowledgedBy: byUserId, acknowledgedAt: at } }, { returnDocument: 'after' }).lean();
+    return d ? toAlert(d) : null;
+  }
+  async resolve(campusId: string, id: string, byUserId: string, at: Date) {
+    if (!isValidId(id)) return null;
+    const d = await this.m.EmergencyAlert.findOneAndUpdate({ _id: id, campusId, status: { $in: ['OPEN', 'ACKNOWLEDGED'] } }, { $set: { status: 'RESOLVED', resolvedBy: byUserId, resolvedAt: at } }, { returnDocument: 'after' }).lean();
+    return d ? toAlert(d) : null;
+  }
 }
