@@ -210,11 +210,18 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       await h.services.repos.emailTokens.upsert({ userId, campusId: campus(), purpose: 'RESET_PASSWORD', tokenHash: crypto.createHash('sha256').update(otp).digest('hex'), expiresAt: new Date(Date.now() + 1_200_000) });
       expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'weak' })).status).toBe(400);
       expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'NewPass2!' })).status).toBe(204);
+      // The pre-reset session's refresh token must be revoked by the reset itself —
+      // check this before logging in again, since a fresh login legitimately issues
+      // a brand-new live token and would make a post-login "zero alive" check fail
+      // for reasons that have nothing to do with revocation.
+      const aliveAfterReset: any[] = await (h.models as any).RefreshToken.find({ userId, revokedAt: null }).lean();
+      expect(aliveAfterReset).toHaveLength(0);
       expect((await login('reset@t.test')).status).toBe(401);
       expect((await login('reset@t.test', 'NewPass2!')).status).toBe(200);
       expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'AnotherPass3!' })).status).toBe(400); // reuse
-      const alive: any[] = await (h.models as any).RefreshToken.find({ userId, revokedAt: null }).lean();
-      expect(alive).toHaveLength(0);
+      // Only the token from the post-reset login above should be live now.
+      const aliveNow: any[] = await (h.models as any).RefreshToken.find({ userId, revokedAt: null }).lean();
+      expect(aliveNow).toHaveLength(1);
     });
     it('request-password-reset always returns 204 even for unknown email', async () => {
       expect((await api().post('/api/v1/auth/request-password-reset').send({ campusId: campus(), email: 'nobody@t.test' })).status).toBe(204);

@@ -1,6 +1,6 @@
 # Security
 
-Status as of branch `feature/mern-rebuild` (commit after `57895a3`). "Verified" means covered by an executed test or command.
+Status as of branch `campusmove-mern-rebuild-d9c7ac4` (commit after `57895a3`). "Verified" means covered by an executed test or command.
 
 ## Fixed on this branch
 | Issue | Fix | Evidence |

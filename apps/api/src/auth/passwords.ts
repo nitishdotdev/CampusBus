@@ -11,24 +11,44 @@ const OPTS = isTest
 
 export async function hashPassword(password: string): Promise<string> { return argon2.hash(password, OPTS); }
 
+// A valid, cost-matched dummy hash for login's timing-safe "verify something
+// even when the user doesn't exist" path. It must actually run a real argon2
+// verify (not throw on malformed input) so an unknown-email lookup takes the
+// same time as a real one — otherwise the anti-enumeration timing protection
+// is defeated by the early parse failure, independent of the ok/not-ok result.
+// Computed once, lazily, at current OPTS (test vs. production cost).
+let dummyHashPromise: Promise<string> | undefined;
+export function getDummyHash(): Promise<string> {
+  if (!dummyHashPromise) dummyHashPromise = argon2.hash('dummy-password-for-constant-time-login', OPTS);
+  return dummyHashPromise;
+}
+
 export type VerifyResult =
   | { ok: true; needsRehash: false }
   | { ok: true; needsRehash: true; newHash: string }
   | { ok: false };
 
 export async function verifyPassword(password: string, stored: string): Promise<VerifyResult> {
-  if (stored.startsWith('$argon2')) {
-    const ok = await argon2.verify(stored, password);
-    if (!ok) return { ok: false };
-    // In tests, needsRehash is expected (different params); skip it to avoid spurious DB writes.
-    const needsRehash = !isTest && argon2.needsRehash(stored, OPTS);
-    if (needsRehash) return { ok: true, needsRehash: true, newHash: await argon2.hash(password, OPTS) };
-    return { ok: true, needsRehash: false };
+  // A malformed/corrupt hash (including the synthetic dummy hash login() verifies
+  // against for unknown users, to keep timing constant) must fail verification,
+  // not throw — argon2.verify() and bcrypt.compare() throw on bad input rather
+  // than returning false, which previously surfaced as a 500 instead of a 401.
+  try {
+    if (stored.startsWith('$argon2')) {
+      const ok = await argon2.verify(stored, password);
+      if (!ok) return { ok: false };
+      // In tests, needsRehash is expected (different params); skip it to avoid spurious DB writes.
+      const needsRehash = !isTest && argon2.needsRehash(stored, OPTS);
+      if (needsRehash) return { ok: true, needsRehash: true, newHash: await argon2.hash(password, OPTS) };
+      return { ok: true, needsRehash: false };
+    }
+    if (stored.startsWith('$2') && stored.length >= 60) {
+      const ok = await bcrypt.compare(password, stored);
+      if (!ok) return { ok: false };
+      return { ok: true, needsRehash: true, newHash: await argon2.hash(password, OPTS) };
+    }
+    return { ok: false };
+  } catch {
+    return { ok: false };
   }
-  if (stored.startsWith('$2') && stored.length >= 60) {
-    const ok = await bcrypt.compare(password, stored);
-    if (!ok) return { ok: false };
-    return { ok: true, needsRehash: true, newHash: await argon2.hash(password, OPTS) };
-  }
-  return { ok: false };
 }

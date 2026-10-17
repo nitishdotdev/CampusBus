@@ -11,13 +11,13 @@ You are an autonomous senior engineering team. Your job is to complete CampusMov
 
 ## Repository
 
-`https://github.com/nitishdotdev/CampusMove` — branch `feature/mern-rebuild`
+`https://github.com/nitishdotdev/CampusMove` — branch `campusmove-mern-rebuild-d9c7ac4`
 
 ## First actions — mandatory
 
 Before writing a single line of code:
 
-1. `git checkout feature/mern-rebuild && git pull`
+1. `git checkout campusmove-mern-rebuild-d9c7ac4 && git pull`
 2. Read `docs/IMPLEMENTATION_STATUS.md` — canonical progress record.
 3. Read `docs/SESSION_HANDOFF.md` — exact stopping point and next tasks.
 4. Read `docs/ACCEPTANCE_CHECKLIST.md` — measurable completion criteria.
@@ -45,35 +45,36 @@ These rules govern every decision:
 
 **Do not push to main, deploy, modify production data or rotate live credentials without explicit authorization from the user.**
 
-Work on `feature/mern-rebuild` only.
+Work on `campusmove-mern-rebuild-d9c7ac4` only.
 
 ## Current state summary
 
-### Verified and committed
+### Verified and committed (Cycle 7)
 - Build, lint and type-check pass (legacy app + strict `apps/api`)
-- JWT secret enforcement, CORS allowlist, PostgreSQL TLS (URL parameters cannot override code)
+- JWT secret enforcement, CORS allowlist, PostgreSQL TLS (URL parameters cannot override code) — **now also verified against a real TLS-enabled PostgreSQL server with a generated private CA**
 - Fabricated analytics removed; 0 npm audit vulnerabilities
-- GPS ingestion: role auth, trip/vehicle auth, simulation control, timestamps, idempotency, ordering, offline sync, rate limit — **tested on FerretDB** (real MongoDB still needed for CI)
+- GPS ingestion: role auth, trip/vehicle auth, simulation control, timestamps, idempotency, ordering, offline sync, rate limit — tested on FerretDB over real PostgreSQL storage (true `mongod`/Atlas still the recommended final check — see "Not started" below)
 - Live snapshot: freshness states LIVE/STALE/OFFLINE/ENDED; Socket.IO per-subscription auth; token expiry
-- Mongoose models: 10 collections, constraints, pagination, concurrent trip-start, restart persistence — **FerretDB**
+- Mongoose models: 10 collections, constraints, pagination, concurrent trip-start, restart persistence
+- **Auth integration: 29/29 passing** — this suite had never completed a run in any prior session; the actual cause was two application bugs (an unwrapped async Express route letting errors hang requests, and an invalidly-encoded timing-safe dummy password hash), not a FerretDB/environment limitation. Both fixed; full narrative in `docs/IMPLEMENTATION_STATUS.md` Cycle 7.
+- **CRUD integration: 30/30 passing** — buses, routes, schedules, notifications, emergency alerts, user management
 - Legacy HTTP suite: 53/53 passes
+- Full suite: `npx vitest run --no-file-parallelism` → 170 passed, 5 skipped (175 total; skips are CI-only meta-tests plus one optional DNS case)
 
-### Implemented but not yet verified on real MongoDB
+### Implemented, verified on FerretDB (real MongoDB-wire server), not yet verified on true `mongod`/Atlas
 - `AuthService`: Argon2id registration, login, refresh rotation, replay detection, logout, email OTP, password reset, admin bootstrap, bcrypt live migration
-- Full CRUD repositories: users, buses, routes, trips
-- HTTP routes: `/api/v1/auth/*`, `/api/v1/buses`, `/api/v1/routes`, `/api/v1/users`, `/api/v1/trips`, `/api/v1/telemetry`
+- Full CRUD repositories: users, buses, routes, schedules, notifications, emergency alerts, trips
+- HTTP routes: `/api/v1/auth/*`, `/api/v1/buses`, `/api/v1/routes`, `/api/v1/schedules`, `/api/v1/notifications`, `/api/v1/alerts`, `/api/v1/users`, `/api/v1/trips`, `/api/v1/telemetry`
 
 ### Not started (ordered by priority)
-1. Verify auth tests on real MongoDB
-2. Schedule CRUD (model exists, no repo or routes)
-3. Notifications + emergency alerts HTTP layer
-4. Frontend integration with `apps/api` (auth, student, driver, admin screens)
-5. Driver GPS connected to new API + IndexedDB queue
-6. Leaflet live map (Socket.IO subscription, freshness, stops)
-7. ETA calculation
-8. Playwright E2E
-9. MongoDB Atlas connection + CI run on real MongoDB
-10. Render + Vercel deployment config finalized
+1. **Frontend integration with `apps/api`** (auth, student, driver, admin screens) — the current top priority; every backend endpoint it needs already exists and is tested
+2. Driver GPS connected to new API + IndexedDB queue
+3. Leaflet live map (Socket.IO subscription, freshness, stops)
+4. ETA calculation
+5. Playwright E2E (needs a frontend to exercise)
+6. GitHub Actions CI run (workflow file exists, has not executed on GitHub; equivalent checks pass locally)
+7. MongoDB Atlas connection, or a true `mongod` run, for the TTL-index/transaction coverage FerretDB can't provide
+8. Render + Vercel deployment config finalized
 
 ## Mandatory loop
 
@@ -126,7 +127,7 @@ After every meaningful change:
 ## Authorization rules
 
 You may WITHOUT asking:
-- Write, edit and test code on `feature/mern-rebuild`
+- Write, edit and test code on `campusmove-mern-rebuild-d9c7ac4`
 - Install npm packages
 - Make commits on the feature branch
 - Run local tests against disposable databases

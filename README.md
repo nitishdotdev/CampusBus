@@ -140,7 +140,7 @@ This project is licensed under the MIT License.
 
 ## Development Status
 
-This project is being rebuilt as a production-ready MERN application on the `feature/mern-rebuild` branch.
+This project is being rebuilt as a production-ready MERN application on the `campusmove-mern-rebuild-d9c7ac4` branch.
 
 **See these files for the current state:**
 - [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) — canonical progress record
@@ -155,7 +155,7 @@ This project is being rebuilt as a production-ready MERN application on the `fea
 ### Quick start (dev, feature branch)
 
 ```bash
-git checkout feature/mern-rebuild
+git checkout campusmove-mern-rebuild-d9c7ac4
 npm ci
 npm run dev          # legacy server + Vite frontend on :3000
 ```

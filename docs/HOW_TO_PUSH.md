@@ -12,8 +12,8 @@ git fetch origin
 
 # The feature branch has all the work. Pull it if it's already there,
 # or create it from the remote if not:
-git checkout feature/mern-rebuild
-git pull origin feature/mern-rebuild
+git checkout campusmove-mern-rebuild-d9c7ac4
+git pull origin campusmove-mern-rebuild-d9c7ac4
 
 # Alternatively: to get the work from this sandbox, first export it as a bundle
 # (see the bundle instructions below) then import it into your local clone.
@@ -21,7 +21,7 @@ git pull origin feature/mern-rebuild
 
 ## If you have a local copy of the sandbox changes
 
-In the sandbox the branch is `feature/mern-rebuild` with these commits (newest first):
+In the sandbox the branch is `campusmove-mern-rebuild-d9c7ac4` with these commits (newest first):
 
 1. `f7a1aee` — Auth: AuthService, CRUD repos, acceptance checklist, session handoff docs
 2. `cf77c08` — GPS ingestion, Mongoose models, Socket.IO gateway, CI
@@ -33,12 +33,12 @@ In the sandbox the branch is `feature/mern-rebuild` with these commits (newest f
 To push the branch:
 
 ```bash
-git push origin feature/mern-rebuild
+git push origin campusmove-mern-rebuild-d9c7ac4
 ```
 
 ## To create a PR from the branch
 
-1. Go to `https://github.com/nitishdotdev/CampusMove/compare/feature/mern-rebuild`
+1. Go to `https://github.com/nitishdotdev/CampusMove/compare/campusmove-mern-rebuild-d9c7ac4`
 2. Click **"Create pull request"**
 3. Title: `feat: MERN rebuild — security, GPS, auth, MongoDB`
 4. Do NOT merge until:
