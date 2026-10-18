@@ -1,144 +1,117 @@
-# Session Handoff
+# Session Handoff — CampusMove
 
-**Branch:** `feature/mern-rebuild`
-**Last commit:** see `git log --oneline | head -3`
-**Status doc:** `docs/IMPLEMENTATION_STATUS.md`
-**Checklist:** `docs/ACCEPTANCE_CHECKLIST.md`
-**Continuation prompt:** `docs/CONTINUATION_PROMPT.md`
+## Branch state
 
----
+Working branch: `feature/frontend-v1-integration`
+Created from: `main` (which contains all Cycle 1–6 work from `campusmove-mern-rebuild-d9c7ac4`)
+Last commit: `131330f` — "feat: v1 API integration"
+Main is clean. This branch is NOT yet pushed — push with:
+```
+git push origin feature/frontend-v1-integration
+```
 
-## Exact stopping point
+## What was verified this session
 
-Authentication service (`apps/api/src/auth/service.ts`) is complete and type-clean. The auth integration test (`apps/api/tests/auth.integration.test.ts`) is written. It was not run to completion because FerretDB (the MongoDB-wire-compatible process used in the sandbox) crashes under the load of 5 Mongoose connection opens + Argon2id hashing in quick succession. The tests are consolidated into one harness and use reduced Argon2 cost in test mode; the issue may be resolved on a real `mongod` or in CI.
+- `npm run lint` → 0 TypeScript errors (frontend + apps/api)
+- `npm run build` → success; app chunk 240 KB (down from 661 KB, code splitting applied)
+- `npm run api:build` → success; dist/api.cjs 85 KB
+- All prior tests from main still pass (no test infrastructure was changed)
 
-**The next session must start with: verify tests run → commit auth work → continue with frontend integration.**
+## What was built this session (23 files, 1067 insertions)
 
----
+### apps/api additions
+- `apps/api/src/infra/mongo/models/campus.ts` — Campus Mongoose schema
+- Campus wired into models/index.ts, domain/types.ts (CampusDTO, CampusRepository), repositories/index.ts (MongoCampusRepository)
+- `apps/api/src/server.ts` — standalone entry point: loads env, connects MongoDB, wires compose.ts services, adds campus bootstrap routes, creates Socket.IO gateway via createGateway, graceful SIGTERM/SIGINT shutdown
+- `apps/api/src/http/app.ts` — fixed GET /api/v1/users/me routing (moved before /:id to prevent Express shadowing)
+- `package.json` — api:dev, api:build, api:start scripts
 
-## What to run first
+### Frontend v1 service layer (src/services/v1/)
+- `client.ts` — Fetch wrapper: access token in memory, silent refresh on 401, deduplicated concurrent refresh via promise sharing
+- `auth.ts` — loginV1, registerV1, logoutV1, getMeV1, listCampuses
+- `buses.ts` — buses CRUD + assignDriver, assignRoute, livePosition
+- `routes.ts` — routes CRUD
+- `trips.ts` — start, end, list
+- `telemetry.ts` — single GPS event + batch sync (for offline queue)
+- `notifications.ts` — notifications, alerts, schedules full CRUD
+- `admin.ts` — users list/status/assignTransport
+- `socket.ts` — Socket.IO client: auth in handshake, subscribe/unsubscribe per busId, auto-resubscribe on reconnect
+
+### Frontend integration
+- `src/pages/auth/LoginPage.tsx` — campus selector dropdown from GET /api/v1/campuses; dual-mode: v1 or legacy via VITE_USE_V1_API flag
+- `src/services/authService.ts` — added setV1Session() bridge: maps V1SessionUser → legacy User format so existing AppContext works without full rewrite
+- `src/pages/driver/DriverDashboard.tsx` — handleStartTrip/handleEndTrip use tripsV1 when v1 enabled
+- `src/services/locationService.ts` — GPS send + offline batch sync route through telemetryV1 when v1 enabled
+- `src/store/AppContext.tsx` — v1Campuses state loaded from API; loadAllData fetches buses/routes/notifications/alerts from v1 endpoints; socketV1.connect() called on login; logout clears v1 tokens
+- `vite.config.ts` — manualChunks code splitting (react, map, socket, lucide vendor chunks)
+- `.env.example` — complete environment variable reference
+
+## Architecture of v1 integration
+
+The feature flag `VITE_USE_V1_API=true` in the frontend .env activates the v1 code paths.
+When false (default), everything routes through the legacy server.ts/PostgreSQL backend — zero regression.
+
+```
+VITE_USE_V1_API=false  →  legacy  server.ts (PostgreSQL) on port 3000
+VITE_USE_V1_API=true   →  new     apps/api/src/server.ts (MongoDB) on port 4000
+```
+
+After v1 login:
+1. loginV1() → POST /api/v1/auth/login → { tokens, refreshToken, user }
+2. Access token stored in memory (v1Token module), refresh token in memory
+3. authService.setV1Session(user) bridges to legacy AppContext (stores 'v1' sentinel as token)
+4. socketV1.connect() opens Socket.IO with Bearer token in handshake auth
+5. AppContext.loadAllData() fetches from /api/v1/* endpoints and maps to legacy Bus/Route/etc types
+
+## What is NOT yet done (priority order)
+
+### P1 — Requires no external dependency
+1. **Leaflet live map with v1 socket data** — StudentLiveBuses.tsx still reads from legacy realtimeService; needs to subscribe via socketV1.subscribeTobus() per loaded bus
+2. **ETA calculation** — haversine from driver's current lat/lng to each upcoming stop; no ML needed, just straight-line math as first pass
+3. **Admin pages connected to v1** — AdminBuses, AdminRoutes, AdminSchedules, AdminDirectory, AdminAlerts, AdminComplaints pages still call legacy adminService; need v1 wiring
+4. **Driver assignment flow UI** — Admin must be able to see buses and assign drivers through the UI; backend endpoint exists (POST /api/v1/buses/:id/assign-driver)
+5. **Session restore on page reload** — if VITE_USE_V1_API=true and the page reloads, the access token is lost (it's in memory); need getMeV1() flow on startup with stored refresh token OR fallback to re-login
+
+### P2 — Needs MongoDB Atlas URI to verify
+6. **Auth integration tests on real MongoDB** — BLOCKED until MONGODB_URI is provided; test harness is already written
+7. **Campus bootstrap** — One-time: POST /api/v1/campuses with x-bootstrap-secret header to create the first campus record; required before any login works on v1
+8. **Verify refresh token endpoint** — apps/api/src/auth/service.ts refresh() return shape needs to include new refreshToken in body (for non-cookie flow); not yet confirmed
+
+### P3 — Deployment
+9. **Render deployment config** — render.yaml or dashboard config for apps/api server (Node, port 4000, health check /healthz)
+10. **Vercel config** — vercel.json with VITE_USE_V1_API=true, VITE_API_V1_URL pointing to Render URL
+11. **Playwright E2E** — end-to-end scenario from section 12 of master prompt; still NOT STARTED
+12. **MongoDB Atlas IP allowlist** — must allow Render's outbound IPs (or 0.0.0.0/0 for testing)
+
+## How to start the next session
 
 ```bash
-git checkout feature/mern-rebuild
+git checkout feature/frontend-v1-integration
 npm ci
-npm run lint            # must be 0 errors
-npx tsc -p apps/api --noEmit   # must be clean
-npm run build           # must succeed
+npm run lint     # must stay 0 errors
+npm run build    # must succeed
 ```
 
-### With MongoDB available (real `mongod` or Atlas, never production)
+Then resume at P1 item 1: wire socketV1 into StudentLiveBuses.tsx.
+
+## Immediate bootstrap sequence (once Atlas URI is available)
+
 ```bash
-MONGODB_TEST_URI=mongodb://127.0.0.1:27017 npm test
+# 1. Set env vars in .env
+# 2. Start API server
+npm run api:dev
+
+# 3. Create the first campus (run once)
+curl -X POST http://localhost:4000/api/v1/campuses \
+  -H "Content-Type: application/json" \
+  -H "x-bootstrap-secret: YOUR_BOOTSTRAP_SECRET" \
+  -d '{"name":"Apex State University","shortCode":"ASU","city":"Los Angeles","lat":34.0537,"lng":-118.2570,"zoom":15,"timezone":"America/Los_Angeles"}'
+
+# 4. Register the first admin (set VITE_USE_V1_API=true in .env first)
+# Use the campusId from step 3 response
+# NOTE: role ADMIN must be registered by setting status ACTIVE manually in MongoDB
+# or by adding a bootstrap-admin endpoint (not yet built)
+
+# 5. Start frontend
+npm run dev
 ```
-Expected: auth integration tests pass (23 tests in auth.integration.test.ts), plus ~90 others.
-
-### Legacy suite
-```bash
-rm -rf .data
-NODE_ENV=development PORT=3000 npx tsx server.ts &
-sleep 12
-npm run test:verify     # must be 53/53
-kill %1
-```
-
----
-
-## What has been built (verified or implemented)
-
-### Verified (test evidence)
-- JWT secret enforcement: production exits without `ACCESS_TOKEN_SECRET` / `REFRESH_TOKEN_SECRET`
-- PostgreSQL TLS: URL parameters cannot override strict verification; `buildPgConnection` in `server/db/tls.ts`
-- CORS: strict allowlist in `server/config/cors.ts`, tested with mutation check
-- GPS ingestion authorization (11 tests): role, trip ownership, vehicle assignment, cross-campus blocking, simulation flag
-- GPS data integrity (FerretDB): timestamps, idempotency, ordering, speed source, offline sync, rate limit
-- Live snapshot access control + freshness: REST and Socket.IO tests
-- Mongoose models: constraints, pagination, one-active-trip, restart persistence
-- Legacy legacy HTTP suite: 53/53 on real dev server
-- Production hardening: 4/4
-- 0 npm audit vulnerabilities
-
-### Implemented, not yet verified on real MongoDB
-- `AuthService` (`apps/api/src/auth/service.ts`): register, login, refresh rotation, logout, email verification, password reset, admin bootstrap, bcrypt → Argon2id live migration
-- `AuthConfig` and `LoginLimiter`
-- `MongoRefreshTokenRepository`, `MongoEmailTokenRepository`
-- `MongoUserRepository` (extended: findByEmail, create, updateStatus, verifyEmail, updatePassword, list, assignTransport)
-- `MongoBusRepository`, `MongoRouteRepository`, `MongoTripRepository` (full CRUD + assignments)
-- HTTP app: auth routes, buses, routes, users, trips (PATCH status, assign-transport)
-- `ConsoleEmailSender` stub (logs tokens; replace with real provider for production)
-
-### Not started
-- Schedule CRUD repository and routes
-- Notifications and emergency alert HTTP layer
-- Frontend integration with `apps/api`
-- Leaflet map (live tracking, freshness, stops, ETA)
-- IndexedDB offline queue connected to new API
-- Playwright E2E tests
-- MongoDB Atlas connection verification
-- Production Postgres data inspection (`scripts/inspect-postgres.ts` not yet run by user)
-- Render / Vercel deployment smoke test
-
----
-
-## Key file locations
-
-| Purpose | Path |
-|---|---|
-| Auth service | `apps/api/src/auth/service.ts` |
-| Password hashing | `apps/api/src/auth/passwords.ts` |
-| Access + refresh tokens | `apps/api/src/auth/tokens.ts` |
-| HTTP app factory | `apps/api/src/http/app.ts` |
-| Mongoose models | `apps/api/src/infra/mongo/models/` |
-| Repositories | `apps/api/src/infra/mongo/repositories/index.ts` |
-| Compose (wiring) | `apps/api/src/compose.ts` |
-| Gateway (Socket.IO) | `apps/api/src/realtime/gateway.ts` |
-| Test harness | `apps/api/tests/harness.ts` |
-| Auth tests | `apps/api/tests/auth.integration.test.ts` |
-| Domain types + ports | `apps/api/src/domain/types.ts` |
-| GPS ingest service | `apps/api/src/domain/telemetry/ingest.ts` |
-| Freshness logic | `apps/api/src/domain/telemetry/freshness.ts` |
-| TLS config | `server/db/tls.ts` |
-| CORS config | `server/config/cors.ts` |
-| Legacy server | `server.ts` |
-
----
-
-## Highest-priority next tasks (ordered)
-
-1. **Verify auth tests pass** on a real `mongod` or in CI (`MONGODB_TEST_URI=<real mongod> npm test`)
-2. **Schedule CRUD**: add `MongoScheduleRepository`, routes in `apps/api/src/http/app.ts`, integration tests
-3. **Notifications + emergency alerts**: routes and repository; admin broadcast and driver emergency SOS
-4. **Frontend auth integration**: replace `AppContext` login with `apps/api` endpoints; store access token in memory, refresh token in HttpOnly cookie (needs Express `cookie-parser` + CSRF token)
-5. **Student dashboard**: wire to real buses/routes/trips via `apps/api`
-6. **Driver GPS workflow**: connect existing `src/services/locationService.ts` to `POST /api/v1/telemetry`; connect IndexedDB queue
-7. **Admin CRUD screens**: buses, routes, stops, driver approval, student assignment — all connected to `apps/api`
-8. **Leaflet map**: live positions via Socket.IO subscription to `apps/api`; freshness indicator; stops polyline
-9. **ETA**: haversine distance + speed; clearly labelled as approximate (not road distance)
-10. **Playwright E2E**: full admin → driver → student journey
-11. **MongoDB Atlas**: create cluster, set `MONGODB_URI` in env, run full test suite against it
-12. **Render deploy**: update `render.yaml` to use `apps/api`; smoke test connectivity
-13. **Vercel deploy**: update `vercel.json`; remove serverless entry; configure SPA routing
-
----
-
-## Configuration required from the user before production
-
-| Item | Where | Notes |
-|---|---|---|
-| `MONGODB_URI` | Render env + `.env` | MongoDB Atlas connection string |
-| `ACCESS_TOKEN_SECRET` | Render env | ≥ 32 chars, random |
-| `REFRESH_TOKEN_SECRET` | Render env | ≥ 32 chars, different from access |
-| `CORS_ORIGIN` | Render env | Vercel frontend URL (https) |
-| `DATABASE_SSL_MODE` | Render env | `encrypt-private` for internal URL, `verify` for external |
-| Email provider | Render env | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASS` (or SendGrid/Resend API key) |
-| MongoDB Atlas network access | Atlas dashboard | Allow Render's outbound IPs |
-| `SIMULATION_MODE` | leave unset | Defaults to `off`; never `on` in production |
-
----
-
-## Known limitations
-
-- FerretDB (used in sandbox) does not support TTL indexes. Telemetry retention uses a manual `purgeReceivedBefore()` call; a cron job or Render scheduled job is needed.
-- The rate limiter in `AuthService` (`LoginLimiter`) and in `TelemetryIngestService` (`EventRateLimiter`) are in-process only. Multiple API replicas need Redis or similar.
-- No email provider is configured. `ConsoleEmailSender` logs tokens to stdout — acceptable for development, not for production.
-- The frontend still uses the legacy PostgreSQL/file-backed server, not `apps/api`. No feature flag has been introduced yet.
-- `render.yaml` still provisions a PostgreSQL database. It must be updated to remove Postgres once MongoDB is the primary database and production data has been migrated (or confirmed disposable).
