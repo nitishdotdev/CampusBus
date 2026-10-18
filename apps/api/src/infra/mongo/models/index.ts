@@ -1,4 +1,5 @@
 import type { Connection } from 'mongoose';
+import { campusSchema } from './campus';
 import { busSchema } from './bus';
 import { vehicleLocationSchema } from './location';
 import { auditEventSchema, emergencyAlertSchema, notificationSchema } from './ops';
@@ -13,6 +14,7 @@ import { userSchema } from './user';
 /** Models are bound to a connection (not the global mongoose) so tests can open, close and reopen connections. */
 export function createModels(conn: Connection) {
   return {
+    Campus: conn.model('Campus', campusSchema),
     User: conn.model('User', userSchema),
     Bus: conn.model('Bus', busSchema),
     Route: conn.model('Route', routeSchema),

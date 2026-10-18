@@ -91,6 +91,26 @@ class AuthService {
     }
   }
 
+  /**
+   * Bridge: accept a v1 SessionUser and populate the existing AppContext-compatible
+   * auth state without storing a legacy JWT (v1 tokens live in the v1 client module).
+   */
+  public setV1Session(v1User: { userId: string; campusId: string; name: string; email: string; role: string }): void {
+    const syntheticUser: User = {
+      id: v1User.userId,
+      collegeId: v1User.campusId,
+      name: v1User.name,
+      email: v1User.email,
+      role: v1User.role as UserRole,
+    };
+    // Store WITHOUT a token — v1 client manages its own access token in memory.
+    // isAuthenticated() checks getStoredToken(), so we store a sentinel.
+    setStoredToken('v1');
+    this.currentUser = syntheticUser;
+    this.saveSession();
+    this.notifyListeners();
+  }
+
   public logout(): void {
     setStoredToken(null);
     this.currentUser = null;

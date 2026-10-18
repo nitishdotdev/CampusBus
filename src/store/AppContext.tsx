@@ -18,6 +18,14 @@ import { locationService, LocationServiceState } from '../services/locationServi
 import { notificationService } from '../services/notificationService';
 import { adminService } from '../services/adminService';
 
+// ── v1 API integration (enabled via VITE_USE_V1_API=true) ────────────────────
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
+import { loginV1, logoutV1, getMeV1, listCampuses, type V1Campus, type V1SessionUser } from '../services/v1/auth';
+import { busesV1 } from '../services/v1/buses';
+import { routesV1 } from '../services/v1/routes';
+import { notificationsV1, alertsV1 } from '../services/v1/notifications';
+import { socketV1 } from '../services/v1/socket';
+
 const DEFAULT_COLLEGE: College = {
   id: 'college_apex',
   name: 'Apex State University',
@@ -33,6 +41,8 @@ interface AppContextType {
   role: UserRole;
   currentCollege: College;
   colleges: College[];
+  /** Available campuses from the v1 API (empty when v1 is off). */
+  v1Campuses: V1Campus[];
   switchCollege: (collegeId: string) => void;
   logout: () => void;
   isAuthenticated: boolean;
@@ -74,6 +84,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [locationState, setLocationState] = useState<LocationServiceState>(locationService.getState());
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [v1Campuses, setV1Campuses] = useState<V1Campus[]>([]);
+
+  // Load campuses from v1 API (always, so login form can list them)
+  useEffect(() => {
+    if (!USE_V1) return;
+    listCampuses().then(setV1Campuses).catch(() => {});
+  }, []);
+
+  // Connect socketV1 when authenticated under v1
+  useEffect(() => {
+    if (!USE_V1 || !currentUser) return;
+    socketV1.connect();
+    return () => { /* keep socket alive while session is active */ };
+  }, [currentUser?.id]);
 
   const isAuthenticated = authService.isAuthenticated();
 
@@ -163,14 +187,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsLoadingData(true);
     setDataError(null);
     try {
-      const [busesResult, routesResult] = await Promise.all([
-        realtimeService.fetchBusesFromApi(),
-        routeService.getRoutes(),
-      ]);
-
-      if (routesResult) setRoutes(routesResult);
-      // Buses are auto-set through subscription
-
+      if (USE_V1) {
+        // ── v1 API path ─────────────────────────────────────────────────────
+        const [busPage, routePage, notifPage, alertPage] = await Promise.allSettled([
+          busesV1.list(),
+          routesV1.list(),
+          notificationsV1.list(),
+          alertsV1.list(),
+        ]);
+        if (busPage.status === 'fulfilled') {
+          setBuses(busPage.value.items.map(b => ({
+            id: b.id, collegeId: b.campusId, busNumber: b.number,
+            capacity: b.capacity, currentOccupancy: 0,
+            status: b.status === 'ACTIVE' ? 'ACTIVE' : b.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE',
+            driverId: b.driverId ?? undefined, routeId: b.routeId ?? undefined,
+            isSimulated: false,
+          } as any)));
+        }
+        if (routePage.status === 'fulfilled') {
+          setRoutes(routePage.value.items.map(r => ({
+            id: r.id, collegeId: r.campusId, name: r.name, shortCode: r.code, color: r.color,
+            stops: r.stops.map(s => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, order: s.order })),
+          } as any)));
+        }
+        if (notifPage.status === 'fulfilled') {
+          setNotifications(notifPage.value.items.map(n => ({
+            id: n.id, collegeId: n.campusId, type: n.kind, priority: n.priority,
+            title: n.title, message: n.body, timestamp: n.createdAt, isRead: false,
+            routeId: n.routeId ?? undefined, expiresAt: n.expiresAt ?? undefined,
+          } as any)));
+        }
+        if (alertPage.status === 'fulfilled') {
+          setEmergencyAlerts(alertPage.value.items.map(a => ({
+            id: a.id, collegeId: a.campusId, type: 'SOS', severity: 'HIGH',
+            title: a.message ?? 'Emergency alert', description: a.message ?? '',
+            busId: a.busId, driverId: a.raisedBy, tripId: a.tripId ?? undefined,
+            status: a.status === 'OPEN' ? 'ACTIVE' : a.status === 'RESOLVED' ? 'RESOLVED' : 'ACKNOWLEDGED',
+            timestamp: a.createdAt, location: a.location ?? undefined,
+            acknowledgedBy: a.acknowledgedBy ?? undefined, resolvedBy: a.resolvedBy ?? undefined,
+          } as any)));
+        }
+      } else {
+        // ── Legacy API path ───────────────────────────────────────────────────
+        const [busesResult, routesResult] = await Promise.all([
+          realtimeService.fetchBusesFromApi(),
+          routeService.getRoutes(),
+        ]);
+        if (routesResult) setRoutes(routesResult);
+      }
       setIsLoadingData(false);
     } catch (err: any) {
       setDataError(err.message || 'Failed to load data.');
@@ -179,6 +243,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = () => {
+    if (USE_V1) { logoutV1(); socketV1.disconnect(); }
     authService.logout();
   };
 
@@ -218,6 +283,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     role,
     currentCollege,
     colleges: [DEFAULT_COLLEGE],
+    v1Campuses,
     switchCollege,
     logout,
     isAuthenticated,

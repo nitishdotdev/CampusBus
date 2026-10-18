@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "api:dev": "tsx apps/api/src/server.ts",
+    "api:build": "esbuild apps/api/src/server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/api.cjs",
+    "api:start": "node dist/api.cjs",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "db:migrate": "tsx server/db/migrate.ts",

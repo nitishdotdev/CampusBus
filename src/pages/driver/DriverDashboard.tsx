@@ -3,6 +3,10 @@ import { useApp } from '../../store/AppContext';
 import { apiClient } from '../../services/apiClient';
 import { tripService } from '../../services/tripService';
 import { adminService } from '../../services/adminService';
+import { tripsV1 } from '../../services/v1/trips';
+import { alertsV1 } from '../../services/v1/notifications';
+
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 import { GPSStatusBadge, NetworkStatusBadge } from '../../components/common/StatusBadges';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
 import {
@@ -107,13 +111,17 @@ export const DriverDashboard: React.FC = () => {
     setShowStartTripModal(false);
     setTripError(null);
     try {
-      await tripService.startTrip(
-        assignedBus.id,
-        currentUser?.id || 'driver_marcus',
-        assignedRoute.id,
-        currentUser?.collegeId || 'college_apex',
-        useSimulatedGps
-      );
+      if (USE_V1) {
+        await tripsV1.start(assignedBus.id);
+      } else {
+        await tripService.startTrip(
+          assignedBus.id,
+          currentUser?.id || 'driver_marcus',
+          assignedRoute.id,
+          currentUser?.collegeId || 'college_apex',
+          useSimulatedGps
+        );
+      }
     } catch (err: any) {
       setTripError(err.message || err.data?.error || 'Vehicle or driver conflict: Cannot start trip while another is active.');
     }
@@ -121,8 +129,13 @@ export const DriverDashboard: React.FC = () => {
 
   const handleEndTrip = async () => {
     setShowEndTripConfirm(false);
-    const summary = await tripService.endTrip();
-    setTripSummary(summary);
+    if (USE_V1 && activeTrip?.id) {
+      await tripsV1.end(activeTrip.id);
+      setTripSummary({ message: 'Trip ended.' } as any);
+    } else {
+      const summary = await tripService.endTrip();
+      setTripSummary(summary);
+    }
   };
 
   const handleOccupancyChange = (delta: number) => {
