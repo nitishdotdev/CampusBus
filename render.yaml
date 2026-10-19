@@ -1,27 +1,48 @@
 services:
   - type: web
-    name: campusmove-backend
-    env: node
+    name: campusmove-api
+    runtime: node
     plan: starter
-    buildCommand: npm install && npm run build && npm run db:migrate
-    startCommand: npm run start
-    healthCheckPath: /api/health
+
+    # Install deps + compile the apps/api bundle
+    buildCommand: npm ci && npm run api:build
+
+    # Run the compiled bundle
+    startCommand: npm run api:start
+
+    # Render marks the service healthy when this returns 200
+    healthCheckPath: /healthz
+
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: campusmove-db
-          property: connectionString
-      - key: DATABASE_SSL_MODE
-        value: encrypt-private # fromDatabase resolves Render's INTERNAL URL: TLS is optional there and uses self-signed certificates, so verification cannot apply.
-      - key: JWT_SECRET
-        generateValue: true
-      - key: CORS_ORIGIN
-        sync: false # Must be set to your Vercel frontend URL, e.g. https://campusmove.vercel.app
 
-databases:
-  - name: campusmove-db
-    plan: free
-    databaseName: campusmove
-    user: campus_admin
+      # Mark as secret in the Render dashboard — do not commit actual values
+      - key: MONGODB_URI
+        sync: false
+
+      - key: ACCESS_TOKEN_SECRET
+        sync: false
+
+      - key: REFRESH_TOKEN_SECRET
+        sync: false
+
+      # Remove or blank after first campus record is created
+      - key: BOOTSTRAP_SECRET
+        sync: false
+
+      # Update once you know your Vercel frontend URL
+      - key: CORS_ORIGIN
+        value: https://campus-move-one.vercel.app
+
+      # Optional SMTP email delivery
+      # - key: SMTP_HOST
+      #   sync: false
+      # - key: SMTP_PORT
+      #   value: 587
+      # - key: SMTP_USER
+      #   sync: false
+      # - key: SMTP_PASS
+      #   sync: false
+      # - key: EMAIL_FROM
+      #   value: noreply@yourcampus.edu

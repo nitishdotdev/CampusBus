@@ -4,6 +4,9 @@ import { Route, Stop } from '../../types';
 import { RouteStatusBadge } from '../../components/common/StatusBadges';
 import { Modal } from '../../components/common/Modals';
 import { adminService } from '../../services/adminService';
+import { routesV1 } from '../../services/v1/routes';
+
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 import {
   Route as RouteIcon,
   Plus,
@@ -30,7 +33,7 @@ export const AdminRoutes: React.FC = () => {
 
   const selectedRoute = routes.find((r) => r.id === selectedRouteId) || routes[0];
 
-  const handleCreateRoute = (e: React.FormEvent) => {
+  const handleCreateRoute = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code || !name) return;
 
@@ -75,18 +78,29 @@ export const AdminRoutes: React.FC = () => {
       [34.0537, -118.2570],
     ];
 
-    adminService.addRoute({
-      collegeId: 'college_apex',
-      code: code.toUpperCase(),
-      name,
-      description: description || `Campus line connecting ${name}`,
-      color,
-      status: 'SCHEDULED',
-      scheduleHours,
-      frequencyMinutes: Number(frequencyMinutes) || 12,
-      stops: defaultStops,
-      pathCoordinates: defaultCoords,
-    });
+    if (USE_V1) {
+      await routesV1.create({
+        code: code.toUpperCase(),
+        name,
+        color,
+        stops: defaultStops.map((s, i) => ({
+          id: '', name: s.name, lat: s.lat, lng: s.lng, order: i,
+        })),
+      });
+    } else {
+      adminService.addRoute({
+        collegeId: 'college_apex',
+        code: code.toUpperCase(),
+        name,
+        description: description || `Campus line connecting ${name}`,
+        color,
+        status: 'SCHEDULED',
+        scheduleHours,
+        frequencyMinutes: Number(frequencyMinutes) || 12,
+        stops: defaultStops,
+        pathCoordinates: defaultCoords,
+      });
+    }
 
     setIsAddRouteModalOpen(false);
     setCode('');
