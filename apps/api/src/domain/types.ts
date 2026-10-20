@@ -1,4 +1,15 @@
 export type Role = 'STUDENT' | 'DRIVER' | 'ADMIN';
+
+export interface CampusDTO {
+  id: string; name: string; shortCode: string; city: string;
+  lat: number; lng: number; zoom: number; timezone: string;
+}
+export interface CampusRepository {
+  list(): Promise<CampusDTO[]>;
+  findById(id: string): Promise<CampusDTO | null>;
+  findByCode(shortCode: string): Promise<CampusDTO | null>;
+  create(c: Omit<CampusDTO, 'id'>): Promise<CampusDTO>;
+}
 export type UserStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'DISABLED';
 export type TripStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 export type TripMode = 'REAL' | 'SIMULATED';

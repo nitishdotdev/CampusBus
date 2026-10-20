@@ -5,6 +5,9 @@ import { BusStatusBadge } from '../../components/common/StatusBadges';
 import { SearchInput, FilterBar } from '../../components/common/Inputs';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
 import { adminService } from '../../services/adminService';
+import { busesV1 } from '../../services/v1/buses';
+
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 import {
   Bus as BusIcon,
   Plus,
@@ -44,42 +47,56 @@ export const AdminBuses: React.FC = () => {
     return true;
   });
 
-  const handleAddBus = (e: React.FormEvent) => {
+  const handleAddBus = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!busNumber.trim()) return;
-
-    adminService.addBus({
-      collegeId: 'college_apex',
-      busNumber: busNumber.trim(),
-      model,
-      plateNumber: plateNumber.trim() || `CAMPUS-${Math.floor(1000 + Math.random() * 9000)}`,
-      capacity: Number(capacity) || 45,
-      status: 'IDLE',
-      currentOccupancy: 0,
-      currentRouteId: assignedRouteId || undefined,
-      driverName: driverName.trim() || undefined,
-      heading: 0,
-      speedKmh: 0,
-      gpsStatus: 'GPS_ACTIVE',
-      networkStatus: 'NETWORK_ONLINE',
-      etaConfidence: 'SCHEDULED',
-    });
-
+    if (USE_V1) {
+      await busesV1.create({
+        number: busNumber.trim(),
+        capacity: Number(capacity) || 45,
+        status: 'ACTIVE',
+      });
+    } else {
+      adminService.addBus({
+        collegeId: 'college_apex',
+        busNumber: busNumber.trim(),
+        model,
+        plateNumber: plateNumber.trim() || `CAMPUS-${Math.floor(1000 + Math.random() * 9000)}`,
+        capacity: Number(capacity) || 45,
+        status: 'IDLE',
+        currentOccupancy: 0,
+        currentRouteId: assignedRouteId || undefined,
+        driverName: driverName.trim() || undefined,
+        heading: 0,
+        speedKmh: 0,
+        gpsStatus: 'GPS_ACTIVE',
+        networkStatus: 'NETWORK_ONLINE',
+        etaConfidence: 'SCHEDULED',
+      });
+    }
     setIsAddModalOpen(false);
     setBusNumber('');
     setPlateNumber('');
     setDriverName('');
   };
 
-  const handleStatusChange = (busId: string, status: BusStatus) => {
-    adminService.updateBusStatus(busId, status);
+  const handleStatusChange = async (busId: string, status: BusStatus) => {
+    if (USE_V1) {
+      const v1Status = status === 'IDLE' ? 'OFFLINE' : status === 'ACTIVE' ? 'ACTIVE' : 'MAINTENANCE';
+      await busesV1.update(busId, { status: v1Status });
+    } else {
+      adminService.updateBusStatus(busId, status);
+    }
   };
 
-  const handleDelete = () => {
-    if (deletingBusId) {
+  const handleDelete = async () => {
+    if (!deletingBusId) return;
+    if (USE_V1) {
+      await busesV1.delete(deletingBusId);
+    } else {
       adminService.deleteBus(deletingBusId);
-      setDeletingBusId(null);
     }
+    setDeletingBusId(null);
   };
 
   const filterOptions = [

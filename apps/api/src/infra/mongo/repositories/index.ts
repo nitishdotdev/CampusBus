@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { DomainError } from '../../../domain/errors';
 import type {
-  AlertStatus, BusDTO, BusRepository, EmailSender, EmailTokenRepository,
+  AlertStatus, BusDTO, BusRepository, CampusDTO, CampusRepository, EmailSender, EmailTokenRepository,
   EmergencyAlertDTO, EmergencyAlertRepository, NotificationDTO, NotificationRepository,
   Page, RefreshTokenRepository, RouteDTO, RouteRepository, ScheduleDTO, ScheduleRepository,
   StopDTO, TelemetryRecord, TelemetryRepository, TripDTO, TripRepository, UserDTO, UserRepository,
@@ -285,6 +285,7 @@ export class MongoTelemetryRepository implements TelemetryRepository {
 // ─── Factory ─────────────────────────────────────────────────────────────────
 export function createRepositories(m: Models) {
   return {
+    campuses: new MongoCampusRepository(m),
     users: new MongoUserRepository(m),
     schedules: new MongoScheduleRepository(m),
     notifications: new MongoNotificationRepository(m),
@@ -393,5 +394,31 @@ export class MongoEmergencyAlertRepository implements EmergencyAlertRepository {
     if (!isValidId(id)) return null;
     const d = await this.m.EmergencyAlert.findOneAndUpdate({ _id: id, campusId, status: { $in: ['OPEN', 'ACKNOWLEDGED'] } }, { $set: { status: 'RESOLVED', resolvedBy: byUserId, resolvedAt: at } }, { returnDocument: 'after' }).lean();
     return d ? toAlert(d) : null;
+  }
+}
+
+// ─── CampusRepository ─────────────────────────────────────────────────────────
+const toCampus = (d: any): CampusDTO => ({
+  id: str(d._id), name: d.name, shortCode: d.shortCode, city: d.city ?? '',
+  lat: d.lat, lng: d.lng, zoom: d.zoom ?? 15, timezone: d.timezone ?? 'UTC',
+});
+export class MongoCampusRepository implements CampusRepository {
+  constructor(private m: Models) {}
+  async list(): Promise<CampusDTO[]> {
+    const docs = await this.m.Campus.find({}).sort({ name: 1 }).lean();
+    return docs.map(toCampus);
+  }
+  async findById(id: string): Promise<CampusDTO | null> {
+    if (!isValidId(id)) return null;
+    const d = await this.m.Campus.findById(id).lean();
+    return d ? toCampus(d) : null;
+  }
+  async findByCode(shortCode: string): Promise<CampusDTO | null> {
+    const d = await this.m.Campus.findOne({ shortCode: shortCode.toUpperCase() }).lean();
+    return d ? toCampus(d) : null;
+  }
+  async create(c: Omit<CampusDTO, 'id'>): Promise<CampusDTO> {
+    const d = await this.m.Campus.create({ ...c, shortCode: c.shortCode.toUpperCase() });
+    return toCampus(d.toObject());
   }
 }

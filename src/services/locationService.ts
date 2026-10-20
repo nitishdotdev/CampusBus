@@ -2,6 +2,9 @@ import { GPSStatus, NetworkStatus, LocationPoint, QueuedLocationUpdate } from '.
 import { apiClient } from './apiClient';
 import { realtimeService } from './realtimeService';
 import { offlineQueueService } from './offlineQueue';
+import { telemetryV1 } from './v1/telemetry';
+
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 
 export interface LocationServiceState {
   gpsStatus: GPSStatus;
@@ -188,19 +191,31 @@ class LocationService {
     // Attempt direct real-time broadcast to backend API
     try {
       if (this.currentBusId) {
-        await apiClient.post('/api/driver/location', {
-          id: pointId,
-          tripId: this.currentTripId,
-          busId: this.currentBusId,
-          lat: loc.lat,
-          lng: loc.lng,
-          speed: loc.speed,
-          heading: loc.heading,
-          accuracy: loc.accuracy,
-          timestamp: loc.timestamp,
-          isSimulated: this.state.isSimulated,
-        });
-
+        if (USE_V1 && this.currentTripId) {
+          await telemetryV1.send({
+            eventId: pointId,
+            tripId: this.currentTripId,
+            busId: this.currentBusId,
+            location: { lat: loc.lat, lng: loc.lng },
+            accuracyM: loc.accuracy ?? null,
+            speedMps: loc.speed ?? null,
+            headingDeg: loc.heading ?? null,
+            capturedAt: new Date(loc.timestamp).toISOString(),
+          });
+        } else {
+          await apiClient.post('/api/driver/location', {
+            id: pointId,
+            tripId: this.currentTripId,
+            busId: this.currentBusId,
+            lat: loc.lat,
+            lng: loc.lng,
+            speed: loc.speed,
+            heading: loc.heading,
+            accuracy: loc.accuracy,
+            timestamp: loc.timestamp,
+            isSimulated: this.state.isSimulated,
+          });
+        }
         this.state.networkStatus = 'NETWORK_ONLINE';
         this.state.lastSyncTime = new Date().toISOString();
       }
@@ -268,11 +283,31 @@ class LocationService {
       const busId = this.currentBusId || queuedItems[0].busId;
       const tripId = this.currentTripId || queuedItems[0].tripId;
 
-      const syncRes = await apiClient.post<any>('/api/driver/location/sync', {
-        tripId,
-        busId,
-        locations: queuedItems,
-      });
+      let syncRes: any;
+      if (USE_V1) {
+        syncRes = await telemetryV1.sendBatch(
+          queuedItems.map((q) => ({
+            eventId: q.id,
+            tripId: q.tripId || tripId,
+            busId: q.busId || busId,
+            location: { lat: q.lat, lng: q.lng },
+            accuracyM: q.accuracy ?? null,
+            speedMps: q.speed ?? null,
+            headingDeg: q.heading ?? null,
+            capturedAt: new Date(q.timestamp).toISOString(),
+          }))
+        );
+        // v1 returns { accepted, rejected, errors } — treat all non-rejected as saved
+        if (syncRes?.rejected === 0) {
+          await offlineQueueService.remove(queuedItems.map((q) => q.id));
+        }
+      } else {
+        syncRes = await apiClient.post<any>('/api/driver/location/sync', {
+          tripId,
+          busId,
+          locations: queuedItems,
+        });
+      }
 
       // Clear only successfully synced batch from IndexedDB
       if (syncRes && Array.isArray(syncRes.savedIds) && syncRes.savedIds.length > 0) {

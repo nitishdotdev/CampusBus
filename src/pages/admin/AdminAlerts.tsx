@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
 import { adminService } from '../../services/adminService';
 import { NotificationCategory, NotificationPriority } from '../../types';
+import { notificationsV1, alertsV1 } from '../../services/v1/notifications';
+
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 import {
   ShieldAlert,
   Send,
@@ -24,31 +27,48 @@ export const AdminAlerts: React.FC = () => {
   const [selectedRouteId, setSelectedRouteId] = useState('');
   const [publishedSuccess, setPublishedSuccess] = useState(false);
 
-  const handleBroadcast = (e: React.FormEvent) => {
+  const handleBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !message.trim()) return;
-
-    adminService.broadcastNotification({
-      collegeId: 'college_apex',
-      title: title.trim(),
-      message: message.trim(),
-      category,
-      priority,
-      routeId: selectedRouteId || undefined,
-    });
-
+    if (USE_V1) {
+      const kindMap: Record<string, 'ANNOUNCEMENT' | 'DELAY' | 'ROUTE_CHANGE' | 'EMERGENCY'> = {
+        ANNOUNCEMENT: 'ANNOUNCEMENT', DELAY: 'DELAY',
+        ROUTE_CHANGE: 'ROUTE_CHANGE', EMERGENCY: 'EMERGENCY',
+      };
+      const prioMap: Record<string, 'NORMAL' | 'HIGH' | 'URGENT'> = {
+        LOW: 'NORMAL', MEDIUM: 'NORMAL', HIGH: 'HIGH', URGENT: 'URGENT', CRITICAL: 'URGENT',
+      };
+      await notificationsV1.broadcast({
+        kind: kindMap[category as string] ?? 'ANNOUNCEMENT',
+        priority: prioMap[priority as string] ?? 'NORMAL',
+        title: title.trim(),
+        body: message.trim(),
+        routeId: selectedRouteId || undefined,
+      });
+    } else {
+      adminService.broadcastNotification({
+        collegeId: 'college_apex',
+        title: title.trim(),
+        message: message.trim(),
+        category,
+        priority,
+        routeId: selectedRouteId || undefined,
+      });
+    }
     setTitle('');
     setMessage('');
     setPublishedSuccess(true);
     setTimeout(() => setPublishedSuccess(false), 4000);
   };
 
-  const handleAcknowledge = (id: string) => {
-    adminService.acknowledgeAlert(id, 'Admin Dispatch Center');
+  const handleAcknowledge = async (id: string) => {
+    if (USE_V1) await alertsV1.acknowledge(id);
+    else adminService.acknowledgeAlert(id, 'Admin Dispatch Center');
   };
 
-  const handleResolve = (id: string) => {
-    adminService.resolveAlert(id, 'Response unit on-scene. Incident secured.');
+  const handleResolve = async (id: string) => {
+    if (USE_V1) await alertsV1.resolve(id);
+    else adminService.resolveAlert(id, 'Response unit on-scene. Incident secured.');
   };
 
   return (

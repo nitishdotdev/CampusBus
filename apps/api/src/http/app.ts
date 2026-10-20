@@ -184,6 +184,12 @@ export function createApp(deps: AppDeps) {
 
   // ─── Users (admin management) ────────────────────────────────────────────
   const userRouter = express.Router();
+  // /me must be registered before /:id to avoid being shadowed
+  userRouter.get('/me', auth, wrap(async (req, res) => {
+    const u = await deps.users.findById(req.principal.campusId, req.principal.userId);
+    if (!u) throw new DomainError(404, 'USER_NOT_FOUND');
+    res.json(u);
+  }));
   userRouter.get('/', auth, requireRole('ADMIN'), wrap(async (req, res) => {
     const q = z.object({ role: z.enum(['STUDENT', 'DRIVER', 'ADMIN']).optional(), status: z.enum(['PENDING', 'ACTIVE', 'REJECTED', 'DISABLED']).optional(), page: z.coerce.number().int().min(1).optional(), pageSize: z.coerce.number().int().min(1).max(100).optional() }).parse(req.query);
     res.json(await deps.users.list(req.principal.campusId, q));
@@ -199,11 +205,6 @@ export function createApp(deps: AppDeps) {
     const ok = await deps.users.assignTransport(req.principal.campusId, req.params['id']!, busId, routeId);
     if (!ok) throw new DomainError(404, 'USER_NOT_FOUND');
     res.status(204).send();
-  }));
-  userRouter.get('/me', auth, wrap(async (req, res) => {
-    const u = await deps.users.findById(req.principal.campusId, req.principal.userId);
-    if (!u) throw new DomainError(404, 'USER_NOT_FOUND');
-    res.json(u);
   }));
   app.use('/api/v1/users', userRouter);
 

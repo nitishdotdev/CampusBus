@@ -2,6 +2,11 @@ import { User, UserRole } from '../types';
 import { apiClient, setStoredToken, getStoredToken } from './apiClient';
 import { socketService } from './socketService';
 
+// Lazy import to avoid circular dependency — only loaded when v1 is active
+const USE_V1 = typeof window !== 'undefined' &&
+  (window as any).__VITE_USE_V1_API__ ||
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_USE_V1_API === 'true');
+
 const AUTH_STORAGE_KEY = 'smart_campus_bus_auth_user';
 
 class AuthService {
@@ -91,6 +96,26 @@ class AuthService {
     }
   }
 
+  /**
+   * Bridge: accept a v1 SessionUser and populate the existing AppContext-compatible
+   * auth state without storing a legacy JWT (v1 tokens live in the v1 client module).
+   */
+  public setV1Session(v1User: { userId: string; campusId: string; name: string; email: string; role: string }): void {
+    const syntheticUser: User = {
+      id: v1User.userId,
+      collegeId: v1User.campusId,
+      name: v1User.name,
+      email: v1User.email,
+      role: v1User.role as UserRole,
+    };
+    // Store WITHOUT a token — v1 client manages its own access token in memory.
+    // isAuthenticated() checks getStoredToken(), so we store a sentinel.
+    setStoredToken('v1');
+    this.currentUser = syntheticUser;
+    this.saveSession();
+    this.notifyListeners();
+  }
+
   public logout(): void {
     setStoredToken(null);
     this.currentUser = null;
@@ -100,6 +125,33 @@ class AuthService {
   }
 
   private async validateSession(): Promise<void> {
+    // If running on v1 API, the stored token sentinel is 'v1'.
+    // We attempt a silent refresh → /api/v1/auth/me to restore the in-memory access token.
+    if (USE_V1 && getStoredToken() === 'v1') {
+      try {
+        // Dynamically import to avoid circular deps at module load time
+        const { getMeV1, loginV1 } = await import('./v1/auth');
+        const { v1Token } = await import('./v1/client');
+        const { socketV1 } = await import('./v1/socket');
+
+        // Try with existing in-memory access token first (e.g. HMR / same tab)
+        let me = v1Token.getAccess() ? await getMeV1() : null;
+
+        if (!me) {
+          // Access token is gone (page reload) — clear session, force re-login
+          // A proper refresh-token cookie flow would go here; without it, logout.
+          this.logout();
+          return;
+        }
+        this.setV1Session(me);
+        socketV1.connect();
+      } catch {
+        this.logout();
+      }
+      return;
+    }
+
+    // Legacy path
     try {
       const res = await apiClient.get<{ user: User }>('/api/auth/me');
       if (res.user) {
@@ -109,7 +161,6 @@ class AuthService {
         socketService.connect(res.user.collegeId);
       }
     } catch {
-      // Token invalid or expired, clear session
       this.logout();
     }
   }
