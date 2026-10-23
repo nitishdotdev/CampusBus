@@ -17,7 +17,7 @@ export const AppShell: React.FC = () => {
   // Auth guard: redirect to login if not authenticated
   useEffect(() => {
     if (!authService.isAuthenticated()) {
-      navigate('/login', { replace: true });
+      navigate('/roles', { replace: true });
     }
   }, [currentUser, navigate]);
 

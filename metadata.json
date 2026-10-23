@@ -1,5 +1,5 @@
 {
-  "name": "Smart Campus Bus",
+  "name": "CampusBus",
   "description": "Realistic college transportation platform for students, drivers, and campus fleet administrators.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

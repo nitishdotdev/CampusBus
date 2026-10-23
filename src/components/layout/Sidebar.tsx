@@ -48,7 +48,7 @@ export const Sidebar: React.FC = () => {
           <Bus className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="font-bold text-sm tracking-tight text-white">CampusMove</h1>
+          <h1 className="font-bold text-sm tracking-tight text-white">CampusBus</h1>
           <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-400">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="truncate max-w-[130px]">{currentCollege.shortCode}</span>
@@ -85,7 +85,7 @@ export const Sidebar: React.FC = () => {
       <div className="p-4 border-t border-slate-800/80 bg-slate-950/60 text-[11px] text-slate-400 flex items-center justify-between">
         <div>
           <div className="font-semibold text-slate-300">{currentCollege.name}</div>
-          <div className="text-[10px] text-slate-500">CampusMove</div>
+          <div className="text-[10px] text-slate-500">CampusBus</div>
         </div>
         <MapPin className="w-4 h-4 text-slate-500" />
       </div>

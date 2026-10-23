@@ -4,6 +4,7 @@ import { AppProvider } from "./store/AppContext";
 import { AppShell } from "./components/layout/AppShell";
 import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/auth/LoginPage";
+import { RoleSelectPage } from "./pages/auth/RoleSelectPage";
 import { StudentDashboard } from "./pages/student/StudentDashboard";
 import { StudentLiveBuses } from "./pages/student/StudentLiveBuses";
 import { StudentRoutes } from "./pages/student/StudentRoutes";
@@ -31,6 +32,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          <Route path="/roles" element={<RoleSelectPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route element={<AppShell />}>
             <Route path="/student" element={<StudentDashboard />} />

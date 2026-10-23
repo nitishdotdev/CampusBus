@@ -1,4 +1,4 @@
-# CampusMove — Smart Campus Bus
+# CampusBus — Smart Campus Bus
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B%20%7C%2020%2B-green.svg)](https://nodejs.org)
@@ -6,7 +6,7 @@
 [![Vite](https://img.shields.io/badge/Vite-8.3-purple.svg)](https://vitejs.dev)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-336791.svg)](https://www.postgresql.org)
 
-CampusMove is a production-grade multi-tenant smart campus transit and live bus tracking platform designed for university fleets, students, campus drivers, and transportation administrators.
+CampusBus is a production-grade multi-tenant smart campus transit and live bus tracking platform designed for university fleets, students, campus drivers, and transportation administrators.
 
 ---
 
@@ -71,7 +71,7 @@ npm run lint
 
 ## 📦 Production Deployment Architecture
 
-CampusMove is architected for a split deployment:
+CampusBus is architected for a split deployment:
 
 * **Frontend**: [Vercel](https://vercel.com) (Static SPA with client-side routing)
 * **Backend**: [Render](https://render.com) (Express + Socket.IO Node.js Web Service)
