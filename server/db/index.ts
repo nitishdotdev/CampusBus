@@ -92,6 +92,9 @@ export interface BusRecord {
   eta_confidence: 'LIVE' | 'DEGRADED' | 'STALE' | 'OFFLINE' | 'SCHEDULED';
   is_simulated: boolean;
   last_sync_timestamp: string;
+  current_stop_id?: string | null;
+  next_stop_id?: string | null;
+  completed_stop_ids?: string[];
   updated_at: string;
 }
 
@@ -134,6 +137,16 @@ export interface ComplaintRecord {
   updated_at: string;
 }
 
+export interface StopArrivalRecord {
+  stop_id: string;
+  stop_name: string;
+  sequence: number;
+  arrived_at: string;
+  lat: number;
+  lng: number;
+  distance_to_stop_m?: number;
+}
+
 export interface TripRecord {
   id: string;
   college_id: string;
@@ -149,6 +162,10 @@ export interface TripRecord {
   total_locations_logged: number;
   synced_locations_count: number;
   queued_locations_count: number;
+  current_stop_id?: string | null;
+  next_stop_id?: string | null;
+  completed_stop_ids?: string[];
+  stop_arrivals?: StopArrivalRecord[];
   created_at: string;
 }
 
@@ -847,6 +864,24 @@ export async function initDatabase(): Promise<{ isPostgres: boolean }> {
         console.warn('PostgreSQL schema.sql could not be located in candidate paths:', possibleSchemaPaths);
       }
 
+      // Safe, additive, repeatable migration for stop progression columns
+      await client.query(`
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'trips') THEN
+                ALTER TABLE trips ADD COLUMN IF NOT EXISTS current_stop_id VARCHAR(64);
+                ALTER TABLE trips ADD COLUMN IF NOT EXISTS next_stop_id VARCHAR(64);
+                ALTER TABLE trips ADD COLUMN IF NOT EXISTS completed_stop_ids JSONB DEFAULT '[]'::jsonb;
+                ALTER TABLE trips ADD COLUMN IF NOT EXISTS stop_arrivals JSONB DEFAULT '[]'::jsonb;
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'buses') THEN
+                ALTER TABLE buses ADD COLUMN IF NOT EXISTS current_stop_id VARCHAR(64);
+                ALTER TABLE buses ADD COLUMN IF NOT EXISTS next_stop_id VARCHAR(64);
+                ALTER TABLE buses ADD COLUMN IF NOT EXISTS completed_stop_ids JSONB DEFAULT '[]'::jsonb;
+            END IF;
+        END $$;
+      `);
+
       if (!isProduction || process.env.SEED_INITIAL_DATA === 'true') {
         await seedPostgresData(client);
       } else {
@@ -871,6 +906,25 @@ export async function initDatabase(): Promise<{ isPostgres: boolean }> {
     await seedInitialData();
   } else {
     console.log(`Loaded file database: ${memoryData.buses.length} buses, ${memoryData.routes.length} routes.`);
+    // Refresh seed user hashes in case the stored hash is stale (e.g. after a reseeding or bcrypt cost change).
+    // This prevents "Invalid credentials" after server restarts when the persisted hash doesn't match.
+    const SEED_PASSWORD = 'ApexBus2025!';
+    const SEED_USER_IDS = ['usr_student_alex', 'usr_driver_marcus', 'usr_driver_elena', 'usr_admin_sarah', 'usr_student_metro'];
+    const seedUsers = memoryData.users.filter(u => SEED_USER_IDS.includes(u.id));
+    if (seedUsers.length > 0) {
+      // Verify a sample hash; if it doesn't match, refresh all seed users
+      const sample = seedUsers[0];
+      const valid = sample.password_hash ? await bcrypt.compare(SEED_PASSWORD, sample.password_hash) : false;
+      if (!valid) {
+        console.log('Refreshing stale seed user password hashes...');
+        const freshHash = await bcrypt.hash(SEED_PASSWORD, 10);
+        for (const u of seedUsers) {
+          u.password_hash = freshHash;
+        }
+        saveFileDb();
+        console.log('Seed user hashes refreshed and persisted.');
+      }
+    }
   }
 
   return { isPostgres: false };
@@ -1281,6 +1335,60 @@ export async function deleteComplaint(complaintId: string, collegeId: string): P
 }
 
 
+function normalizeTripRecord(r: any): TripRecord {
+  if (!r) return r;
+  let completed_stop_ids: string[] = [];
+  if (Array.isArray(r.completed_stop_ids)) {
+    completed_stop_ids = r.completed_stop_ids;
+  } else if (typeof r.completed_stop_ids === 'string') {
+    try {
+      completed_stop_ids = JSON.parse(r.completed_stop_ids);
+    } catch {
+      completed_stop_ids = [];
+    }
+  }
+
+  let stop_arrivals: StopArrivalRecord[] = [];
+  if (Array.isArray(r.stop_arrivals)) {
+    stop_arrivals = r.stop_arrivals;
+  } else if (typeof r.stop_arrivals === 'string') {
+    try {
+      stop_arrivals = JSON.parse(r.stop_arrivals);
+    } catch {
+      stop_arrivals = [];
+    }
+  }
+
+  return {
+    ...r,
+    current_stop_id: r.current_stop_id ?? null,
+    next_stop_id: r.next_stop_id ?? null,
+    completed_stop_ids,
+    stop_arrivals,
+  };
+}
+
+function normalizeBusRecord(r: any): BusRecord {
+  if (!r) return r;
+  let completed_stop_ids: string[] = [];
+  if (Array.isArray(r.completed_stop_ids)) {
+    completed_stop_ids = r.completed_stop_ids;
+  } else if (typeof r.completed_stop_ids === 'string') {
+    try {
+      completed_stop_ids = JSON.parse(r.completed_stop_ids);
+    } catch {
+      completed_stop_ids = [];
+    }
+  }
+
+  return {
+    ...r,
+    current_stop_id: r.current_stop_id ?? null,
+    next_stop_id: r.next_stop_id ?? null,
+    completed_stop_ids,
+  };
+}
+
 // -------------------------------------------------------------
 // Unified Repository Operations (Auto-routes to Postgres or Memory)
 // -------------------------------------------------------------
@@ -1319,6 +1427,39 @@ export const db = {
       };
     }
     return memoryData.colleges.find((c) => c.id === id) || null;
+  },
+
+  async updateCollege(id: string, updates: Partial<CollegeRecord>): Promise<CollegeRecord | null> {
+    if (pool) {
+      const allowed = ['name', 'domain', 'center_lat', 'center_lng', 'zoom_level', 'settings'];
+      const setClauses: string[] = [];
+      const values: any[] = [];
+      let paramIndex = 1;
+      for (const [key, value] of Object.entries(updates)) {
+        if (allowed.includes(key)) {
+          setClauses.push(`${key} = $${paramIndex}`);
+          values.push(key === 'settings' ? (typeof value === 'string' ? value : JSON.stringify(value)) : value);
+          paramIndex++;
+        }
+      }
+      if (setClauses.length === 0) return this.getCollegeById(id);
+      values.push(id);
+      const res = await pool.query(
+        `UPDATE colleges SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+        values
+      );
+      if (res.rows.length === 0) return null;
+      const r = res.rows[0];
+      return {
+        ...r,
+        settings: typeof r.settings === 'string' ? JSON.parse(r.settings) : r.settings,
+      };
+    }
+    const idx = memoryData.colleges.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    memoryData.colleges[idx] = { ...memoryData.colleges[idx], ...updates };
+    saveFileDb();
+    return memoryData.colleges[idx];
   },
 
   // Users
@@ -1366,6 +1507,45 @@ export const db = {
       saveFileDb();
     }
     return user;
+  },
+
+  async updateUser(id: string, collegeId: string, updates: Partial<UserRecord>): Promise<UserRecord | null> {
+    if (pool) {
+      const allowed = ['name', 'phone', 'cdl_number', 'student_id', 'status', 'password_hash'];
+      const setClauses: string[] = [];
+      const values: any[] = [];
+      let paramIndex = 1;
+      for (const [key, value] of Object.entries(updates)) {
+        if (allowed.includes(key)) {
+          setClauses.push(`${key} = $${paramIndex}`);
+          values.push(value);
+          paramIndex++;
+        }
+      }
+      if (setClauses.length === 0) return this.getUserById(id);
+      values.push(id, collegeId);
+      const res = await pool.query(
+        `UPDATE users SET ${setClauses.join(', ')} WHERE id = $${paramIndex} AND college_id = $${paramIndex + 1} RETURNING *`,
+        values
+      );
+      return res.rows[0] || null;
+    }
+    const idx = memoryData.users.findIndex((u) => u.id === id && u.college_id === collegeId);
+    if (idx === -1) return null;
+    memoryData.users[idx] = { ...memoryData.users[idx], ...updates };
+    saveFileDb();
+    return memoryData.users[idx];
+  },
+
+  async deleteUser(id: string, collegeId: string): Promise<boolean> {
+    if (pool) {
+      const res = await pool.query('DELETE FROM users WHERE id = $1 AND college_id = $2', [id, collegeId]);
+      return (res.rowCount ?? 0) > 0;
+    }
+    const lenBefore = memoryData.users.length;
+    memoryData.users = memoryData.users.filter((u) => !(u.id === id && u.college_id === collegeId));
+    saveFileDb();
+    return memoryData.users.length < lenBefore;
   },
 
   // Routes
@@ -1516,9 +1696,9 @@ export const db = {
       }
       query += ' ORDER BY bus_number ASC';
       const res = await pool.query(query, params);
-      return res.rows;
+      return res.rows.map(normalizeBusRecord);
     }
-    return memoryData.buses.filter((b) => b.college_id === collegeId && (!filterRouteId || b.current_route_id === filterRouteId));
+    return memoryData.buses.filter((b) => b.college_id === collegeId && (!filterRouteId || b.current_route_id === filterRouteId)).map(normalizeBusRecord);
   },
 
   async getBusById(id: string, collegeId?: string): Promise<BusRecord | null> {
@@ -1530,9 +1710,10 @@ export const db = {
         params.push(collegeId);
       }
       const res = await pool.query(query, params);
-      return res.rows[0] || null;
+      return res.rows[0] ? normalizeBusRecord(res.rows[0]) : null;
     }
-    return memoryData.buses.find((b) => b.id === id && (!collegeId || b.college_id === collegeId)) || null;
+    const b = memoryData.buses.find((b) => b.id === id && (!collegeId || b.college_id === collegeId));
+    return b ? normalizeBusRecord(b) : null;
   },
 
   async createBus(bus: BusRecord): Promise<BusRecord> {
@@ -1546,7 +1727,7 @@ export const db = {
       memoryData.buses.push(bus);
       saveFileDb();
     }
-    return bus;
+    return normalizeBusRecord(bus);
   },
 
   async updateBus(id: string, collegeId: string, updates: Partial<BusRecord>): Promise<BusRecord | null> {
@@ -1554,14 +1735,25 @@ export const db = {
       const keys = Object.keys(updates).filter((k) => k !== 'id' && k !== 'college_id');
       if (keys.length === 0) return this.getBusById(id, collegeId);
 
-      const setClause = keys.map((k, idx) => `${k} = $${idx + 3}`).join(', ');
-      const values = keys.map((k) => (updates as any)[k]);
+      const setClause = keys.map((k, idx) => {
+        if (k === 'completed_stop_ids') {
+          return `${k} = $${idx + 3}::jsonb`;
+        }
+        return `${k} = $${idx + 3}`;
+      }).join(', ');
+      const values = keys.map((k) => {
+        const val = (updates as any)[k];
+        if (k === 'completed_stop_ids' && typeof val !== 'string') {
+          return JSON.stringify(val);
+        }
+        return val;
+      });
 
       const res = await pool.query(
         `UPDATE buses SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND college_id = $2 RETURNING *`,
         [id, collegeId, ...values]
       );
-      return res.rows[0] || null;
+      return res.rows[0] ? normalizeBusRecord(res.rows[0]) : null;
     }
 
     const idx = memoryData.buses.findIndex((b) => b.id === id && b.college_id === collegeId);
@@ -1573,7 +1765,7 @@ export const db = {
       updated_at: new Date().toISOString(),
     };
     saveFileDb();
-    return memoryData.buses[idx];
+    return normalizeBusRecord(memoryData.buses[idx]);
   },
 
   async deleteBus(id: string, collegeId: string): Promise<boolean> {
@@ -1594,13 +1786,12 @@ export const db = {
         'SELECT * FROM trips WHERE driver_id = $1 AND college_id = $2 AND status IN (\'STARTED\', \'IN_PROGRESS\') ORDER BY start_time DESC LIMIT 1',
         [driverId, collegeId]
       );
-      return res.rows[0] || null;
+      return res.rows[0] ? normalizeTripRecord(res.rows[0]) : null;
     }
-    return (
-      memoryData.trips.find(
-        (t) => t.driver_id === driverId && t.college_id === collegeId && (t.status === 'STARTED' || t.status === 'IN_PROGRESS')
-      ) || null
+    const trip = memoryData.trips.find(
+      (t) => t.driver_id === driverId && t.college_id === collegeId && (t.status === 'STARTED' || t.status === 'IN_PROGRESS')
     );
+    return trip ? normalizeTripRecord(trip) : null;
   },
 
   async getActiveTripForBus(busId: string, collegeId: string): Promise<TripRecord | null> {
@@ -1609,13 +1800,12 @@ export const db = {
         'SELECT * FROM trips WHERE bus_id = $1 AND college_id = $2 AND status IN (\'STARTED\', \'IN_PROGRESS\') ORDER BY start_time DESC LIMIT 1',
         [busId, collegeId]
       );
-      return res.rows[0] || null;
+      return res.rows[0] ? normalizeTripRecord(res.rows[0]) : null;
     }
-    return (
-      memoryData.trips.find(
-        (t) => t.bus_id === busId && t.college_id === collegeId && (t.status === 'STARTED' || t.status === 'IN_PROGRESS')
-      ) || null
+    const trip = memoryData.trips.find(
+      (t) => t.bus_id === busId && t.college_id === collegeId && (t.status === 'STARTED' || t.status === 'IN_PROGRESS')
     );
+    return trip ? normalizeTripRecord(trip) : null;
   },
 
   async getTrips(collegeId: string, driverId?: string): Promise<TripRecord[]> {
@@ -1628,40 +1818,77 @@ export const db = {
       }
       query += ' ORDER BY start_time DESC';
       const res = await pool.query(query, params);
-      return res.rows;
+      return res.rows.map(normalizeTripRecord);
     }
     return memoryData.trips
       .filter((t) => t.college_id === collegeId && (!driverId || t.driver_id === driverId))
-      .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
+      .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+      .map(normalizeTripRecord);
   },
 
   async createTrip(trip: TripRecord): Promise<TripRecord> {
+    const fullTrip: TripRecord = {
+      ...trip,
+      current_stop_id: trip.current_stop_id ?? null,
+      next_stop_id: trip.next_stop_id ?? null,
+      completed_stop_ids: trip.completed_stop_ids || [],
+      stop_arrivals: trip.stop_arrivals || [],
+    };
     if (pool) {
       await pool.query(
-        `INSERT INTO trips (id, college_id, bus_id, route_id, driver_id, status, start_time, current_occupancy, max_occupancy_recorded, distance_covered_km, total_locations_logged, synced_locations_count, queued_locations_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-        [trip.id, trip.college_id, trip.bus_id, trip.route_id, trip.driver_id, trip.status, trip.start_time, trip.current_occupancy, trip.max_occupancy_recorded, trip.distance_covered_km, trip.total_locations_logged, trip.synced_locations_count, trip.queued_locations_count]
+        `INSERT INTO trips (id, college_id, bus_id, route_id, driver_id, status, start_time, current_occupancy, max_occupancy_recorded, distance_covered_km, total_locations_logged, synced_locations_count, queued_locations_count, current_stop_id, next_stop_id, completed_stop_ids, stop_arrivals)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+        [
+          fullTrip.id,
+          fullTrip.college_id,
+          fullTrip.bus_id,
+          fullTrip.route_id,
+          fullTrip.driver_id,
+          fullTrip.status,
+          fullTrip.start_time,
+          fullTrip.current_occupancy,
+          fullTrip.max_occupancy_recorded,
+          fullTrip.distance_covered_km,
+          fullTrip.total_locations_logged,
+          fullTrip.synced_locations_count,
+          fullTrip.queued_locations_count,
+          fullTrip.current_stop_id || null,
+          fullTrip.next_stop_id || null,
+          JSON.stringify(fullTrip.completed_stop_ids || []),
+          JSON.stringify(fullTrip.stop_arrivals || []),
+        ]
       );
     } else {
-      memoryData.trips.unshift(trip);
+      memoryData.trips.unshift(fullTrip);
       saveFileDb();
     }
-    return trip;
+    return normalizeTripRecord(fullTrip);
   },
 
   async updateTrip(id: string, collegeId: string, updates: Partial<TripRecord>): Promise<TripRecord | null> {
     if (pool) {
       const keys = Object.keys(updates).filter((k) => k !== 'id' && k !== 'college_id');
-      if (keys.length === 0) return null;
+      if (keys.length === 0) return this.getTripById(id, collegeId);
 
-      const setClause = keys.map((k, idx) => `${k} = $${idx + 3}`).join(', ');
-      const values = keys.map((k) => (updates as any)[k]);
+      const setClause = keys.map((k, idx) => {
+        if (k === 'completed_stop_ids' || k === 'stop_arrivals') {
+          return `${k} = $${idx + 3}::jsonb`;
+        }
+        return `${k} = $${idx + 3}`;
+      }).join(', ');
+      const values = keys.map((k) => {
+        const val = (updates as any)[k];
+        if ((k === 'completed_stop_ids' || k === 'stop_arrivals') && typeof val !== 'string') {
+          return JSON.stringify(val);
+        }
+        return val;
+      });
 
       const res = await pool.query(
         `UPDATE trips SET ${setClause} WHERE id = $1 AND college_id = $2 RETURNING *`,
         [id, collegeId, ...values]
       );
-      return res.rows[0] || null;
+      return res.rows[0] ? normalizeTripRecord(res.rows[0]) : null;
     }
 
     const idx = memoryData.trips.findIndex((t) => t.id === id && t.college_id === collegeId);
@@ -1672,7 +1899,83 @@ export const db = {
       ...updates,
     };
     saveFileDb();
-    return memoryData.trips[idx];
+    return normalizeTripRecord(memoryData.trips[idx]);
+  },
+
+  async getTripById(id: string, collegeId: string): Promise<TripRecord | null> {
+    if (pool) {
+      const res = await pool.query('SELECT * FROM trips WHERE id = $1 AND college_id = $2', [id, collegeId]);
+      return res.rows[0] ? normalizeTripRecord(res.rows[0]) : null;
+    }
+    const trip = memoryData.trips.find((t) => t.id === id && t.college_id === collegeId);
+    return trip ? normalizeTripRecord(trip) : null;
+  },
+
+  async executeWithTripLock<T>(
+    id: string,
+    collegeId: string,
+    operation: (
+      lockedTrip: TripRecord,
+      updateFn: (updates: Partial<TripRecord>) => Promise<TripRecord | null>
+    ) => Promise<T>
+  ): Promise<T | null> {
+    if (pool) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const res = await client.query(
+          'SELECT * FROM trips WHERE id = $1 AND college_id = $2 FOR UPDATE',
+          [id, collegeId]
+        );
+        if (!res.rows[0]) {
+          await client.query('ROLLBACK');
+          return null;
+        }
+        const lockedTrip = normalizeTripRecord(res.rows[0]);
+        const updateLocked = async (updates: Partial<TripRecord>): Promise<TripRecord | null> => {
+          const keys = Object.keys(updates).filter((k) => k !== 'id' && k !== 'college_id');
+          if (keys.length === 0) return lockedTrip;
+
+          const setClause = keys
+            .map((k, idx) => {
+              if (k === 'completed_stop_ids' || k === 'stop_arrivals') {
+                return `${k} = $${idx + 3}::jsonb`;
+              }
+              return `${k} = $${idx + 3}`;
+            })
+            .join(', ');
+          const values = keys.map((k) => {
+            const val = (updates as any)[k];
+            if ((k === 'completed_stop_ids' || k === 'stop_arrivals') && typeof val !== 'string') {
+              return JSON.stringify(val);
+            }
+            return val;
+          });
+
+          const updateRes = await client.query(
+            `UPDATE trips SET ${setClause} WHERE id = $1 AND college_id = $2 RETURNING *`,
+            [id, collegeId, ...values]
+          );
+          return updateRes.rows[0] ? normalizeTripRecord(updateRes.rows[0]) : null;
+        };
+
+        const result = await operation(lockedTrip, updateLocked);
+        await client.query('COMMIT');
+        return result;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
+    const trip = await this.getTripById(id, collegeId);
+    if (!trip) return null;
+    const updateMem = async (updates: Partial<TripRecord>) => {
+      return this.updateTrip(id, collegeId, updates);
+    };
+    return operation(trip, updateMem);
   },
 
   // Locations / GPS Breadcrumbs

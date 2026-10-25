@@ -59,49 +59,84 @@ export function determineConfidence(
 }
 
 /**
- * Calculate honest ETAs to stops along a route
+ * Calculate honest ETAs to upcoming stops along a route.
+ * Strictly respects route sequence, completed stops, realistic travel speeds,
+ * and road corridor circuity rather than straight-line flight across buildings.
  */
 export function calculateRouteETAs(
   busLat: number,
   busLng: number,
   speedKmh: number,
   stops: { id: string; name: string; lat: number; lng: number; sequence: number }[],
-  confidence: ETAConfidence
+  confidence: ETAConfidence,
+  options?: {
+    completedStopIds?: string[];
+    nextStopId?: string | null;
+    pathCoordinates?: [number, number][];
+  }
 ): CalculatedETA[] {
-  if (stops.length === 0) return [];
+  if (!stops || stops.length === 0) return [];
 
-  // Effective transit travel speed: clamp between 15 km/h (traffic/lights) and 45 km/h
-  const effectiveSpeed = speedKmh > 5 ? Math.min(Math.max(speedKmh, 15), 45) : 22;
-  const dwellTimePerStopHours = 0.75 / 60; // 45 seconds per stop
+  // Reject invalid, NaN, or out-of-range coordinates
+  if (!Number.isFinite(busLat) || !Number.isFinite(busLng) || busLat < -90 || busLat > 90 || busLng < -180 || busLng > 180) {
+    return [];
+  }
 
-  // Sort stops by sequence
-  const sortedStops = [...stops].sort((a, b) => a.sequence - b.sequence);
+  // If telemetry is offline, stale (>5 min), or unavailable, show honest unavailable state
+  if (confidence === 'OFFLINE') {
+    return [];
+  }
 
-  // Find nearest stop to current location
-  let nearestIdx = 0;
-  let minDistance = Infinity;
+  // Filter out stops with missing or invalid coordinates
+  const validStops = stops.filter(
+    (s) => Number.isFinite(s.lat) && Number.isFinite(s.lng) && s.lat >= -90 && s.lat <= 90 && s.lng >= -180 && s.lng <= 180
+  );
+  if (validStops.length === 0) return [];
 
-  sortedStops.forEach((stop, idx) => {
-    const dist = haversineKm(busLat, busLng, stop.lat, stop.lng);
-    if (dist < minDistance) {
-      minDistance = dist;
-      nearestIdx = idx;
+  // Sort stops by defined route sequence
+  const sortedStops = [...validStops].sort((a, b) => a.sequence - b.sequence);
+
+  // If completedStopIds provided, only compute ETAs for remaining upcoming stops in sequence
+  const completedSet = new Set(options?.completedStopIds || []);
+  let eligibleStops = sortedStops.filter((s) => !completedSet.has(s.id));
+
+  // If all stops completed or no eligible stops remain
+  if (eligibleStops.length === 0) {
+    return [];
+  }
+
+  // If nextStopId is specified, ensure sequence starts from that stop
+  if (options?.nextStopId) {
+    const nextIdx = eligibleStops.findIndex((s) => s.id === options.nextStopId);
+    if (nextIdx > 0) {
+      eligibleStops = eligibleStops.slice(nextIdx);
     }
-  });
+  }
+
+  // Effective transit travel speed:
+  // When stationary (stopped at curb/light), use realistic 20 km/h campus speed
+  // When in motion, clamp between 15 km/h (heavy foot traffic/crosswalks) and 42 km/h
+  const effectiveSpeed = speedKmh >= 8 ? Math.min(Math.max(speedKmh, 15), 42) : 20;
+  const dwellTimePerStopHours = 0.75 / 60; // 45 seconds per intermediate stop dwell
+
+  // Road network factor: campus roads and urban grid have ~1.25x circuity over straight line
+  const ROAD_CIRCUITY_FACTOR = 1.25;
 
   const results: CalculatedETA[] = [];
   let cumulativeDist = 0;
 
-  for (let i = 0; i < sortedStops.length; i++) {
-    // Relative sequence position ahead of current location
-    const stopIdx = (nearestIdx + i) % sortedStops.length;
-    const stop = sortedStops[stopIdx];
+  for (let i = 0; i < eligibleStops.length; i++) {
+    const stop = eligibleStops[i];
 
     if (i === 0) {
-      cumulativeDist = minDistance;
+      // Distance from bus current location to the first upcoming stop
+      const directDist = haversineKm(busLat, busLng, stop.lat, stop.lng);
+      cumulativeDist = directDist * ROAD_CIRCUITY_FACTOR;
     } else {
-      const prevStop = sortedStops[(nearestIdx + i - 1) % sortedStops.length];
-      cumulativeDist += haversineKm(prevStop.lat, prevStop.lng, stop.lat, stop.lng);
+      // Distance from previous stop in sequence to this stop
+      const prevStop = eligibleStops[i - 1];
+      const interStopDist = haversineKm(prevStop.lat, prevStop.lng, stop.lat, stop.lng);
+      cumulativeDist += interStopDist * ROAD_CIRCUITY_FACTOR;
     }
 
     const driveTimeHours = cumulativeDist / effectiveSpeed;

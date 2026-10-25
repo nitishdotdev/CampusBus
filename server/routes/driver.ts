@@ -4,6 +4,7 @@ import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/au
 import { broadcastBusLocation, broadcastBusUpdate, broadcastEmergencyAlert } from '../socket';
 import { determineConfidence, calculateRouteETAs } from '../utils/eta';
 import { validateTelemetry } from '../utils/validation';
+import { processStopProgression } from '../utils/progression';
 
 const router = Router();
 
@@ -29,6 +30,10 @@ router.get('/assignments', requireAuth, requireRole(['DRIVER', 'ADMIN']), async 
           routeName: route?.name,
           routeCode: route?.code,
           stops,
+          currentStopId: activeTrip.current_stop_id || bus?.current_stop_id || null,
+          nextStopId: activeTrip.next_stop_id || bus?.next_stop_id || (stops[0]?.id || null),
+          completedStopIds: activeTrip.completed_stop_ids || bus?.completed_stop_ids || [],
+          stopArrivals: activeTrip.stop_arrivals || [],
           status: activeTrip.status,
           startTime: activeTrip.start_time,
           currentOccupancy: activeTrip.current_occupancy,
@@ -87,6 +92,32 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
       return;
     }
 
+    // Verify trip status: no new GPS events accepted as live telemetry for an ended trip
+    if (tripId && tripId !== 'no_trip') {
+      const trip = await db.getTripById(tripId, user.collegeId);
+      if (!trip) {
+        res.status(404).json({ error: `Trip (${tripId}) not found in your college.` });
+        return;
+      }
+      if (trip.status === 'COMPLETED' || trip.status === 'CANCELLED') {
+        res.status(400).json({ error: `Cannot accept live telemetry for ended trip (${tripId}).` });
+        return;
+      }
+      if (user.role === 'DRIVER' && trip.driver_id !== user.userId) {
+        res.status(403).json({ error: 'Driver is not authorized to submit telemetry for this trip.' });
+        return;
+      }
+      if (trip.bus_id !== busId) {
+        res.status(400).json({ error: 'Trip does not match the provided busId.' });
+        return;
+      }
+    } else if (user.role === 'DRIVER') {
+      if (bus.current_driver_id !== user.userId) {
+        res.status(403).json({ error: 'You are not assigned to this bus.' });
+        return;
+      }
+    }
+
     // Validate GPS telemetry and coordinates
     const telemetryValidation = validateTelemetry({ lat, lng, speed, heading, accuracy });
     if (!telemetryValidation.valid || !telemetryValidation.data) {
@@ -118,7 +149,7 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
 
     // 2. Update Bus vehicle state
     const confidence = determineConfidence(recordedAt, 'ACTIVE', Boolean(isSimulated));
-    const updatedBus = await db.updateBus(busId, user.collegeId, {
+    await db.updateBus(busId, user.collegeId, {
       last_location_lat: validData.lat,
       last_location_lng: validData.lng,
       speed_kmh: speedKmh,
@@ -130,7 +161,24 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
       last_sync_timestamp: recordedAt,
     });
 
-    // 3. Compute honest upcoming ETAs for real-time broadcast
+    // 3. Process backend-validated stop progression if on an active trip
+    let progression = null;
+    if (tripId && tripId !== 'no_trip') {
+      progression = await processStopProgression(tripId, user.collegeId, {
+        lat: validData.lat,
+        lng: validData.lng,
+        speed: validData.speed,
+        heading: validData.heading,
+        accuracy: validData.accuracy,
+        timestamp: recordedAt,
+        isOfflineQueued: false,
+      });
+    }
+
+    // 4. Retrieve authoritative refreshed bus record
+    const updatedBus = await db.getBusById(busId, user.collegeId);
+
+    // 5. Compute honest upcoming ETAs for real-time broadcast
     if (updatedBus) {
       const stops = await db.getStops(user.collegeId, updatedBus.current_route_id);
       const upcomingEtas = calculateRouteETAs(
@@ -138,7 +186,11 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
         validData.lng,
         speedKmh,
         stops,
-        confidence
+        confidence,
+        {
+          completedStopIds: updatedBus.completed_stop_ids,
+          nextStopId: updatedBus.next_stop_id,
+        }
       );
 
       const payload = {
@@ -154,6 +206,9 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
         networkStatus: 'NETWORK_ONLINE',
         etaConfidence: confidence,
         isSimulated: Boolean(isSimulated),
+        currentStopId: updatedBus.current_stop_id || null,
+        nextStopId: updatedBus.next_stop_id || null,
+        completedStopIds: updatedBus.completed_stop_ids || [],
         upcomingEtas,
         nextStop: upcomingEtas[0]
           ? {
@@ -162,6 +217,7 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
               distanceKm: upcomingEtas[0].distanceKm,
             }
           : undefined,
+        progression,
       };
 
       broadcastBusLocation(user.collegeId, payload);
@@ -176,6 +232,7 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
       success: true,
       syncedAt: recordedAt,
       confidence,
+      progression,
     });
   } catch (err: any) {
     console.error('Error saving driver location:', err);
@@ -205,6 +262,34 @@ router.post('/location/sync', requireAuth, requireRole(['DRIVER', 'ADMIN']), asy
     if (!bus) {
       res.status(404).json({ error: 'Bus not found in your college fleet.' });
       return;
+    }
+
+    // Authorization & trip state check
+    let activeTripRecord = null;
+    if (tripId && tripId !== 'no_trip') {
+      const trip = await db.getTripById(tripId, user.collegeId);
+      if (!trip) {
+        res.status(404).json({ error: `Trip (${tripId}) not found in your college.` });
+        return;
+      }
+      if (trip.status === 'COMPLETED' || trip.status === 'CANCELLED') {
+        res.status(400).json({ error: `Cannot accept telemetry for ended trip (${tripId}).` });
+        return;
+      }
+      if (user.role === 'DRIVER' && trip.driver_id !== user.userId) {
+        res.status(403).json({ error: 'Driver is not authorized to submit telemetry for this trip.' });
+        return;
+      }
+      if (trip.bus_id !== targetBusId) {
+        res.status(400).json({ error: 'Trip does not match the provided busId.' });
+        return;
+      }
+      activeTripRecord = trip;
+    } else if (user.role === 'DRIVER') {
+      if (bus.current_driver_id !== user.userId) {
+        res.status(403).json({ error: 'You are not assigned to this bus.' });
+        return;
+      }
     }
 
     // Validate coordinates on every single queued location point
@@ -267,15 +352,16 @@ router.post('/location/sync', requireAuth, requireRole(['DRIVER', 'ADMIN']), asy
       }
     }
 
-    // Update bus state with latest successfully saved point
+    // Update bus state with latest successfully saved point only if trip is not ended
+    const isTripEnded = activeTripRecord && (activeTripRecord.status === 'COMPLETED' || activeTripRecord.status === 'CANCELLED');
     const successfullySavedRecords = validatedRecords.filter((r) => savedIds.includes(r.id));
     const latest = successfullySavedRecords.length > 0 ? successfullySavedRecords[successfullySavedRecords.length - 1] : validatedRecords[validatedRecords.length - 1];
     const latestSpeedKmh = latest.speed !== undefined ? Math.round(latest.speed * 3.6) : 22;
     const confidence = determineConfidence(latest.recorded_at, 'ACTIVE', false);
 
     let updatedBus = null;
-    if (targetBusId && successfullySavedRecords.length > 0) {
-      updatedBus = await db.updateBus(targetBusId, user.collegeId, {
+    if (targetBusId && successfullySavedRecords.length > 0 && !isTripEnded) {
+      await db.updateBus(targetBusId, user.collegeId, {
         last_location_lat: latest.lat,
         last_location_lng: latest.lng,
         speed_kmh: latestSpeedKmh,
@@ -285,6 +371,23 @@ router.post('/location/sync', requireAuth, requireRole(['DRIVER', 'ADMIN']), asy
         eta_confidence: confidence,
         last_sync_timestamp: new Date().toISOString(),
       });
+
+      // Process stop progression sequentially through queued telemetry
+      if (tripId && tripId !== 'no_trip') {
+        for (const pt of successfullySavedRecords) {
+          await processStopProgression(tripId, user.collegeId, {
+            lat: pt.lat,
+            lng: pt.lng,
+            speed: pt.speed,
+            heading: pt.heading,
+            accuracy: pt.accuracy,
+            timestamp: pt.recorded_at,
+            isOfflineQueued: true,
+          });
+        }
+      }
+
+      updatedBus = await db.getBusById(targetBusId, user.collegeId);
     }
 
     if (tripId && savedCount > 0) {

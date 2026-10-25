@@ -90,7 +90,7 @@ export const RoleSelectPage: React.FC = () => {
   const hrefFor = (id: RoleCardId) => {
     const params = new URLSearchParams();
     params.set('role', id);
-    if (signupRequested && id !== 'admin') params.set('mode', 'register');
+    if (signupRequested && id === 'student') params.set('mode', 'register');
     return `/login?${params.toString()}`;
   };
 
@@ -156,6 +156,11 @@ export const RoleSelectPage: React.FC = () => {
                         </li>
                       ))}
                     </ul>
+                    {card.id === 'driver' && (
+                      <p className="mt-4 text-xs text-slate-400">
+                        Driver accounts are provisioned by transport administration. Public signup is not available.
+                      </p>
+                    )}
                     {card.id === 'admin' && (
                       <p className="mt-4 text-xs text-slate-400">
                         Admin accounts are provisioned by your campus. Public registration is not available.

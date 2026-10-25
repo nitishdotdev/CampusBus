@@ -3,6 +3,7 @@ import { useApp } from '../../store/AppContext';
 import { apiClient } from '../../services/apiClient';
 import { tripService } from '../../services/tripService';
 import { adminService } from '../../services/adminService';
+import { socketService } from '../../services/socketService';
 import { tripsV1 } from '../../services/v1/trips';
 import { alertsV1 } from '../../services/v1/notifications';
 
@@ -28,7 +29,11 @@ import {
   Smartphone,
   RefreshCw,
   HelpCircle,
+  MapPin,
 } from 'lucide-react';
+
+import { MapView } from '../../components/map/MapView';
+import { EmptyState } from '../../components/common/States';
 
 export const DriverDashboard: React.FC = () => {
   const {
@@ -49,29 +54,81 @@ export const DriverDashboard: React.FC = () => {
     const loadAssignment = async () => {
       try {
         const res = await apiClient.get<any>('/api/driver/assignments');
-        if (isMounted && res?.assignment) {
-          setAssignment(res.assignment);
+        if (isMounted) {
+          setAssignment(res?.assignment || null);
         }
       } catch (err) {
         console.warn('Could not load driver assignment:', err);
       }
     };
     loadAssignment();
+
+    const unsubBus = socketService.on('bus:updated', () => {
+      loadAssignment();
+    });
+    const unsubTripStart = socketService.on('trip:started', () => {
+      loadAssignment();
+    });
+    const unsubTripEnd = socketService.on('trip:ended', () => {
+      loadAssignment();
+    });
+    const unsubConn = socketService.on('connection:status', (status: any) => {
+      if (status?.isConnected) {
+        loadAssignment();
+      }
+    });
+
     return () => {
       isMounted = false;
+      unsubBus();
+      unsubTripStart();
+      unsubTripEnd();
+      unsubConn();
     };
   }, [activeTrip]);
 
-  // Determine driver's assigned bus and route dynamically
+  // Determine driver's assigned bus and route strictly from database
   const assignedBus =
     buses.find((b) => b.id === activeTrip?.busId) ||
     (assignment?.busId ? buses.find((b) => b.id === assignment.busId) : null) ||
     buses.find((b) => b.currentDriverId === currentUser?.id) ||
-    buses[0];
+    (assignment?.busId
+      ? ({
+          id: assignment.busId,
+          collegeId: currentUser?.collegeId || '',
+          busNumber: assignment.busNumber || 'Assigned Bus',
+          plateNumber: '',
+          model: 'Campus Shuttle',
+          capacity: assignment.busCapacity || 45,
+          currentOccupancy: assignment.currentOccupancy || 0,
+          status: activeTrip ? 'ACTIVE' : 'IDLE',
+          currentRouteId: assignment.routeId,
+          currentDriverId: currentUser?.id,
+          lastLocation: { lat: 34.0537, lng: -118.2570, timestamp: new Date().toISOString() },
+          gpsStatus: 'GPS_ACTIVE',
+          networkStatus: 'NETWORK_ONLINE',
+          etaConfidence: 'LIVE',
+          lastSyncTimestamp: new Date().toISOString(),
+        } as any)
+      : null);
 
   const assignedRoute =
     routes.find((r) => r.id === (activeTrip?.routeId || assignment?.routeId || assignedBus?.currentRouteId)) ||
-    routes[0];
+    (assignment?.routeId
+      ? ({
+          id: assignment.routeId,
+          collegeId: currentUser?.collegeId || '',
+          code: assignment.routeCode || 'RT',
+          name: assignment.routeName || 'Assigned Line',
+          description: '',
+          color: '#2563EB',
+          status: 'LIVE',
+          scheduleHours: '6:00 AM - 10:00 PM',
+          frequencyMinutes: 15,
+          stops: assignment.stops || [],
+          pathCoordinates: [],
+        } as any)
+      : null);
 
   const [useSimulatedGps, setUseSimulatedGps] = useState(false);
   const [showStartTripModal, setShowStartTripModal] = useState(false);
@@ -111,9 +168,11 @@ export const DriverDashboard: React.FC = () => {
     setShowStartTripModal(false);
     setTripError(null);
     try {
+      if (!assignedBus) { setTripError('No bus assigned.'); return; }
       if (USE_V1) {
         await tripsV1.start(assignedBus.id);
       } else {
+        if (!assignedRoute) { setTripError('No route assigned.'); return; }
         await tripService.startTrip(
           assignedBus.id,
           currentUser?.id || 'driver_marcus',
@@ -165,12 +224,38 @@ export const DriverDashboard: React.FC = () => {
     setShowEmergencyModal(false);
   };
 
+  if (!assignedBus || !assignedRoute) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4 py-8">
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs text-center space-y-3">
+          <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+            <BusIcon className="w-6 h-6" />
+          </div>
+          <h2 className="text-lg font-bold text-slate-900">No Vehicle Assigned</h2>
+          <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+            Welcome, <strong>{currentUser?.name || 'Driver'}</strong>. Your driver account is active, but you have not yet been assigned a bus and route by campus dispatch.
+          </p>
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 max-w-sm mx-auto">
+            Please contact your campus transit administrator to assign a vehicle and route in the Administration panel.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const occupancy = activeTrip ? activeTrip.currentOccupancy : assignedBus.currentOccupancy;
   const capacity = assignedBus.capacity || 45;
   const occupancyPercent = Math.min(100, Math.round((occupancy / capacity) * 100));
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
+      {tripError && (
+        <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs text-rose-800 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>{tripError}</span>
+        </div>
+      )}
+
       {/* Driver & Duty Status Bar */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs">
         <div className="flex items-center justify-between gap-3">
@@ -181,7 +266,7 @@ export const DriverDashboard: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-slate-900 leading-none">
-                  {currentUser?.name || 'Marcus Vance'}
+                  {currentUser?.name || 'Driver'}
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
                   CDL ON-DUTY
@@ -206,6 +291,44 @@ export const DriverDashboard: React.FC = () => {
             </span>
           </div>
         </div>
+      </div>
+
+      {/* Driver Assigned Route & Live Bus Map */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Navigation className="w-4 h-4 text-blue-600" />
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              {activeTrip ? 'Active Trip Live Telemetry Map' : 'Assigned Route & Stops'}
+            </h3>
+          </div>
+          <span className="text-[11px] font-semibold text-slate-500">
+            {assignedRoute.stops?.length || 0} stops
+          </span>
+        </div>
+        <MapView
+          buses={[{
+            ...assignedBus,
+            lastLocation: locationState.lastLocation || assignedBus.lastLocation,
+            status: activeTrip ? 'ACTIVE' : 'IDLE',
+            currentStopId: activeTrip?.currentStopId || assignment?.currentStopId || assignedBus.currentStopId,
+            nextStopId: activeTrip?.nextStopId || assignment?.nextStopId || assignedBus.nextStopId,
+            completedStopIds: activeTrip?.completedStopIds || assignment?.completedStopIds || assignedBus.completedStopIds || [],
+          }]}
+          routes={[assignedRoute]}
+          selectedRouteId={assignedRoute.id}
+          driverLocation={
+            locationState.lastLocation
+              ? {
+                  lat: locationState.lastLocation.lat,
+                  lng: locationState.lastLocation.lng,
+                  heading: locationState.lastLocation.heading ?? undefined,
+                  accuracy: locationState.lastLocation.accuracy ?? undefined,
+                }
+              : undefined
+          }
+          heightClass="h-[260px] sm:h-[300px]"
+        />
       </div>
 
       {/* Primary Trip Action Card */}
@@ -282,6 +405,82 @@ export const DriverDashboard: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Active Next Stop Target & Progression Card */}
+            {(() => {
+              const stops = [...(assignedRoute.stops || [])].sort((a, b) => a.sequence - b.sequence);
+              const completedIds = new Set(activeTrip?.completedStopIds || assignment?.completedStopIds || []);
+              const nextStop = stops.find((s) => s.id === (activeTrip?.nextStopId || assignment?.nextStopId))
+                || stops.find((s) => !completedIds.has(s.id));
+
+              let distanceText = '';
+              let isApproaching = false;
+              let isWithinGeofence = false;
+              if (nextStop && locationState.lastLocation) {
+                const lat1 = (locationState.lastLocation.lat * Math.PI) / 180;
+                const lat2 = (nextStop.lat * Math.PI) / 180;
+                const dLat = ((nextStop.lat - locationState.lastLocation.lat) * Math.PI) / 180;
+                const dLng = ((nextStop.lng - locationState.lastLocation.lng) * Math.PI) / 180;
+                const a =
+                  Math.sin(dLat / 2) ** 2 +
+                  Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+                const distMeters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+                if (distMeters <= 50) {
+                  isWithinGeofence = true;
+                  distanceText = `${Math.round(distMeters)}m away (In 50m Arrival Zone)`;
+                } else if (distMeters <= 150) {
+                  isApproaching = true;
+                  distanceText = `${Math.round(distMeters)}m away (Approaching)`;
+                } else if (distMeters < 1000) {
+                  distanceText = `${Math.round(distMeters)}m away`;
+                } else {
+                  distanceText = `${(distMeters / 1000).toFixed(1)} km away`;
+                }
+              }
+
+              const completedCount = completedIds.size;
+              const totalCount = stops.length;
+
+              return (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                        <MapPin className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Next Eligible Stop</div>
+                        <div className="text-sm font-black text-slate-900">
+                          {nextStop ? nextStop.name : (completedCount === totalCount && totalCount > 0 ? 'All Stops Completed' : 'End of Line')}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[11px] font-bold text-slate-600">
+                        {completedCount} / {totalCount} stops
+                      </span>
+                      {isWithinGeofence && (
+                        <div className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full mt-0.5 animate-pulse">
+                          Arrival Zone (50m)
+                        </div>
+                      )}
+                      {!isWithinGeofence && isApproaching && (
+                        <div className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full mt-0.5">
+                          Approaching Stop
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {distanceText && (
+                    <div className="text-xs text-blue-900 font-medium flex items-center gap-1.5 pt-1 border-t border-blue-100/80">
+                      <Navigation className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>Distance to target: <strong>{distanceText}</strong></span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* GPS & Network Status Matrix */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">

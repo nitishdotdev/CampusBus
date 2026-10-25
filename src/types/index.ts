@@ -6,7 +6,7 @@ export type BusStatus = 'IDLE' | 'ACTIVE' | 'MAINTENANCE' | 'OFFLINE';
 
 export type RouteStatus = 'LIVE' | 'DEGRADED' | 'SCHEDULED' | 'OFFLINE';
 
-export type ETAConfidence = 'LIVE' | 'DEGRADED' | 'SCHEDULED';
+export type ETAConfidence = 'LIVE' | 'DEGRADED' | 'STALE' | 'OFFLINE' | 'SCHEDULED';
 
 export type GPSStatus = 
   | 'GPS_PERMISSION_REQUIRED'
@@ -105,7 +105,9 @@ export interface Bus {
   networkStatus: NetworkStatus;
   heading?: number;
   speedKmh?: number;
-  nextStopId?: string;
+  currentStopId?: string | null;
+  nextStopId?: string | null;
+  completedStopIds?: string[];
   etaToNextStopSeconds?: number;
   etaConfidence: ETAConfidence;
   lastSyncTimestamp: string;
@@ -158,6 +160,18 @@ export interface Trip {
   syncedLocationsCount: number;
   queuedLocationsCount: number;
   distanceCoveredKm: number;
+  currentStopId?: string | null;
+  nextStopId?: string | null;
+  completedStopIds?: string[];
+  stopArrivals?: Array<{
+    stop_id: string;
+    stop_name: string;
+    sequence: number;
+    arrived_at: string;
+    lat: number;
+    lng: number;
+    distance_to_stop_m?: number;
+  }>;
   notes?: string;
 }
 

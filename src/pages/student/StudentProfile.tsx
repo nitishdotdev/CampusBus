@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '../../store/AppContext';
 import { User, GraduationCap, Bus, CheckCircle2, QrCode, Shield, MapPin } from 'lucide-react';
+import { ChangePasswordCard } from '../../components/common/ChangePasswordCard';
 
 export const StudentProfile: React.FC = () => {
   const { currentUser, currentCollege, routes } = useApp();
@@ -97,6 +98,9 @@ export const StudentProfile: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Security & Password Management */}
+      <ChangePasswordCard />
     </div>
   );
 };

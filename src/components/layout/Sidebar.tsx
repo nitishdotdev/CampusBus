@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useApp } from '../../store/AppContext';
-import { Bus, MapPin, Route as RouteIcon, Bell, User, LayoutDashboard, Navigation, History, ShieldAlert, BarChart3, Users, Settings, Radio, Calendar, MessageSquare } from 'lucide-react';
+import { Bus, MapPin, Route as RouteIcon, Bell, User, LayoutDashboard, Navigation, History, ShieldAlert, BarChart3, Users, Settings, Radio, Calendar, MessageSquare, Link2 } from 'lucide-react';
 
 interface SidebarNavItem {
   to: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number; badgeColor?: string;
@@ -12,31 +12,34 @@ export const Sidebar: React.FC = () => {
 
   const studentLinks: SidebarNavItem[] = [
     { to: '/student', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/student/live', label: 'Live Map', icon: Navigation },
+    { to: '/student/live', label: 'Live Buses', icon: Navigation },
     { to: '/student/routes', label: 'Routes & Stops', icon: RouteIcon },
-    { to: '/student/notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
-    { to: '/student/profile', label: 'Profile', icon: User },
     { to: '/student/schedules', label: 'Schedules', icon: Calendar },
-    { to: '/student/complaints', label: 'Feedback', icon: MessageSquare },
+    { to: '/student/notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
+    { to: '/student/complaints', label: 'Complaints', icon: MessageSquare },
+    { to: '/student/profile', label: 'Profile', icon: User },
   ];
 
   const driverLinks: SidebarNavItem[] = [
-    { to: '/driver', label: 'Driver Terminal', icon: Navigation },
+    { to: '/driver', label: 'Current Trip', icon: Navigation },
+    { to: '/driver/route', label: 'My Route', icon: RouteIcon },
     { to: '/driver/history', label: 'Trip History', icon: History },
-    { to: '/driver/profile', label: 'Vehicle & Duty', icon: Bus },
+    { to: '/driver/notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
+    { to: '/driver/profile', label: 'Profile', icon: User },
   ];
 
   const adminLinks: SidebarNavItem[] = [
     { to: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/admin/fleet', label: 'Live Fleet Map', icon: Navigation },
-    { to: '/admin/buses', label: 'Bus Fleet', icon: Bus },
+    { to: '/admin/fleet', label: 'Live Fleet', icon: Navigation },
+    { to: '/admin/buses', label: 'Buses', icon: Bus },
+    { to: '/admin/directory', label: 'Drivers & Accounts', icon: Users },
     { to: '/admin/routes', label: 'Routes & Stops', icon: RouteIcon },
-    { to: '/admin/directory', label: 'Drivers & Students', icon: Users },
-    { to: '/admin/alerts', label: 'Alerts', icon: ShieldAlert, badge: activeEmergencyCount, badgeColor: 'bg-rose-600' },
+    { to: '/admin/assignments', label: 'Assignments', icon: Link2 },
+    { to: '/admin/schedules', label: 'Schedules', icon: Calendar },
+    { to: '/admin/alerts', label: 'Alerts & Announcements', icon: ShieldAlert, badge: activeEmergencyCount, badgeColor: 'bg-rose-600' },
+    { to: '/admin/complaints', label: 'Complaints', icon: MessageSquare },
     { to: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
     { to: '/admin/settings', label: 'Settings', icon: Settings },
-        { to: '/admin/schedules', label: 'Schedules', icon: Calendar },
-    { to: '/admin/complaints', label: 'Complaints', icon: MessageSquare },
   ];
 
   const links = role === 'ADMIN' ? adminLinks : role === 'DRIVER' ? driverLinks : studentLinks;

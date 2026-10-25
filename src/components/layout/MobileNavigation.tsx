@@ -25,27 +25,29 @@ export const MobileNavigation: React.FC = () => {
   const { role, unreadCount, activeEmergencyCount } = useApp();
 
   const studentItems: NavItem[] = [
-    { to: '/student', label: 'Home', icon: LayoutDashboard },
-    { to: '/student/live', label: 'Live Map', icon: Navigation },
+    { to: '/student', label: 'Dashboard', icon: LayoutDashboard },
+    { to: '/student/live', label: 'Live Buses', icon: Navigation },
     { to: '/student/routes', label: 'Routes', icon: RouteIcon },
-    { to: '/student/notifications', label: 'Alerts', icon: Bell, badge: unreadCount },
     { to: '/student/schedules', label: 'Schedules', icon: Calendar },
-    { to: '/student/complaints', label: 'Feedback', icon: MessageSquare },
+    { to: '/student/notifications', label: 'Notices', icon: Bell, badge: unreadCount },
+    { to: '/student/complaints', label: 'Complaints', icon: MessageSquare },
   ];
 
   const driverItems: NavItem[] = [
-    { to: '/driver', label: 'Trip', icon: Navigation },
+    { to: '/driver', label: 'Current Trip', icon: Navigation },
+    { to: '/driver/route', label: 'My Route', icon: RouteIcon },
     { to: '/driver/history', label: 'History', icon: History },
-    { to: '/driver/profile', label: 'Vehicle', icon: Bus },
+    { to: '/driver/notifications', label: 'Notices', icon: Bell, badge: unreadCount },
+    { to: '/driver/profile', label: 'Profile', icon: Bus },
   ];
 
   const adminItems: NavItem[] = [
-    { to: '/admin', label: 'Overview', icon: LayoutDashboard },
+    { to: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/admin/fleet', label: 'Fleet Map', icon: Navigation },
     { to: '/admin/buses', label: 'Buses', icon: Bus },
+    { to: '/admin/assignments', label: 'Assign', icon: RouteIcon },
     { to: '/admin/routes', label: 'Routes', icon: RouteIcon },
     { to: '/admin/alerts', label: 'Alerts', icon: ShieldAlert, badge: activeEmergencyCount },
-    { to: '/admin/schedules', label: 'Schedules', icon: Calendar },
     { to: '/admin/complaints', label: 'Complaints', icon: MessageSquare },
   ];
 

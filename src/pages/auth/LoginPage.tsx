@@ -31,9 +31,7 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'STUDENT' | 'DRIVER'>(
-    canSelfRegister(intendedRole) ? intendedRole : 'STUDENT',
-  );
+  const [role, setRole] = useState<'STUDENT' | 'DRIVER'>('STUDENT');
   const [campusId, setCampusId] = useState('');
   const [campuses, setCampuses] = useState<V1Campus[]>([]);
   const [campusLoading, setCampusLoading] = useState(false);
@@ -44,7 +42,6 @@ export const LoginPage: React.FC = () => {
 
   useEffect(() => {
     setMode(registerAllowed ? 'register' : 'login');
-    if (canSelfRegister(intendedRole)) setRole(intendedRole);
     setError('');
   }, [registerAllowed, intendedRole]);
 
@@ -65,7 +62,7 @@ export const LoginPage: React.FC = () => {
       .finally(() => setCampusLoading(false));
   }, []);
 
-  const registerRole: 'STUDENT' | 'DRIVER' = canSelfRegister(intendedRole) ? intendedRole : role;
+  const registerRole: 'STUDENT' | 'DRIVER' = intendedRole === 'DRIVER' ? 'DRIVER' : role;
 
   const finishAuthenticated = async (accountRole: UserRole) => {
     if (intendedRole && accountRole !== intendedRole) {
@@ -135,13 +132,6 @@ export const LoginPage: React.FC = () => {
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
     const res = await registerV1({ campusId, email, password, name, role: registerRole });
     if (res.ok) {
-      if (registerRole === 'DRIVER') {
-        setMode('login');
-        setNotice('Account created. An admin must approve your driver account before you can sign in.');
-        setPassword('');
-        setName('');
-        return;
-      }
       const loginRes = await loginV1(campusId, email, password);
       if (loginRes.ok) {
         const accountRole = loginRes.result.user.role;

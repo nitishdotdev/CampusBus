@@ -3,6 +3,7 @@ import { db, TripRecord } from '../db';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { broadcastTripStarted, broadcastTripEnded, broadcastOccupancyUpdate, broadcastBusUpdate } from '../socket';
 import { validateTripStart, validateOccupancyInput } from '../utils/validation';
+import { clearTripProgressionState } from '../utils/progression';
 
 const router = Router();
 
@@ -38,6 +39,10 @@ router.get('/active', requireAuth, async (req: AuthenticatedRequest, res: Respon
         totalLocationsLogged: activeTrip.total_locations_logged,
         syncedLocationsCount: activeTrip.synced_locations_count,
         queuedLocationsCount: activeTrip.queued_locations_count,
+        currentStopId: activeTrip.current_stop_id || null,
+        nextStopId: activeTrip.next_stop_id || null,
+        completedStopIds: activeTrip.completed_stop_ids || [],
+        stopArrivals: activeTrip.stop_arrivals || [],
       },
     });
   } catch (err: any) {
@@ -125,6 +130,10 @@ router.post('/start', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req:
       return;
     }
 
+    const routeStops = await db.getStops(user.collegeId, routeId);
+    const sortedStops = [...routeStops].sort((a, b) => a.sequence - b.sequence);
+    const firstStopId = sortedStops.length > 0 ? sortedStops[0].id : null;
+
     const newTrip: TripRecord = {
       id: 'trip_' + Date.now().toString(),
       college_id: user.collegeId,
@@ -139,6 +148,10 @@ router.post('/start', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req:
       total_locations_logged: 0,
       synced_locations_count: 0,
       queued_locations_count: 0,
+      current_stop_id: null,
+      next_stop_id: firstStopId,
+      completed_stop_ids: [],
+      stop_arrivals: [],
       created_at: new Date().toISOString(),
     };
 
@@ -153,6 +166,9 @@ router.post('/start', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req:
       current_occupancy: 0,
       gps_status: 'GPS_ACTIVE',
       eta_confidence: 'LIVE',
+      current_stop_id: null,
+      next_stop_id: firstStopId,
+      completed_stop_ids: [],
       last_sync_timestamp: new Date().toISOString(),
     });
 
@@ -194,18 +210,23 @@ router.post('/end', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req: A
       return;
     }
 
+    clearTripProgressionState(activeTrip.id);
+
     const completed = await db.updateTrip(activeTrip.id, user.collegeId, {
       status: 'COMPLETED',
       end_time: new Date().toISOString(),
     });
 
-    // Put bus back to off duty
+    // Put bus back to off duty without automatically marking remaining stops completed
     const bus = await db.updateBus(activeTrip.bus_id, user.collegeId, {
       status: 'OFF_DUTY',
       current_occupancy: 0,
       gps_status: 'GPS_ACTIVE',
       eta_confidence: 'SCHEDULED',
       speed_kmh: 0,
+      current_stop_id: null,
+      next_stop_id: null,
+      completed_stop_ids: [],
     });
 
     broadcastTripEnded(user.collegeId, {

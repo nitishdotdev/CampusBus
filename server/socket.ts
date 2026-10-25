@@ -87,10 +87,51 @@ export function getIO(): SocketIOServer | null {
   return io;
 }
 
+export function normalizeBusForClient(bus: any): any {
+  if (!bus || typeof bus !== 'object') return bus;
+  return {
+    ...bus,
+    id: bus.id,
+    collegeId: bus.collegeId || bus.college_id,
+    busNumber: bus.busNumber || bus.bus_number || 'BUS-UNKNOWN',
+    plateNumber: bus.plateNumber || bus.plate_number || '',
+    capacity: bus.capacity || 45,
+    model: bus.model || 'Campus Transit Shuttle',
+    currentRouteId: bus.currentRouteId !== undefined ? bus.currentRouteId : bus.current_route_id,
+    currentDriverId: bus.currentDriverId !== undefined ? bus.currentDriverId : bus.current_driver_id,
+    driverName: bus.driverName || bus.driver_name,
+    status: bus.status === 'OFF_DUTY' ? 'IDLE' : bus.status === 'OUT_OF_SERVICE' ? 'OFFLINE' : (bus.status || 'IDLE'),
+    lastLocation: bus.lastLocation || (bus.last_location_lat != null && bus.last_location_lng != null ? {
+      lat: Number(bus.last_location_lat),
+      lng: Number(bus.last_location_lng),
+      speed: bus.speed_kmh ? bus.speed_kmh / 3.6 : 0,
+      heading: bus.heading || 0,
+      timestamp: bus.last_sync_timestamp || new Date().toISOString(),
+    } : undefined),
+    heading: bus.heading !== undefined ? bus.heading : 0,
+    speedKmh: bus.speed_kmh !== undefined ? bus.speed_kmh : (bus.speedKmh || 0),
+    currentOccupancy: bus.current_occupancy !== undefined ? bus.current_occupancy : (bus.currentOccupancy || 0),
+    gpsStatus: bus.gps_status || bus.gpsStatus || 'GPS_ACTIVE',
+    networkStatus: bus.network_status || bus.networkStatus || 'NETWORK_ONLINE',
+    etaConfidence: bus.eta_confidence || bus.etaConfidence || 'LIVE',
+    isSimulated: Boolean(bus.is_simulated ?? bus.isSimulated),
+    lastSyncTimestamp: bus.last_sync_timestamp || bus.lastSyncTimestamp || new Date().toISOString(),
+    currentStopId: bus.currentStopId !== undefined ? bus.currentStopId : (bus.current_stop_id ?? null),
+    nextStopId: bus.nextStopId !== undefined ? bus.nextStopId : (bus.next_stop_id ?? null),
+    completedStopIds: bus.completedStopIds || bus.completed_stop_ids || [],
+    upcomingEtas: bus.upcomingEtas,
+    nextStop: bus.nextStop,
+    etaToNextStopSeconds: bus.nextStop?.etaMinutes
+      ? bus.nextStop.etaMinutes * 60
+      : bus.etaToNextStopSeconds ?? (bus.upcomingEtas?.[0]?.etaMinutes ? bus.upcomingEtas[0].etaMinutes * 60 : undefined),
+  };
+}
+
 // Broadcasting Helpers
 export function broadcastBusUpdate(collegeId: string, busData: any) {
   if (!io) return;
-  io.to(`college:${collegeId}`).emit('bus:updated', busData);
+  const payload = normalizeBusForClient(busData);
+  io.to(`college:${collegeId}`).emit('bus:updated', payload);
 }
 
 export function broadcastBusLocation(collegeId: string, locationData: any) {
@@ -111,6 +152,30 @@ export function broadcastTripStarted(collegeId: string, tripData: any) {
 export function broadcastTripEnded(collegeId: string, tripData: any) {
   if (!io) return;
   io.to(`college:${collegeId}`).emit('trip:ended', tripData);
+}
+
+export function broadcastStopProgression(collegeId: string, progressionData: {
+  tripId: string;
+  busId: string;
+  routeId: string;
+  arrivedStop: { id: string; name: string; sequence: number };
+  nextStop: { id: string; name: string; sequence: number } | null;
+  completedStopIds: string[];
+  timestamp: string;
+}) {
+  if (!io) return;
+  io.to(`college:${collegeId}`).emit('trip:stop_arrived', progressionData);
+}
+
+export function broadcastStopApproaching(collegeId: string, approachingData: {
+  tripId: string;
+  busId: string;
+  stopId: string;
+  stopName: string;
+  distanceM: number;
+}) {
+  if (!io) return;
+  io.to(`college:${collegeId}`).emit('trip:stop_approaching', approachingData);
 }
 
 export function broadcastEmergencyAlert(collegeId: string, alert: any) {
