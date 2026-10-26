@@ -30,8 +30,8 @@ CampusBus is a production-grade multi-tenant smart campus transit and live bus t
 
 ### 2. Installation
 ```bash
-git clone https://github.com/NitishSolves/CampusMove.git
-cd CampusMove
+git clone https://github.com/nitishdotdev/CampusBus.git
+cd CampusBus
 npm install
 ```
 
@@ -75,7 +75,7 @@ CampusBus is architected for a split deployment:
 
 * **Frontend**: [Vercel](https://vercel.com) (Static SPA with client-side routing)
 * **Backend**: [Render](https://render.com) (Express + Socket.IO Node.js Web Service)
-* **Database**: [Render PostgreSQL](https://render.com/docs/databases)
+* **Database**: Existing Neon PostgreSQL (`DATABASE_URL`)
 
 ```
                        ┌────────────────────────┐
@@ -88,28 +88,27 @@ CampusBus is architected for a split deployment:
                        │    Express + Socket.IO │
                        └───────────┬────────────┘
                                    │ PostgreSQL SSL
-                       ┌───────────▼────────────┐
-                       │   Render PostgreSQL    │
-                       │   Multi-tenant Schema  │
-                       └────────────────────────┘
+                        ┌───────────▼────────────┐
+                        │  Neon PostgreSQL       │
+                        │  Multi-tenant Schema   │
+                        └────────────────────────┘
 ```
 
 ### 1. Render Backend Deployment
 
-1. Create a **PostgreSQL Database** on Render:
-   * **Name**: `campusmove-db`
-   * **Database**: `campusmove`
-   * **User**: `campus_admin`
-2. Create a **Web Service** on Render connected to this repository:
+See `docs/DEPLOYMENT.md`. Use the existing Neon PostgreSQL database. Do not create a new database or migrate data.
+
+1. Create a **Web Service** on Render connected to this repository:
    * **Environment**: `Node`
-   * **Build Command**: `npm install && npm run build && npm run db:migrate`
+   * **Build Command**: `npm ci && npm run build && npm run db:migrate`
    * **Start Command**: `npm run start`
    * **Health Check Path**: `/api/health`
-3. Set the following **Environment Variables** in Render:
+2. Set the following **Environment Variables** in Render:
    * `NODE_ENV`: `production`
-   * `DATABASE_URL`: Connection string from your Render PostgreSQL database
-   * `JWT_SECRET`: High-entropy 64-character secret string
-   * `CORS_ORIGIN`: Your Vercel frontend domain (e.g., `https://campusmove.vercel.app`)
+   * `DATABASE_URL`: Existing Neon PostgreSQL connection string
+   * `JWT_SECRET`: High-entropy secret (`openssl rand -hex 32`)
+   * `CORS_ORIGIN`: Your Vercel frontend origin (`https`, no trailing slash)
+   * `BOOTSTRAP_SECRET`: Temporary; remove after the first admin exists
 
 ### 2. Vercel Frontend Deployment
 
@@ -119,8 +118,10 @@ CampusBus is architected for a split deployment:
    * **Build Command**: `npm run build`
    * **Output Directory**: `dist`
 3. Configure the following **Environment Variables** in Vercel:
-   * `VITE_API_URL`: Your Render backend URL (e.g., `https://campusmove-api.onrender.com`)
-   * `VITE_SOCKET_URL`: Your Render backend URL (e.g., `https://campusmove-api.onrender.com`)
+   * `VITE_API_URL`: Your Render backend URL (no trailing slash)
+   * `VITE_SOCKET_URL`: Same as `VITE_API_URL`
+
+Do not set `VITE_USE_V1_API=true` in production.
 
 ---
 
@@ -140,40 +141,25 @@ This project is licensed under the MIT License.
 
 ## Development Status
 
-This project is being rebuilt as a production-ready MERN application on the `feature/mern-rebuild` branch.
+Production uses PostgreSQL (`server.ts` + `DATABASE_URL`). The MongoDB v1 API in `apps/api` is not the production database.
 
-**See these files for the current state:**
-- [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) — canonical progress record
-- [`docs/ACCEPTANCE_CHECKLIST.md`](docs/ACCEPTANCE_CHECKLIST.md) — 67-item completion checklist
-- [`docs/SESSION_HANDOFF.md`](docs/SESSION_HANDOFF.md) — exact stopping point and next tasks
-- [`docs/CONTINUATION_PROMPT.md`](docs/CONTINUATION_PROMPT.md) — prompt to continue in a new AI session
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design and migration strategy
-- [`docs/SECURITY.md`](docs/SECURITY.md) — security controls and known gaps
-- [`docs/GPS_TRACKING.md`](docs/GPS_TRACKING.md) — GPS pipeline and authorization rules
-- [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) — PostgreSQL → MongoDB plan
+See `docs/DEPLOYMENT.md` for the production path.
 
-### Quick start (dev, feature branch)
+### Quick start
 
 ```bash
-git checkout feature/mern-rebuild
 npm ci
-npm run dev          # legacy server + Vite frontend on :3000
+npm run dev
 ```
 
 ### Running tests
 
 ```bash
-npm run lint         # TypeScript checks (app + strict apps/api)
-npm test             # Vitest unit suite (no services needed)
-npm run build        # production build
-
-# With a disposable MongoDB (never production):
-MONGODB_TEST_URI=mongodb://127.0.0.1:27017 npm test
-
-# Legacy HTTP integration suite (needs dev server running):
-npm run test:verify
+npm run lint
+npm test
+npm run build
 ```
 
 ### Environment variables
 
-See [`.env.example`](.env.example) for all required variables.
+See `.env.example` for all required variables. Keep `VITE_USE_V1_API=false` in production.

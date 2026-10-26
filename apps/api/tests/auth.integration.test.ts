@@ -23,9 +23,8 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       expect(r.body.user).toMatchObject({ role: 'STUDENT', status: 'ACTIVE', email: 's1@t.test' });
       expect(r.body.user.passwordHash).toBeUndefined();
     });
-    it('driver gets status PENDING', async () => {
-      const r = await reg('d1@t.test', 'DRIVER'); expect(r.status).toBe(201);
-      expect(r.body.user.status).toBe('PENDING');
+    it('DRIVER role is not self-registerable', async () => {
+      expect((await reg('d1@t.test', 'DRIVER')).status).toBe(400);
     });
     it('ADMIN role is not self-registerable', async () => {
       expect((await reg('a1@t.test', 'ADMIN')).status).toBe(400);
@@ -69,7 +68,9 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       expect(bad.body.error).toBe(unknown.body.error);
     });
     it('PENDING driver → 403', async () => {
-      await reg('pend@t.test', 'DRIVER');
+      const { hashPassword } = await import('../src/auth/passwords');
+      const passwordHash = await hashPassword('Password1!');
+      await h.models.User.create({ campusId: campus(), email: 'pend@t.test', passwordHash, name: 'P', role: 'DRIVER', status: 'PENDING' });
       expect((await login('pend@t.test')).status).toBe(403);
     });
     it('DISABLED account → 403', async () => {

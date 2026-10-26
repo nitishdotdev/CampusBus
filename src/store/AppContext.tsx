@@ -85,6 +85,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
   const [v1Campuses, setV1Campuses] = useState<V1Campus[]>([]);
+  const [colleges, setColleges] = useState<College[]>([DEFAULT_COLLEGE]);
 
   // Load campuses from v1 API (always, so login form can list them)
   useEffect(() => {
@@ -100,6 +101,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser?.id]);
 
   const isAuthenticated = authService.isAuthenticated();
+
+  useEffect(() => {
+    if (!currentUser?.collegeId) return;
+    apiClient
+      .get<{
+        id: string;
+        name: string;
+        shortCode: string;
+        campusName?: string;
+        centerLocation?: { lat: number; lng: number };
+        defaultZoom?: number;
+        timezone?: string;
+      }>(`/api/colleges/${currentUser.collegeId}`)
+      .then((c) => {
+        if (!c?.id) return;
+        const mapped: College = {
+          id: c.id,
+          name: c.name,
+          shortCode: c.shortCode,
+          campusName: c.campusName || c.name,
+          centerLocation: c.centerLocation || { lat: 0, lng: 0 },
+          defaultZoom: c.defaultZoom ?? 15,
+          timezone: c.timezone || 'UTC',
+        };
+        setCurrentCollege(mapped);
+        setColleges([mapped]);
+      })
+      .catch(() => {});
+  }, [currentUser?.collegeId]);
 
   // Auth subscription
   useEffect(() => {
@@ -248,8 +278,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const switchCollege = (collegeId: string) => {
-    // In production, this would fetch the college data and associated resources
-    setCurrentCollege(DEFAULT_COLLEGE);
+    const found = colleges.find((c) => c.id === collegeId);
+    if (found) setCurrentCollege(found);
   };
 
   const refreshData = async () => {
@@ -282,7 +312,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     currentUser,
     role,
     currentCollege,
-    colleges: [DEFAULT_COLLEGE],
+    colleges,
     v1Campuses,
     switchCollege,
     logout,

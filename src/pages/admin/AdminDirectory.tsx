@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useApp } from '../../store/AppContext';
 import { SearchInput } from '../../components/common/Inputs';
 import { apiClient } from '../../services/apiClient';
+import { Modal } from '../../components/common/Modals';
 import {
   Bus,
   GraduationCap,
@@ -9,6 +10,7 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
+  Plus,
 } from 'lucide-react';
 
 interface DirectoryUser {
@@ -30,6 +32,27 @@ export const AdminDirectory: React.FC = () => {
   const [users, setUsers] = useState<DirectoryUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [driverName, setDriverName] = useState('');
+  const [driverEmail, setDriverEmail] = useState('');
+  const [driverPassword, setDriverPassword] = useState('');
+  const [driverPhone, setDriverPhone] = useState('');
+  const [driverCdl, setDriverCdl] = useState('');
+
+  const loadUsers = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiClient.get<DirectoryUser[]>('/api/users');
+      setUsers(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load directory.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -50,6 +73,37 @@ export const AdminDirectory: React.FC = () => {
       mounted = false;
     };
   }, []);
+
+  const handleCreateDriver = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateError('');
+    if (!driverName.trim() || !driverEmail.trim() || driverPassword.length < 8) {
+      setCreateError('Name, email, and a password of at least 8 characters are required.');
+      return;
+    }
+    setCreating(true);
+    try {
+      await apiClient.post('/api/users', {
+        name: driverName.trim(),
+        email: driverEmail.trim(),
+        password: driverPassword,
+        role: 'DRIVER',
+        phone: driverPhone.trim() || undefined,
+        cdlNumber: driverCdl.trim() || undefined,
+      });
+      setCreateOpen(false);
+      setDriverName('');
+      setDriverEmail('');
+      setDriverPassword('');
+      setDriverPhone('');
+      setDriverCdl('');
+      await loadUsers();
+    } catch (err: any) {
+      setCreateError(err?.message || 'Failed to create driver account.');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const drivers = users.filter((u) => u.role === 'DRIVER');
   const students = users.filter((u) => u.role === 'STUDENT');
@@ -77,12 +131,24 @@ export const AdminDirectory: React.FC = () => {
           <h2 className="text-xl font-bold text-slate-900">Drivers & Students</h2>
           <p className="text-xs text-slate-500">Campus accounts stored for this college</p>
         </div>
-        <div className="w-full sm:w-72">
-          <SearchInput
-            value={searchTerm}
-            onChange={setSearchTerm}
-            placeholder={`Search ${tab.toLowerCase()} by name, ID...`}
-          />
+        <div className="flex w-full sm:w-auto items-center gap-2">
+          {tab === 'DRIVERS' && (
+            <button
+              type="button"
+              onClick={() => { setCreateOpen(true); setCreateError(''); }}
+              className="inline-flex items-center gap-1.5 min-h-11 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Add driver
+            </button>
+          )}
+          <div className="w-full sm:w-72">
+            <SearchInput
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder={`Search ${tab.toLowerCase()} by name, ID...`}
+            />
+          </div>
         </div>
       </div>
 
@@ -208,6 +274,39 @@ export const AdminDirectory: React.FC = () => {
           )}
         </div>
       )}
+
+      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="Create driver account">
+        <form onSubmit={handleCreateDriver} className="space-y-3">
+          {createError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+              {createError}
+            </div>
+          )}
+          <div>
+            <label htmlFor="driver-name" className="block text-xs font-bold text-slate-700 mb-1">Full name</label>
+            <input id="driver-name" value={driverName} onChange={(e) => setDriverName(e.target.value)} required className="w-full min-h-11 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+          </div>
+          <div>
+            <label htmlFor="driver-email" className="block text-xs font-bold text-slate-700 mb-1">Email</label>
+            <input id="driver-email" type="email" value={driverEmail} onChange={(e) => setDriverEmail(e.target.value)} required className="w-full min-h-11 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+          </div>
+          <div>
+            <label htmlFor="driver-password" className="block text-xs font-bold text-slate-700 mb-1">Temporary password</label>
+            <input id="driver-password" type="password" value={driverPassword} onChange={(e) => setDriverPassword(e.target.value)} required minLength={8} className="w-full min-h-11 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+          </div>
+          <div>
+            <label htmlFor="driver-phone" className="block text-xs font-bold text-slate-700 mb-1">Phone (optional)</label>
+            <input id="driver-phone" value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} className="w-full min-h-11 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+          </div>
+          <div>
+            <label htmlFor="driver-cdl" className="block text-xs font-bold text-slate-700 mb-1">CDL number (optional)</label>
+            <input id="driver-cdl" value={driverCdl} onChange={(e) => setDriverCdl(e.target.value)} className="w-full min-h-11 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+          </div>
+          <button type="submit" disabled={creating} className="w-full min-h-11 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-xs font-bold rounded-xl cursor-pointer">
+            {creating ? 'Creating…' : 'Create driver'}
+          </button>
+        </form>
+      </Modal>
     </div>
   );
 };

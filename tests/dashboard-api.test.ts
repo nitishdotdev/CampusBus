@@ -137,5 +137,65 @@ describe('dashboard APIs', () => {
     expect(res.status).toBe(200);
     expect(res.body.settings.emergencyPhone).toBe('(555) 100-2000');
     expect(res.body.settings.telemetryIntervalSec).toBe(5);
+    expect(res.body.shortCode).toBeTypeOf('string');
+    expect(res.body.centerLocation).toBeDefined();
+  });
+
+  it('lists colleges with a public DTO for the login campus selector', async () => {
+    const res = await request(app).get('/api/colleges');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body[0].id).toBe(collegeId);
+    expect(res.body[0].shortCode).toBeTypeOf('string');
+    expect(res.body[0].centerLocation).toEqual({
+      lat: expect.any(Number),
+      lng: expect.any(Number),
+    });
+  });
+
+  it('lets admins create DRIVER accounts and rejects students creating users', async () => {
+    const created = await request(app)
+      .post('/api/users')
+      .set('Authorization', `Bearer ${tokenFor(admin)}`)
+      .send({
+        email: 'new.driver@campus.test',
+        password: 'Password1!',
+        name: 'New Driver',
+        role: 'DRIVER',
+      });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      email: 'new.driver@campus.test',
+      role: 'DRIVER',
+      status: 'ACTIVE',
+    });
+    expect(created.body.password_hash).toBeUndefined();
+
+    const studentRes = await request(app)
+      .post('/api/users')
+      .set('Authorization', `Bearer ${tokenFor(student)}`)
+      .send({
+        email: 'blocked@campus.test',
+        password: 'Password1!',
+        name: 'Blocked',
+        role: 'DRIVER',
+      });
+    expect(studentRes.status).toBe(403);
+  });
+
+  it('rejects bootstrap-admin when an administrator already exists', async () => {
+    const previous = process.env.BOOTSTRAP_SECRET;
+    process.env.BOOTSTRAP_SECRET = 'test-bootstrap-secret';
+    const res = await request(app)
+      .post('/api/auth/bootstrap-admin')
+      .set('x-bootstrap-secret', 'test-bootstrap-secret')
+      .send({
+        email: 'bootstrap@campus.test',
+        password: 'Password1!',
+        name: 'Bootstrap Admin',
+      });
+    if (previous === undefined) delete process.env.BOOTSTRAP_SECRET;
+    else process.env.BOOTSTRAP_SECRET = previous;
+    expect(res.status).toBe(409);
   });
 });

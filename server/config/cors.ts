@@ -58,8 +58,8 @@ export function buildCorsOptions(allowed: string[]): CorsOptions {
   return {
     origin: createOriginCheck(allowed),
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-bootstrap-secret'],
     maxAge: 600,
   };
 }

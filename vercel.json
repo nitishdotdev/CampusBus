@@ -8,9 +8,6 @@
       "destination": "/index.html"
     }
   ],
-  "env": {
-    "VITE_USE_V1_API": "true"
-  },
   "headers": [
     {
       "source": "/(.*)",

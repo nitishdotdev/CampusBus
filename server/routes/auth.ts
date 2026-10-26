@@ -142,7 +142,7 @@ router.post('/login', async (req, res): Promise<void> => {
       user: {
         id: user.id,
         collegeId: user.college_id,
-        collegeName: college?.name || 'Apex State University',
+        collegeName: college?.name || '',
         email: user.email,
         name: user.name,
         role: user.role,
@@ -178,7 +178,7 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response):
       user: {
         id: user.id,
         collegeId: user.college_id,
-        collegeName: college?.name || 'Apex State University',
+        collegeName: college?.name || '',
         email: user.email,
         name: user.name,
         role: user.role,
@@ -245,6 +245,99 @@ router.get('/demo-accounts', async (_req, res): Promise<void> => {
     { role: 'DRIVER', name: 'Marcus Vance', email: 'marcus.vance@transit.apex.edu', hint: 'Real phone GPS tracking & offline queue sync' },
     { role: 'ADMIN', name: 'Sarah Jenkins', email: 'admin@apex.edu', hint: 'Fleet monitoring, emergency dispatch & announcements' },
   ]);
+});
+
+// POST /api/auth/bootstrap-admin
+// Creates the first campus + first ADMIN when no admin exists.
+// Requires BOOTSTRAP_SECRET. Remove the secret after first use.
+router.post('/bootstrap-admin', async (req, res): Promise<void> => {
+  try {
+    const secret = process.env.BOOTSTRAP_SECRET;
+    if (!secret) {
+      res.status(404).json({ error: 'Bootstrap is not enabled.' });
+      return;
+    }
+    const provided = req.headers['x-bootstrap-secret'];
+    if (typeof provided !== 'string' || provided !== secret) {
+      res.status(403).json({ error: 'Invalid bootstrap secret.' });
+      return;
+    }
+
+    const existingAdmins = await db.countAdmins();
+    if (existingAdmins > 0) {
+      res.status(409).json({ error: 'An administrator already exists. Bootstrap is closed.' });
+      return;
+    }
+
+    const { email, password, name, collegeName, collegeShortCode, collegeDomain } = req.body ?? {};
+    if (!email || !password || !name) {
+      res.status(400).json({ error: 'email, password, and name are required.' });
+      return;
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters.' });
+      return;
+    }
+
+    const colleges = await db.getColleges();
+    let college = colleges[0] ?? null;
+    if (!college) {
+      const now = new Date().toISOString();
+      const short = String(collegeShortCode || 'CAMPUS').trim().toUpperCase().slice(0, 32);
+      college = await db.createCollege({
+        id: 'college_' + Date.now().toString(36),
+        name: String(collegeName || 'Campus').trim(),
+        short_code: short,
+        domain: String(collegeDomain || 'campus.local').trim(),
+        center_lat: 0,
+        center_lng: 0,
+        zoom_level: 15,
+        settings: {},
+        created_at: now,
+      });
+    }
+
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const existing = await db.getUserByEmail(normalizedEmail);
+    if (existing) {
+      res.status(409).json({ error: 'Email already registered.' });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const userId = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const admin: UserRecord = {
+      id: userId,
+      college_id: college.id,
+      email: normalizedEmail,
+      password_hash: hashedPassword,
+      name: String(name).trim(),
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      created_at: new Date().toISOString(),
+    };
+    await db.createUser(admin);
+
+    res.status(201).json({
+      success: true,
+      user: {
+        id: admin.id,
+        collegeId: admin.college_id,
+        email: admin.email,
+        name: admin.name,
+        role: admin.role,
+        status: admin.status,
+      },
+      college: {
+        id: college.id,
+        name: college.name,
+        shortCode: college.short_code,
+      },
+    });
+  } catch (err: any) {
+    console.error('Bootstrap admin error:', err);
+    res.status(500).json({ error: 'Failed to bootstrap administrator.' });
+  }
 });
 
 export default router;

@@ -4,45 +4,30 @@ services:
     runtime: node
     plan: starter
 
-    # Install deps + compile the apps/api bundle
-    buildCommand: npm ci && npm run api:build
+    # Install deps, compile the PostgreSQL-backed Express server, apply non-destructive schema
+    buildCommand: npm ci && npm run build && npm run db:migrate
 
-    # Run the compiled bundle
-    startCommand: npm run api:start
+    # Run the compiled PostgreSQL-backed server
+    startCommand: npm run start
 
     # Render marks the service healthy when this returns 200
-    healthCheckPath: /healthz
+    healthCheckPath: /api/health
 
     envVars:
       - key: NODE_ENV
         value: production
 
-      # Set in the Render dashboard — do not commit actual values
-      - key: MONGODB_URI
+      # Neon / PostgreSQL connection string — set in the Render dashboard
+      - key: DATABASE_URL
         sync: false
 
-      - key: ACCESS_TOKEN_SECRET
+      - key: JWT_SECRET
         sync: false
 
-      - key: REFRESH_TOKEN_SECRET
-        sync: false
-
-      # Remove or blank after first campus record is created
+      # Temporary; remove after the first admin is created via POST /api/auth/bootstrap-admin
       - key: BOOTSTRAP_SECRET
         sync: false
 
       # Set to the Vercel frontend origin (https, no trailing slash)
       - key: CORS_ORIGIN
         sync: false
-
-      # Optional SMTP email delivery
-      # - key: SMTP_HOST
-      #   sync: false
-      # - key: SMTP_PORT
-      #   value: 587
-      # - key: SMTP_USER
-      #   sync: false
-      # - key: SMTP_PASS
-      #   sync: false
-      # - key: EMAIL_FROM
-      #   sync: false

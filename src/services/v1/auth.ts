@@ -57,7 +57,7 @@ export async function loginV1(
 
 export async function registerV1(params: {
   campusId: string; email: string; password: string;
-  name: string; role: 'STUDENT' | 'DRIVER';
+  name: string; role: 'STUDENT';
 }): Promise<{ ok: true; user: V1SessionUser } | { ok: false; error: string }> {
   try {
     const data = await v1Client.postPublic<{ user: V1SessionUser }>('/api/v1/auth/register', params);

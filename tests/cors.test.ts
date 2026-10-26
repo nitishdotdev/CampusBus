@@ -52,6 +52,9 @@ describe('Express CORS middleware', () => {
     expect(bad.headers['access-control-allow-origin']).toBeUndefined();
     const good = await request(app).options('/ping').set('Origin', APPROVED).set('Access-Control-Request-Method', 'POST');
     expect(good.headers['access-control-allow-origin']).toBe(APPROVED);
+    const patch = await request(app).options('/ping').set('Origin', APPROVED).set('Access-Control-Request-Method', 'PATCH');
+    expect(patch.headers['access-control-allow-origin']).toBe(APPROVED);
+    expect(patch.headers['access-control-allow-methods']).toMatch(/PATCH/);
   });
   it('still serves non-browser requests without an Origin header', async () => {
     const res = await request(app).get('/ping');

@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
-import { db } from '../db';
+import bcrypt from 'bcryptjs';
+import { db, UserRecord } from '../db';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
@@ -38,6 +39,60 @@ router.get('/', requireAuth, requireRole(['ADMIN']), async (req: AuthenticatedRe
     res.json(users.map(publicUser));
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch users.' });
+  }
+});
+
+router.post('/', requireAuth, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const collegeId = req.user!.collegeId;
+    const { email, password, name, role, studentId, cdlNumber, phone } = req.body ?? {};
+
+    if (!email || !password || !name || !role) {
+      res.status(400).json({ error: 'email, password, name, and role are required.' });
+      return;
+    }
+    if (role !== 'DRIVER' && role !== 'ADMIN') {
+      res.status(400).json({ error: 'Admins may only create DRIVER or ADMIN accounts. Students self-register.' });
+      return;
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters.' });
+      return;
+    }
+
+    const college = await db.getCollegeById(collegeId);
+    if (!college) {
+      res.status(404).json({ error: 'College not found.' });
+      return;
+    }
+
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const existing = await db.getUserByEmail(normalizedEmail);
+    if (existing) {
+      res.status(409).json({ error: 'Email already registered.' });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const userId = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const newUser: UserRecord = {
+      id: userId,
+      college_id: collegeId,
+      email: normalizedEmail,
+      password_hash: hashedPassword,
+      name: String(name).trim(),
+      role,
+      student_id: studentId || undefined,
+      cdl_number: cdlNumber || undefined,
+      phone: phone || undefined,
+      status: 'ACTIVE',
+      created_at: new Date().toISOString(),
+    };
+    await db.createUser(newUser);
+    res.status(201).json(publicUser(newUser));
+  } catch (err: any) {
+    console.error('Admin user create error:', err);
+    res.status(500).json({ error: 'Failed to create user.' });
   }
 });
 

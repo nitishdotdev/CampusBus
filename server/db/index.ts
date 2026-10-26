@@ -1323,6 +1323,45 @@ export const db = {
     return memoryData.colleges.find((c) => c.id === id) || null;
   },
 
+  async createCollege(college: CollegeRecord): Promise<CollegeRecord> {
+    if (pool) {
+      await pool.query(
+        `INSERT INTO colleges (id, name, short_code, domain, center_lat, center_lng, zoom_level, settings, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          college.id,
+          college.name,
+          college.short_code,
+          college.domain,
+          college.center_lat,
+          college.center_lng,
+          college.zoom_level,
+          JSON.stringify(college.settings || {}),
+          college.created_at,
+        ]
+      );
+    } else {
+      memoryData.colleges.push(college);
+      saveFileDb();
+    }
+    return college;
+  },
+
+  async countAdmins(collegeId?: string): Promise<number> {
+    if (pool) {
+      if (collegeId) {
+        const res = await pool.query(
+          `SELECT COUNT(*)::int AS count FROM users WHERE role = 'ADMIN' AND college_id = $1`,
+          [collegeId]
+        );
+        return res.rows[0]?.count ?? 0;
+      }
+      const res = await pool.query(`SELECT COUNT(*)::int AS count FROM users WHERE role = 'ADMIN'`);
+      return res.rows[0]?.count ?? 0;
+    }
+    return memoryData.users.filter((u) => u.role === 'ADMIN' && (!collegeId || u.college_id === collegeId)).length;
+  },
+
   // Users
   async getUserByEmail(email: string): Promise<UserRecord | null> {
     const norm = email.trim().toLowerCase();

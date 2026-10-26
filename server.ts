@@ -22,7 +22,7 @@ import alertRoutes from './server/routes/alerts';
 import analyticsRoutes from './server/routes/analytics';
 import userRoutes from './server/routes/users';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
 async function startServer() {
@@ -88,6 +88,7 @@ async function startServer() {
   // Mount specific limiters before general /api/ limiter
   app.use('/api/auth/login', authLimiter);
   app.use('/api/auth/register', authLimiter);
+  app.use('/api/auth/bootstrap-admin', authLimiter);
   app.use('/api/driver/location', gpsLimiter);
   app.use('/api/driver/emergency', emergencyLimiter);
   app.use('/api/', apiLimiter);
@@ -97,7 +98,7 @@ async function startServer() {
   console.log('Socket.IO real-time engine attached.');
 
   // API Routes FIRST
-  app.get('/api/health', async (_req, res) => {
+  const sendHealth = async (_req: express.Request, res: express.Response) => {
     const health = await checkDatabaseHealth();
     const statusCode = health.healthy ? 200 : 503;
     res.status(statusCode).json({
@@ -109,7 +110,9 @@ async function startServer() {
       uptimeSeconds: Math.floor(process.uptime()),
       ...(health.error ? { error: health.error } : {}),
     });
-  });
+  };
+  app.get('/api/health', sendHealth);
+  app.get('/healthz', sendHealth);
 
   app.use('/api/auth', authRoutes);
   app.use('/api/colleges', collegeRoutes);

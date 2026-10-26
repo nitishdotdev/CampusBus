@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Mail, Lock, User, AlertCircle, ArrowLeft, Loader2, Eye, EyeOff, Building2 } from 'lucide-react';
 import { authService } from '../../services/authService';
+import { apiClient } from '../../services/apiClient';
 import { loginV1, registerV1, logoutV1, listCampuses, formatCampusFetchError, type V1Campus } from '../../services/v1/auth';
 import { socketV1 } from '../../services/v1/socket';
 import { BrandMark } from '../../components/brand/BrandMark';
@@ -52,17 +53,29 @@ export const LoginPage: React.FC = () => {
   }, [navigate]);
 
   useEffect(() => {
-    if (!USE_V1) return;
     setCampusLoading(true);
     setCampusError('');
-    listCampuses()
+    const load = USE_V1
+      ? listCampuses()
+      : apiClient.get<Array<{ id: string; name: string; shortCode?: string }>>('/api/colleges')
+          .then((list) => (Array.isArray(list) ? list.map((c) => ({
+            id: c.id,
+            name: c.name,
+            shortCode: c.shortCode || '',
+            city: '',
+            lat: 0,
+            lng: 0,
+            zoom: 15,
+            timezone: 'UTC',
+          })) : []));
+    load
       .then((list) => {
-        setCampuses(list);
+        setCampuses(list as V1Campus[]);
         if (list.length === 1) setCampusId(list[0].id);
       })
       .catch((err) => {
         setCampuses([]);
-        setCampusError(formatCampusFetchError(err));
+        setCampusError(USE_V1 ? formatCampusFetchError(err) : 'Cannot reach the campus directory. Check your connection and try again.');
       })
       .finally(() => setCampusLoading(false));
   }, []);
@@ -96,12 +109,13 @@ export const LoginPage: React.FC = () => {
     }
     if (!name.trim()) { setError('Name is required.'); return; }
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (!campusId) { setError('Please select your campus.'); return; }
     const result = await authService.register({
       email,
       password,
       name,
       role: registerRole,
-      collegeId: 'college_apex',
+      collegeId: campusId,
     });
     if (result.success && result.user) {
       await finishAuthenticated(result.user.role);
@@ -230,7 +244,7 @@ export const LoginPage: React.FC = () => {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {USE_V1 && (
+              {(
                 <div>
                   <label htmlFor="campus" className="block text-xs font-bold text-slate-700 mb-1">Campus</label>
                   <div className="relative">
@@ -331,7 +345,7 @@ export const LoginPage: React.FC = () => {
 
               <button
                 type="submit"
-                disabled={isSubmitting || (USE_V1 && campusLoading)}
+                disabled={isSubmitting || campusLoading}
                 className="w-full min-h-12 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-sm rounded-full shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
               >
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : null}

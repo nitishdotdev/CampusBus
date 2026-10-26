@@ -4,11 +4,34 @@ import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/au
 
 const router = Router();
 
+function publicCollege(college: {
+  id: string;
+  name: string;
+  short_code: string;
+  domain: string;
+  center_lat: number;
+  center_lng: number;
+  zoom_level: number;
+  settings?: Record<string, any>;
+}) {
+  return {
+    id: college.id,
+    name: college.name,
+    shortCode: college.short_code,
+    domain: college.domain,
+    campusName: college.name,
+    centerLocation: { lat: college.center_lat, lng: college.center_lng },
+    defaultZoom: college.zoom_level,
+    timezone: college.settings?.timeZone || 'UTC',
+    settings: college.settings || {},
+  };
+}
+
 // GET /api/colleges
 router.get('/', async (_req: Request, res: Response): Promise<void> => {
   try {
     const colleges = await db.getColleges();
-    res.json(colleges);
+    res.json(colleges.map(publicCollege));
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch colleges.' });
   }
@@ -22,7 +45,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ error: 'College not found.' });
       return;
     }
-    res.json(college);
+    res.json(publicCollege(college));
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch college details.' });
   }
@@ -50,7 +73,11 @@ router.put('/:id', requireAuth, requireRole(['ADMIN']), async (req: Authenticate
       name: req.body.name?.trim() || existing.name,
       settings: nextSettings,
     });
-    res.json(updated);
+    if (!updated) {
+      res.status(404).json({ error: 'College not found.' });
+      return;
+    }
+    res.json(publicCollege(updated));
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update campus settings.' });
   }
