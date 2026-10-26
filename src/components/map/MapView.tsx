@@ -91,6 +91,9 @@ export const MapView: React.FC<MapViewProps> = ({
         if (busMarkersRef.current[bus.id]) { map.removeLayer(busMarkersRef.current[bus.id]); delete busMarkersRef.current[bus.id]; }
         return;
       }
+      if (!bus.lastLocation || typeof bus.lastLocation.lat !== 'number' || typeof bus.lastLocation.lng !== 'number') {
+        return;
+      }
       const isSelected = selectedBusId === bus.id;
       const lat = bus.lastLocation.lat, lng = bus.lastLocation.lng;
       const heading = bus.heading || 0;
@@ -114,7 +117,7 @@ export const MapView: React.FC<MapViewProps> = ({
     if (!map) return;
     if (selectedBusId) {
       const bus = buses.find((b) => b.id === selectedBusId);
-      if (bus) map.flyTo([bus.lastLocation.lat, bus.lastLocation.lng], 16, { duration: 0.8 });
+      if (bus?.lastLocation) map.flyTo([bus.lastLocation.lat, bus.lastLocation.lng], 16, { duration: 0.8 });
     } else if (selectedRouteId) {
       const route = routes.find((r) => r.id === selectedRouteId);
       if (route && route.pathCoordinates.length > 0) map.fitBounds(L.latLngBounds(route.pathCoordinates), { padding: [50, 50] });

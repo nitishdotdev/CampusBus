@@ -223,11 +223,22 @@ export const ETAIndicator: React.FC<{
       label: 'DEGRADED',
       bg: 'bg-amber-100 text-amber-800 border-amber-200',
     },
+    STALE: {
+      label: 'STALE',
+      bg: 'bg-amber-100 text-amber-800 border-amber-200',
+    },
+    OFFLINE: {
+      label: 'OFFLINE',
+      bg: 'bg-slate-100 text-slate-700 border-slate-200',
+    },
     SCHEDULED: {
       label: 'SCHEDULED',
       bg: 'bg-slate-100 text-slate-700 border-slate-200',
     },
-  }[confidence];
+  }[confidence] || {
+    label: confidence,
+    bg: 'bg-slate-100 text-slate-700 border-slate-200',
+  };
 
   if (size === 'sm') {
     return (

@@ -1,11 +1,11 @@
 import { Router, Response } from 'express';
 import { db } from '../db';
-import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
+import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 
 // GET /api/analytics
-router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.get('/', requireAuth, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const collegeId = req.user!.collegeId;
     const analytics = await db.getAnalytics(collegeId);

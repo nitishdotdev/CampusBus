@@ -19,13 +19,13 @@ export interface V1LoginResult {
   expiresIn: number;
 }
 
+export function formatCampusFetchError(_err: unknown): string {
+  return 'Cannot reach the campus directory. Check your connection and try again.';
+}
+
 // ── Campus list (public) ──────────────────────────────────────────────────────
 export async function listCampuses(): Promise<V1Campus[]> {
-  try {
-    return await v1Client.get<V1Campus[]>('/api/v1/campuses');
-  } catch {
-    return [];
-  }
+  return v1Client.get<V1Campus[]>('/api/v1/campuses');
 }
 
 // ── Auth ───────────────────────────────────────────────────────────────────────

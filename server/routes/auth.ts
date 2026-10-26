@@ -18,8 +18,10 @@ router.post('/register', async (req, res): Promise<void> => {
       return;
     }
 
-    if (!['STUDENT', 'DRIVER', 'ADMIN'].includes(role)) {
-      res.status(400).json({ error: 'Invalid role. Must be STUDENT, DRIVER, or ADMIN.' });
+    if (role !== 'STUDENT') {
+      res.status(403).json({
+        error: 'Only students can self-register. Driver and admin accounts are created by campus administrators.',
+      });
       return;
     }
 
@@ -189,6 +191,45 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response):
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to retrieve profile.' });
+  }
+});
+
+// PUT /api/auth/password
+router.put('/password', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: 'currentPassword and newPassword are required.' });
+      return;
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      res.status(400).json({ error: 'New password must be at least 8 characters.' });
+      return;
+    }
+
+    const user = await db.getUserById(req.user.userId);
+    if (!user || !user.password_hash) {
+      res.status(404).json({ error: 'User record not found.' });
+      return;
+    }
+
+    const matches = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!matches) {
+      res.status(401).json({ error: 'Current password is incorrect.' });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.updateUser(user.id, { password_hash: hashedPassword });
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Password change error:', err);
+    res.status(500).json({ error: 'Failed to update password.' });
   }
 });
 

@@ -89,7 +89,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Load campuses from v1 API (always, so login form can list them)
   useEffect(() => {
     if (!USE_V1) return;
-    listCampuses().then(setV1Campuses).catch(() => {});
+    listCampuses().then(setV1Campuses).catch(() => setV1Campuses([]));
   }, []);
 
   // Connect socketV1 when authenticated under v1

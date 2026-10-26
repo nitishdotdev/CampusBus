@@ -6,7 +6,7 @@ export const ROLE_REDIRECT: Record<UserRole, string> = {
   ADMIN: '/admin',
 };
 
-export const PUBLIC_REGISTER_ROLES: ReadonlyArray<Exclude<UserRole, 'ADMIN'>> = ['STUDENT', 'DRIVER'];
+export const PUBLIC_REGISTER_ROLES: ReadonlyArray<Extract<UserRole, 'STUDENT'>> = ['STUDENT'];
 
 export function parseIntendedRole(value: string | null): UserRole | null {
   if (!value) return null;
@@ -23,6 +23,6 @@ export function roleLabel(role: UserRole): string {
   return 'Admin';
 }
 
-export function canSelfRegister(role: UserRole | null): role is 'STUDENT' | 'DRIVER' {
-  return role === 'STUDENT' || role === 'DRIVER';
+export function canSelfRegister(role: UserRole | null): role is 'STUDENT' {
+  return role === 'STUDENT';
 }

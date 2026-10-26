@@ -90,7 +90,7 @@ export const RoleSelectPage: React.FC = () => {
   const hrefFor = (id: RoleCardId) => {
     const params = new URLSearchParams();
     params.set('role', id);
-    if (signupRequested && id !== 'admin') params.set('mode', 'register');
+    if (signupRequested && id === 'student') params.set('mode', 'register');
     return `/login?${params.toString()}`;
   };
 

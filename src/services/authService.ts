@@ -116,6 +116,18 @@ class AuthService {
     this.notifyListeners();
   }
 
+  public async changePassword(
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      await apiClient.put('/api/auth/password', { currentPassword, newPassword });
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to update password.' };
+    }
+  }
+
   public logout(): void {
     setStoredToken(null);
     this.currentUser = null;

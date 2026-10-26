@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { db, TripRecord } from '../db';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { broadcastTripStarted, broadcastTripEnded, broadcastOccupancyUpdate, broadcastBusUpdate } from '../socket';
+import { toClientBus } from './buses';
 import { validateTripStart, validateOccupancyInput } from '../utils/validation';
 
 const router = Router();
@@ -98,14 +99,25 @@ router.post('/start', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req:
       return;
     }
 
-    // Check if the requested bus is ALREADY in an active trip by another driver
     const activeBusTrip = await db.getActiveTripForBus(busId, user.collegeId);
-    if ((activeBusTrip && activeBusTrip.driver_id !== user.userId) || (bus.current_driver_id && bus.current_driver_id !== user.userId)) {
+    if (activeBusTrip && activeBusTrip.driver_id !== user.userId) {
       res.status(409).json({
         error: `Bus ${bus.bus_number} is already in use by another driver. Cannot start multiple trips on same bus.`,
-        activeTripId: activeBusTrip?.id,
+        activeTripId: activeBusTrip.id,
         currentDriver: bus.driver_name,
       });
+      return;
+    }
+
+    if (user.role === 'DRIVER' && bus.current_driver_id !== user.userId) {
+      if (bus.current_driver_id) {
+        res.status(409).json({
+          error: `Bus ${bus.bus_number} is already in use by another driver. Cannot start multiple trips on same bus.`,
+          currentDriver: bus.driver_name,
+        });
+        return;
+      }
+      res.status(403).json({ error: 'You can only start a trip on a bus assigned to you by an administrator.' });
       return;
     }
 
@@ -151,9 +163,9 @@ router.post('/start', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req:
       current_driver_id: user.userId,
       driver_name: user.name,
       current_occupancy: 0,
-      gps_status: 'GPS_ACTIVE',
-      eta_confidence: 'LIVE',
-      last_sync_timestamp: new Date().toISOString(),
+      gps_status: 'GPS_SEARCHING',
+      eta_confidence: 'SCHEDULED',
+      speed_kmh: 0,
     });
 
     broadcastTripStarted(user.collegeId, {
@@ -165,7 +177,7 @@ router.post('/start', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req:
     });
 
     if (updatedBus) {
-      broadcastBusUpdate(user.collegeId, updatedBus);
+      broadcastBusUpdate(user.collegeId, toClientBus(updatedBus));
     }
 
     res.status(201).json({
@@ -201,9 +213,9 @@ router.post('/end', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req: A
 
     // Put bus back to off duty
     const bus = await db.updateBus(activeTrip.bus_id, user.collegeId, {
-      status: 'OFF_DUTY',
+      status: 'IDLE',
       current_occupancy: 0,
-      gps_status: 'GPS_ACTIVE',
+      gps_status: 'GPS_SEARCHING',
       eta_confidence: 'SCHEDULED',
       speed_kmh: 0,
     });
@@ -215,7 +227,7 @@ router.post('/end', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req: A
     });
 
     if (bus) {
-      broadcastBusUpdate(user.collegeId, bus);
+      broadcastBusUpdate(user.collegeId, toClientBus(bus));
     }
 
     res.json({

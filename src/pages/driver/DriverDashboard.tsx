@@ -62,16 +62,14 @@ export const DriverDashboard: React.FC = () => {
     };
   }, [activeTrip]);
 
-  // Determine driver's assigned bus and route dynamically
   const assignedBus =
     buses.find((b) => b.id === activeTrip?.busId) ||
-    (assignment?.busId ? buses.find((b) => b.id === assignment.busId) : null) ||
-    buses.find((b) => b.currentDriverId === currentUser?.id) ||
-    buses[0];
+    (assignment?.busId ? buses.find((b) => b.id === assignment.busId) : undefined) ||
+    buses.find((b) => b.currentDriverId === currentUser?.id);
 
-  const assignedRoute =
-    routes.find((r) => r.id === (activeTrip?.routeId || assignment?.routeId || assignedBus?.currentRouteId)) ||
-    routes[0];
+  const assignedRoute = assignedBus
+    ? routes.find((r) => r.id === (activeTrip?.routeId || assignment?.routeId || assignedBus.currentRouteId))
+    : undefined;
 
   const [useSimulatedGps, setUseSimulatedGps] = useState(false);
   const [showStartTripModal, setShowStartTripModal] = useState(false);
@@ -82,12 +80,11 @@ export const DriverDashboard: React.FC = () => {
   const [emergencySent, setEmergencySent] = useState(false);
   const [tripSummary, setTripSummary] = useState<any>(null);
 
-  // Auto-prompt GPS permission walkthrough if permission required
   useEffect(() => {
-    if (locationState.gpsStatus === 'GPS_PERMISSION_REQUIRED') {
+    if (activeTrip && locationState.gpsStatus === 'GPS_PERMISSION_REQUIRED') {
       setShowGpsHelpModal(true);
     }
-  }, [locationState.gpsStatus]);
+  }, [activeTrip, locationState.gpsStatus]);
 
   // Time elapsed in active trip
   const [tripElapsedMins, setTripElapsedMins] = useState(0);
@@ -111,14 +108,18 @@ export const DriverDashboard: React.FC = () => {
     setShowStartTripModal(false);
     setTripError(null);
     try {
+      if (!assignedBus || !assignedRoute) {
+        setTripError('No bus and route are assigned to your account.');
+        return;
+      }
       if (USE_V1) {
         await tripsV1.start(assignedBus.id);
       } else {
         await tripService.startTrip(
           assignedBus.id,
-          currentUser?.id || 'driver_marcus',
+          currentUser?.id || '',
           assignedRoute.id,
-          currentUser?.collegeId || 'college_apex',
+          currentUser?.collegeId || '',
           useSimulatedGps
         );
       }
@@ -139,6 +140,7 @@ export const DriverDashboard: React.FC = () => {
   };
 
   const handleOccupancyChange = (delta: number) => {
+    if (!activeTrip) return;
     tripService.updateOccupancy(delta, false);
   };
 
@@ -146,12 +148,12 @@ export const DriverDashboard: React.FC = () => {
     if (!assignedBus || !assignedRoute) return;
 
     adminService.triggerEmergencyAlert({
-      collegeId: currentUser?.collegeId || 'college_apex',
+      collegeId: currentUser?.collegeId || '',
       tripId: activeTrip?.id || 'manual_' + Date.now(),
       busId: assignedBus.id,
       busNumber: assignedBus.busNumber,
-      driverId: currentUser?.id || 'driver_marcus',
-      driverName: currentUser?.name || 'Marcus Vance',
+      driverId: currentUser?.id || '',
+      driverName: currentUser?.name || 'Driver',
       routeId: assignedRoute.id,
       routeName: assignedRoute.name,
       location: locationState.lastLocation || {
@@ -165,9 +167,22 @@ export const DriverDashboard: React.FC = () => {
     setShowEmergencyModal(false);
   };
 
-  const occupancy = activeTrip ? activeTrip.currentOccupancy : assignedBus.currentOccupancy;
-  const capacity = assignedBus.capacity || 45;
+  const occupancy = activeTrip ? activeTrip.currentOccupancy : (assignedBus?.currentOccupancy || 0);
+  const capacity = assignedBus?.capacity || 45;
   const occupancyPercent = Math.min(100, Math.round((occupancy / capacity) * 100));
+
+  if (!assignedBus) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900">{currentUser?.name || 'Driver'}</h2>
+          <p className="text-sm text-slate-600 mt-2">
+            No bus is assigned to your account. An administrator must assign a vehicle and route before you can start a trip or share GPS.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -181,15 +196,16 @@ export const DriverDashboard: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-slate-900 leading-none">
-                  {currentUser?.name || 'Marcus Vance'}
+                  {currentUser?.name || 'Driver'}
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
                   CDL ON-DUTY
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Assigned: <strong className="text-slate-800">{assignedBus.busNumber}</strong> ({assignedBus.model.split(' ')[0]}) • Route{' '}
-                <strong className="text-slate-800">{assignedRoute.code}</strong>
+                Assigned: <strong className="text-slate-800">{assignedBus.busNumber}</strong>
+                {assignedBus.model ? ` (${assignedBus.model.split(' ')[0]})` : ''}
+                {assignedRoute ? <> • Route <strong className="text-slate-800">{assignedRoute.code}</strong></> : ' • No route assigned'}
               </p>
             </div>
           </div>
@@ -257,11 +273,12 @@ export const DriverDashboard: React.FC = () => {
 
             <button
               id="start-trip-button"
+              disabled={!assignedRoute}
               onClick={() => setShowStartTripModal(true)}
-              className="w-full sm:w-80 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer"
+              className="w-full sm:w-80 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-black text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer"
             >
               <Play className="w-5 h-5 fill-current" />
-              <span>START CAMPUS TRIP</span>
+              <span>{assignedRoute ? 'START CAMPUS TRIP' : 'ROUTE NOT ASSIGNED'}</span>
             </button>
           </div>
         ) : (
@@ -272,7 +289,7 @@ export const DriverDashboard: React.FC = () => {
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" /> Live Trip In Progress
                 </span>
                 <h3 className="text-lg font-black text-slate-900 mt-0.5">
-                  {assignedRoute.code}: {assignedRoute.name}
+                  {assignedRoute ? `${assignedRoute.code}: ${assignedRoute.name}` : assignedBus.busNumber}
                 </h3>
               </div>
               <div className="text-right">
@@ -301,7 +318,11 @@ export const DriverDashboard: React.FC = () => {
                 </div>
                 <GPSStatusBadge
                   status={locationState.gpsStatus}
-                  lastUpdateText={locationState.lastLocation ? '3s ago' : undefined}
+                  lastUpdateText={
+                    locationState.lastLocation
+                      ? new Date(locationState.lastLocation.timestamp).toLocaleTimeString()
+                      : undefined
+                  }
                 />
                 <div className="text-[11px] text-slate-500 mt-1.5 font-mono">
                   {locationState.lastLocation
@@ -372,7 +393,7 @@ export const DriverDashboard: React.FC = () => {
       </div>
 
       {/* Tactile Passenger Occupancy Control */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3">
+      <div className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3 ${!activeTrip ? 'opacity-60' : ''}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -409,7 +430,7 @@ export const DriverDashboard: React.FC = () => {
         <div className="grid grid-cols-4 gap-2 pt-2">
           <button
             id="occupancy-minus-5"
-            disabled={occupancy <= 0}
+            disabled={!activeTrip || occupancy <= 0}
             onClick={() => handleOccupancyChange(-5)}
             className="h-14 sm:h-16 min-h-[56px] bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 shadow-xs flex items-center justify-center"
           >
@@ -417,7 +438,7 @@ export const DriverDashboard: React.FC = () => {
           </button>
           <button
             id="occupancy-minus-1"
-            disabled={occupancy <= 0}
+            disabled={!activeTrip || occupancy <= 0}
             onClick={() => handleOccupancyChange(-1)}
             className="h-14 sm:h-16 min-h-[56px] bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-1 shadow-xs"
           >
@@ -425,7 +446,7 @@ export const DriverDashboard: React.FC = () => {
           </button>
           <button
             id="occupancy-plus-1"
-            disabled={occupancy >= capacity}
+            disabled={!activeTrip || occupancy >= capacity}
             onClick={() => handleOccupancyChange(1)}
             className="h-14 sm:h-16 min-h-[56px] bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-1 shadow-xs"
           >
@@ -433,7 +454,7 @@ export const DriverDashboard: React.FC = () => {
           </button>
           <button
             id="occupancy-plus-5"
-            disabled={occupancy >= capacity}
+            disabled={!activeTrip || occupancy >= capacity}
             onClick={() => handleOccupancyChange(5)}
             className="h-14 sm:h-16 min-h-[56px] bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 shadow-xs flex items-center justify-center"
           >
@@ -490,7 +511,7 @@ export const DriverDashboard: React.FC = () => {
               <strong>Vehicle:</strong> {assignedBus.busNumber} ({assignedBus.model})
             </div>
             <div>
-              <strong>Route:</strong> {assignedRoute.code} — {assignedRoute.name}
+              <strong>Route:</strong> {assignedRoute ? `${assignedRoute.code} — ${assignedRoute.name}` : 'Not assigned'}
             </div>
             <div>
               <strong>GPS Source:</strong>{' '}
@@ -596,7 +617,7 @@ export const DriverDashboard: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-slate-500">Route:</span>{' '}
-                  <strong>{assignedRoute.code}</strong>
+                  <strong>{assignedRoute?.code || '—'}</strong>
                 </div>
               </div>
             </div>

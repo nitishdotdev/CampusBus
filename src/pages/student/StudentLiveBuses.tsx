@@ -29,8 +29,8 @@ function estimateEtaSeconds(
   speedMps: number | null,
 ): number | undefined {
   const dist = haversineM(curLat, curLng, stopLat, stopLng);
-  const speed = speedMps && speedMps > 0.5 ? speedMps : 5; // default 5 m/s (~18 km/h)
-  return Math.round(dist / speed);
+  if (!speedMps || speedMps <= 0.5) return undefined;
+  return Math.round(dist / speedMps);
 }
 
 // ── Live position overlay ──────────────────────────────────────────────────────
@@ -96,10 +96,12 @@ export const StudentLiveBuses: React.FC = () => {
 
   // ETA to first upcoming stop using live position + haversine
   const etaSeconds = (() => {
+    if (selectedEnriched?.nextStop?.etaMinutes != null) {
+      return selectedEnriched.nextStop.etaMinutes * 60;
+    }
     const live = selectedBusId ? livePositions.get(selectedBusId) : undefined;
     if (!live || !selectedBusRoute?.stops?.length) return selectedEnriched?.etaToNextStopSeconds;
     const { lat, lng } = live.location;
-    // Find closest upcoming stop by index
     const stops = [...selectedBusRoute.stops].sort((a, b) => a.sequence - b.sequence);
     const nextStop = stops[0];
     if (!nextStop) return undefined;
@@ -221,7 +223,7 @@ export const StudentLiveBuses: React.FC = () => {
                     <div className="mt-1">
                       <ETAIndicator
                         seconds={etaSeconds}
-                        confidence={livePositions.has(selectedEnriched.id) ? 'LIVE' : selectedEnriched.etaConfidence}
+                        confidence={selectedEnriched.etaConfidence}
                       />
                     </div>
                   </div>

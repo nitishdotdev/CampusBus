@@ -15,9 +15,9 @@ describe('role access helpers', () => {
     expect(parseIntendedRole(null)).toBeNull();
   });
 
-  it('allows only student and driver self-registration', () => {
+  it('allows only student self-registration', () => {
     expect(canSelfRegister('STUDENT')).toBe(true);
-    expect(canSelfRegister('DRIVER')).toBe(true);
+    expect(canSelfRegister('DRIVER')).toBe(false);
     expect(canSelfRegister('ADMIN')).toBe(false);
     expect(canSelfRegister(null)).toBe(false);
   });

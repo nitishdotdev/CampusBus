@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { db, LocationRecord, EmergencyAlertRecord } from '../db';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/auth';
 import { broadcastBusLocation, broadcastBusUpdate, broadcastEmergencyAlert } from '../socket';
+import { toClientBus } from './buses';
 import { determineConfidence, calculateRouteETAs } from '../utils/eta';
 import { validateTelemetry } from '../utils/validation';
 
@@ -87,6 +88,18 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
       return;
     }
 
+    if (user.role === 'DRIVER') {
+      if (bus.current_driver_id !== user.userId) {
+        res.status(403).json({ error: 'You can only report GPS for a bus assigned to you.' });
+        return;
+      }
+      const activeTrip = await db.getActiveTripForDriver(user.userId, user.collegeId);
+      if (!activeTrip || activeTrip.bus_id !== busId) {
+        res.status(403).json({ error: 'You can only report GPS during an active trip on your assigned bus.' });
+        return;
+      }
+    }
+
     // Validate GPS telemetry and coordinates
     const telemetryValidation = validateTelemetry({ lat, lng, speed, heading, accuracy });
     if (!telemetryValidation.valid || !telemetryValidation.data) {
@@ -96,7 +109,7 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
 
     const validData = telemetryValidation.data;
     const recordedAt = timestamp || new Date().toISOString();
-    const speedKmh = validData.speed !== undefined ? Math.round(validData.speed * 3.6) : 22;
+    const speedKmh = validData.speed !== undefined ? Math.round(validData.speed * 3.6) : 0;
 
     // 1. Persist breadcrumb in locations log
     const locRecord: LocationRecord = {
@@ -166,8 +179,7 @@ router.post('/location', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (r
 
       broadcastBusLocation(user.collegeId, payload);
       broadcastBusUpdate(user.collegeId, {
-        ...updatedBus,
-        upcomingEtas,
+        ...toClientBus(updatedBus, { upcomingEtas }),
         nextStop: payload.nextStop,
       });
     }
@@ -205,6 +217,18 @@ router.post('/location/sync', requireAuth, requireRole(['DRIVER', 'ADMIN']), asy
     if (!bus) {
       res.status(404).json({ error: 'Bus not found in your college fleet.' });
       return;
+    }
+
+    if (user.role === 'DRIVER') {
+      if (bus.current_driver_id !== user.userId) {
+        res.status(403).json({ error: 'You can only report GPS for a bus assigned to you.' });
+        return;
+      }
+      const activeTrip = await db.getActiveTripForDriver(user.userId, user.collegeId);
+      if (!activeTrip || activeTrip.bus_id !== targetBusId) {
+        res.status(403).json({ error: 'You can only report GPS during an active trip on your assigned bus.' });
+        return;
+      }
     }
 
     // Validate coordinates on every single queued location point
@@ -270,7 +294,7 @@ router.post('/location/sync', requireAuth, requireRole(['DRIVER', 'ADMIN']), asy
     // Update bus state with latest successfully saved point
     const successfullySavedRecords = validatedRecords.filter((r) => savedIds.includes(r.id));
     const latest = successfullySavedRecords.length > 0 ? successfullySavedRecords[successfullySavedRecords.length - 1] : validatedRecords[validatedRecords.length - 1];
-    const latestSpeedKmh = latest.speed !== undefined ? Math.round(latest.speed * 3.6) : 22;
+    const latestSpeedKmh = latest.speed !== undefined ? Math.round(latest.speed * 3.6) : 0;
     const confidence = determineConfidence(latest.recorded_at, 'ACTIVE', false);
 
     let updatedBus = null;
@@ -310,7 +334,7 @@ router.post('/location/sync', requireAuth, requireRole(['DRIVER', 'ADMIN']), asy
         networkStatus: 'NETWORK_ONLINE',
         etaConfidence: confidence,
       });
-      broadcastBusUpdate(user.collegeId, updatedBus);
+      broadcastBusUpdate(user.collegeId, toClientBus(updatedBus));
     }
 
     res.json({

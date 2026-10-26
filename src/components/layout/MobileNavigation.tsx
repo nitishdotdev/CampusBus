@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useApp } from '../../store/AppContext';
+import { getNavItems } from './navConfig';
 import {
   LayoutDashboard,
   Navigation,
@@ -12,54 +13,59 @@ import {
   Users,
   Calendar,
   MessageSquare,
+  User,
+  BarChart3,
+  Settings,
 } from 'lucide-react';
 
-interface NavItem {
-  to: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  badge?: number;
-}
+const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  '/student': LayoutDashboard,
+  '/student/live': Navigation,
+  '/student/routes': RouteIcon,
+  '/student/schedules': Calendar,
+  '/student/notifications': Bell,
+  '/student/complaints': MessageSquare,
+  '/student/profile': User,
+  '/driver': Navigation,
+  '/driver/history': History,
+  '/driver/profile': Bus,
+  '/admin': LayoutDashboard,
+  '/admin/fleet': Navigation,
+  '/admin/buses': Bus,
+  '/admin/routes': RouteIcon,
+  '/admin/schedules': Calendar,
+  '/admin/directory': Users,
+  '/admin/alerts': ShieldAlert,
+  '/admin/analytics': BarChart3,
+  '/admin/complaints': MessageSquare,
+  '/admin/settings': Settings,
+};
 
 export const MobileNavigation: React.FC = () => {
   const { role, unreadCount, activeEmergencyCount } = useApp();
-
-  const studentItems: NavItem[] = [
-    { to: '/student', label: 'Home', icon: LayoutDashboard },
-    { to: '/student/live', label: 'Live Map', icon: Navigation },
-    { to: '/student/routes', label: 'Routes', icon: RouteIcon },
-    { to: '/student/notifications', label: 'Alerts', icon: Bell, badge: unreadCount },
-    { to: '/student/schedules', label: 'Schedules', icon: Calendar },
-    { to: '/student/complaints', label: 'Feedback', icon: MessageSquare },
-  ];
-
-  const driverItems: NavItem[] = [
-    { to: '/driver', label: 'Trip', icon: Navigation },
-    { to: '/driver/history', label: 'History', icon: History },
-    { to: '/driver/profile', label: 'Vehicle', icon: Bus },
-  ];
-
-  const adminItems: NavItem[] = [
-    { to: '/admin', label: 'Overview', icon: LayoutDashboard },
-    { to: '/admin/fleet', label: 'Fleet Map', icon: Navigation },
-    { to: '/admin/buses', label: 'Buses', icon: Bus },
-    { to: '/admin/routes', label: 'Routes', icon: RouteIcon },
-    { to: '/admin/alerts', label: 'Alerts', icon: ShieldAlert, badge: activeEmergencyCount },
-    { to: '/admin/schedules', label: 'Schedules', icon: Calendar },
-    { to: '/admin/complaints', label: 'Complaints', icon: MessageSquare },
-  ];
-
-  const items = role === 'ADMIN' ? adminItems : role === 'DRIVER' ? driverItems : studentItems;
+  const items = getNavItems(role).filter((item) => {
+    if (role === 'STUDENT') {
+      return ['/student', '/student/live', '/student/routes', '/student/notifications', '/student/profile'].includes(item.to);
+    }
+    if (role === 'ADMIN') {
+      return ['/admin', '/admin/fleet', '/admin/buses', '/admin/alerts', '/admin/directory'].includes(item.to);
+    }
+    return true;
+  });
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 shadow-lg px-2 py-1 flex items-center justify-around gap-1 overflow-x-auto pb-safe">
       {items.map((item) => {
-        const Icon = item.icon;
+        const Icon = ICONS[item.to] || LayoutDashboard;
+        const badge =
+          item.to === '/student/notifications' ? unreadCount :
+          item.to === '/admin/alerts' ? activeEmergencyCount :
+          undefined;
         return (
           <NavLink
             key={item.to}
             to={item.to}
-            end={item.to === '/student' || item.to === '/admin' || item.to === '/driver'}
+            end={item.end}
             className={({ isActive }) =>
               `flex flex-col items-center justify-center shrink-0 min-w-[56px] min-h-[46px] py-1 px-2 rounded-xl text-[10px] font-semibold transition-colors relative cursor-pointer ${
                 isActive ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800'
@@ -68,9 +74,9 @@ export const MobileNavigation: React.FC = () => {
           >
             <div className="relative">
               <Icon className="w-5 h-5 mb-0.5" />
-              {item.badge !== undefined && item.badge > 0 && (
+              {badge !== undefined && badge > 0 && (
                 <span className="absolute -top-1 -right-2 w-3.5 h-3.5 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center">
-                  {item.badge}
+                  {badge}
                 </span>
               )}
             </div>

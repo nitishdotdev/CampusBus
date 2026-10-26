@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: campusmove-api
+    name: campusbus-api
     runtime: node
     plan: starter
 
@@ -17,7 +17,7 @@ services:
       - key: NODE_ENV
         value: production
 
-      # Mark as secret in the Render dashboard — do not commit actual values
+      # Set in the Render dashboard — do not commit actual values
       - key: MONGODB_URI
         sync: false
 
@@ -31,9 +31,9 @@ services:
       - key: BOOTSTRAP_SECRET
         sync: false
 
-      # Update once you know your Vercel frontend URL
+      # Set to the Vercel frontend origin (https, no trailing slash)
       - key: CORS_ORIGIN
-        value: https://campus-move-one.vercel.app
+        sync: false
 
       # Optional SMTP email delivery
       # - key: SMTP_HOST
@@ -45,4 +45,4 @@ services:
       # - key: SMTP_PASS
       #   sync: false
       # - key: EMAIL_FROM
-      #   value: noreply@yourcampus.edu
+      #   sync: false

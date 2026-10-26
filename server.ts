@@ -20,6 +20,7 @@ import driverRoutes from './server/routes/driver';
 import notificationRoutes from './server/routes/notifications';
 import alertRoutes from './server/routes/alerts';
 import analyticsRoutes from './server/routes/analytics';
+import userRoutes from './server/routes/users';
 
 const PORT = 3000;
 const HOST = '0.0.0.0';
@@ -119,6 +120,7 @@ async function startServer() {
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/alerts', alertRoutes);
   app.use('/api/analytics', analyticsRoutes);
+  app.use('/api/users', userRoutes);
   app.use("/api/schedules", scheduleRoutes);
   app.use("/api/complaints", complaintRoutes);
 

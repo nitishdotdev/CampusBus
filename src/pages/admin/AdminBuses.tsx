@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../store/AppContext';
-import { Bus, BusStatus } from '../../types';
-import { BusStatusBadge } from '../../components/common/StatusBadges';
+import { BusStatus } from '../../types';
 import { SearchInput, FilterBar } from '../../components/common/Inputs';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
 import { adminService } from '../../services/adminService';
+import { busService } from '../../services/busService';
+import { apiClient } from '../../services/apiClient';
 import { busesV1 } from '../../services/v1/buses';
 
 const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
@@ -19,20 +20,32 @@ import {
   Users,
 } from 'lucide-react';
 
+interface DirectoryUser {
+  id: string;
+  name: string;
+  role: 'STUDENT' | 'DRIVER' | 'ADMIN';
+}
+
 export const AdminBuses: React.FC = () => {
-  const { buses, routes } = useApp();
+  const { buses, routes, currentCollege } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [deletingBusId, setDeletingBusId] = useState<string | null>(null);
+  const [drivers, setDrivers] = useState<DirectoryUser[]>([]);
 
-  // New Bus form state
   const [busNumber, setBusNumber] = useState('');
   const [model, setModel] = useState('Gillig Low Floor 40ft');
   const [plateNumber, setPlateNumber] = useState('');
   const [capacity, setCapacity] = useState(45);
   const [assignedRouteId, setAssignedRouteId] = useState('');
-  const [driverName, setDriverName] = useState('');
+  const [assignedDriverId, setAssignedDriverId] = useState('');
+
+  useEffect(() => {
+    apiClient.get<DirectoryUser[]>('/api/users?role=DRIVER')
+      .then((data) => setDrivers(Array.isArray(data) ? data : []))
+      .catch(() => setDrivers([]));
+  }, []);
 
   const filteredBuses = buses.filter((b) => {
     if (statusFilter !== 'ALL' && b.status !== statusFilter) return false;
@@ -57,8 +70,8 @@ export const AdminBuses: React.FC = () => {
         status: 'ACTIVE',
       });
     } else {
-      adminService.addBus({
-        collegeId: 'college_apex',
+      const created = await adminService.addBus({
+        collegeId: currentCollege.id,
         busNumber: busNumber.trim(),
         model,
         plateNumber: plateNumber.trim() || `CAMPUS-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -66,18 +79,20 @@ export const AdminBuses: React.FC = () => {
         status: 'IDLE',
         currentOccupancy: 0,
         currentRouteId: assignedRouteId || undefined,
-        driverName: driverName.trim() || undefined,
         heading: 0,
         speedKmh: 0,
-        gpsStatus: 'GPS_ACTIVE',
+        gpsStatus: 'GPS_SEARCHING',
         networkStatus: 'NETWORK_ONLINE',
         etaConfidence: 'SCHEDULED',
       });
+      if (assignedDriverId && created?.id) {
+        await busService.updateBus(created.id, { currentDriverId: assignedDriverId } as any);
+      }
     }
     setIsAddModalOpen(false);
     setBusNumber('');
     setPlateNumber('');
-    setDriverName('');
+    setAssignedDriverId('');
   };
 
   const handleStatusChange = async (busId: string, status: BusStatus) => {
@@ -210,11 +225,17 @@ export const AdminBuses: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4">
-                      {bus.driverName ? (
-                        <span className="font-semibold text-slate-900">{bus.driverName}</span>
-                      ) : (
-                        <span className="text-slate-400 italic">No driver assigned</span>
-                      )}
+                      <select
+                        value={bus.currentDriverId || ''}
+                        onChange={(e) => busService.updateBus(bus.id, { currentDriverId: e.target.value || null } as any)}
+                        className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold cursor-pointer min-h-11"
+                        aria-label={`Assign driver for ${bus.busNumber}`}
+                      >
+                        <option value="">Unassigned</option>
+                        {drivers.map((d) => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
                     </td>
 
                     <td className="py-3.5 px-4 font-mono font-semibold">
@@ -313,14 +334,17 @@ export const AdminBuses: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Driver Name</label>
-            <input
-              type="text"
-              value={driverName}
-              onChange={(e) => setDriverName(e.target.value)}
-              placeholder="e.g. John Doe (Optional)"
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-            />
+            <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Driver</label>
+            <select
+              value={assignedDriverId}
+              onChange={(e) => setAssignedDriverId(e.target.value)}
+              className="w-full min-h-11 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+            >
+              <option value="">Unassigned</option>
+              {drivers.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">

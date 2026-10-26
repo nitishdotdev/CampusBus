@@ -58,13 +58,7 @@ class TripService {
       await locationService.startTracking(newTrip.id, busId, driverId, useSimulation);
       return newTrip;
     } catch (err: any) {
-      if (err.status === 409 || err.status === 400 || err.status === 404) throw err;
-      const fb: Trip = { id: 'trip_' + Date.now().toString(), collegeId, busId, driverId, routeId,
-        startTime: new Date().toISOString(), status: 'IN_PROGRESS', currentOccupancy: 0,
-        initialOccupancy: 0, totalLocationsLogged: 0, syncedLocationsCount: 0, queuedLocationsCount: 0, distanceCoveredKm: 0 };
-      this.activeTrip = fb; this.trips.unshift(fb); this.persistActiveTrip(); this.notify();
-      await locationService.startTracking(fb.id, busId, driverId, useSimulation);
-      return fb;
+      throw err;
     }
   }
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '../../store/AppContext';
-import { User, GraduationCap, Bus, CheckCircle2, QrCode, Shield, MapPin } from 'lucide-react';
+import { GraduationCap, CheckCircle2 } from 'lucide-react';
+import { PasswordChangeForm } from '../../components/common/PasswordChangeForm';
 
 export const StudentProfile: React.FC = () => {
   const { currentUser, currentCollege, routes } = useApp();
@@ -29,7 +30,7 @@ export const StudentProfile: React.FC = () => {
             <h2 className="text-xl font-bold text-slate-900">{currentUser?.name}</h2>
             <p className="text-xs text-slate-500">{currentUser?.email}</p>
             <p className="text-xs text-slate-600 mt-1">
-              Student ID: <span className="font-mono font-bold text-slate-900">{currentUser?.studentId || 'ASU-2024-8891'}</span>
+              Student ID: <span className="font-mono font-bold text-slate-900">{currentUser?.studentId || 'Not assigned'}</span>
             </p>
           </div>
         </div>
@@ -54,16 +55,16 @@ export const StudentProfile: React.FC = () => {
               <div className="font-bold text-white">{currentUser?.name}</div>
             </div>
             <div>
-              <div className="text-slate-400 text-[11px]">Semester Validity</div>
-              <div className="font-bold text-white">Fall 2026 – Spring 2027</div>
+              <div className="text-slate-400 text-[11px]">Campus</div>
+              <div className="font-bold text-white">{currentCollege.campusName || currentCollege.name}</div>
             </div>
             <div>
-              <div className="text-slate-400 text-[11px]">Campus Area</div>
-              <div className="font-bold text-white">All Lines & Night Owl</div>
+              <div className="text-slate-400 text-[11px]">Account Status</div>
+              <div className="font-bold text-white">{currentUser?.status || 'ACTIVE'}</div>
             </div>
             <div>
-              <div className="text-slate-400 text-[11px]">Validation Token</div>
-              <div className="font-mono text-[11px] text-blue-300">#TRN-8891-OCT</div>
+              <div className="text-slate-400 text-[11px]">Email</div>
+              <div className="font-mono text-[11px] text-blue-300 truncate">{currentUser?.email}</div>
             </div>
           </div>
         </div>
@@ -95,8 +96,12 @@ export const StudentProfile: React.FC = () => {
               </span>
             </div>
           ))}
+          {routes.length === 0 && (
+            <p className="text-xs text-slate-500">No campus routes are published yet.</p>
+          )}
         </div>
       </div>
+      <PasswordChangeForm />
     </div>
   );
 };

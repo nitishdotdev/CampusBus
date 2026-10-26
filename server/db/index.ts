@@ -587,15 +587,15 @@ export async function seedInitialData() {
       current_route_id: 'route_blue',
       current_driver_id: 'usr_driver_marcus',
       driver_name: 'Marcus Vance',
-      status: 'ACTIVE',
+      status: 'IDLE',
       last_location_lat: 34.0548,
       last_location_lng: -118.2562,
-      heading: 145,
-      speed_kmh: 24,
-      current_occupancy: 28,
-      gps_status: 'GPS_ACTIVE',
+      heading: 0,
+      speed_kmh: 0,
+      current_occupancy: 0,
+      gps_status: 'GPS_SEARCHING',
       network_status: 'NETWORK_ONLINE',
-      eta_confidence: 'LIVE',
+      eta_confidence: 'SCHEDULED',
       is_simulated: false,
       last_sync_timestamp: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -610,15 +610,15 @@ export async function seedInitialData() {
       current_route_id: 'route_red',
       current_driver_id: 'usr_driver_elena',
       driver_name: 'Elena Rostova',
-      status: 'ACTIVE',
+      status: 'IDLE',
       last_location_lat: 34.0568,
       last_location_lng: -118.2530,
-      heading: 210,
-      speed_kmh: 31,
-      current_occupancy: 19,
-      gps_status: 'GPS_ACTIVE',
+      heading: 0,
+      speed_kmh: 0,
+      current_occupancy: 0,
+      gps_status: 'GPS_SEARCHING',
       network_status: 'NETWORK_ONLINE',
-      eta_confidence: 'LIVE',
+      eta_confidence: 'SCHEDULED',
       is_simulated: false,
       last_sync_timestamp: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -693,9 +693,10 @@ export async function seedInitialData() {
       bus_id: 'bus_104',
       route_id: 'route_blue',
       driver_id: 'usr_driver_marcus',
-      status: 'IN_PROGRESS',
+      status: 'COMPLETED',
       start_time: new Date(Date.now() - 25 * 60000).toISOString(),
-      current_occupancy: 28,
+      end_time: new Date(Date.now() - 5 * 60000).toISOString(),
+      current_occupancy: 0,
       max_occupancy_recorded: 34,
       distance_covered_km: 7.2,
       total_locations_logged: 48,
@@ -709,9 +710,10 @@ export async function seedInitialData() {
       bus_id: 'bus_101',
       route_id: 'route_red',
       driver_id: 'usr_driver_elena',
-      status: 'IN_PROGRESS',
+      status: 'COMPLETED',
       start_time: new Date(Date.now() - 15 * 60000).toISOString(),
-      current_occupancy: 19,
+      end_time: new Date(Date.now() - 2 * 60000).toISOString(),
+      current_occupancy: 0,
       max_occupancy_recorded: 24,
       distance_covered_km: 4.8,
       total_locations_logged: 32,
@@ -1352,6 +1354,57 @@ export const db = {
       return res.rows;
     }
     return memoryData.users.filter((u) => u.college_id === collegeId && (!role || u.role === role));
+  },
+
+  async updateUser(id: string, updates: Partial<UserRecord>): Promise<UserRecord | null> {
+    if (pool) {
+      const keys = Object.keys(updates).filter((k) => k !== 'id' && k !== 'college_id');
+      if (keys.length === 0) return this.getUserById(id);
+      const setClause = keys.map((k, idx) => `${k} = $${idx + 2}`).join(', ');
+      const values = keys.map((k) => (updates as any)[k]);
+      const res = await pool.query(`UPDATE users SET ${setClause} WHERE id = $1 RETURNING *`, [id, ...values]);
+      return res.rows[0] || null;
+    }
+    const idx = memoryData.users.findIndex((u) => u.id === id);
+    if (idx === -1) return null;
+    memoryData.users[idx] = { ...memoryData.users[idx], ...updates };
+    saveFileDb();
+    return memoryData.users[idx];
+  },
+
+  async updateCollege(id: string, updates: Partial<CollegeRecord>): Promise<CollegeRecord | null> {
+    if (pool) {
+      const payload: Record<string, any> = {};
+      if (updates.name !== undefined) payload.name = updates.name;
+      if (updates.short_code !== undefined) payload.short_code = updates.short_code;
+      if (updates.domain !== undefined) payload.domain = updates.domain;
+      if (updates.center_lat !== undefined) payload.center_lat = updates.center_lat;
+      if (updates.center_lng !== undefined) payload.center_lng = updates.center_lng;
+      if (updates.zoom_level !== undefined) payload.zoom_level = updates.zoom_level;
+      if (updates.settings !== undefined) payload.settings = JSON.stringify(updates.settings);
+      const keys = Object.keys(payload);
+      if (keys.length === 0) return this.getCollegeById(id);
+      const setClause = keys.map((k, idx) => `${k} = $${idx + 2}`).join(', ');
+      const values = keys.map((k) => payload[k]);
+      const res = await pool.query(`UPDATE colleges SET ${setClause} WHERE id = $1 RETURNING *`, [id, ...values]);
+      if (res.rows.length === 0) return null;
+      const r = res.rows[0];
+      return {
+        ...r,
+        settings: typeof r.settings === 'string' ? JSON.parse(r.settings) : r.settings,
+      };
+    }
+    const idx = memoryData.colleges.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    memoryData.colleges[idx] = {
+      ...memoryData.colleges[idx],
+      ...updates,
+      settings: updates.settings
+        ? { ...memoryData.colleges[idx].settings, ...updates.settings }
+        : memoryData.colleges[idx].settings,
+    };
+    saveFileDb();
+    return memoryData.colleges[idx];
   },
 
   async createUser(user: UserRecord): Promise<UserRecord> {

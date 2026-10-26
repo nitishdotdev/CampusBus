@@ -6,7 +6,7 @@ export type BusStatus = 'IDLE' | 'ACTIVE' | 'MAINTENANCE' | 'OFFLINE';
 
 export type RouteStatus = 'LIVE' | 'DEGRADED' | 'SCHEDULED' | 'OFFLINE';
 
-export type ETAConfidence = 'LIVE' | 'DEGRADED' | 'SCHEDULED';
+export type ETAConfidence = 'LIVE' | 'DEGRADED' | 'STALE' | 'OFFLINE' | 'SCHEDULED';
 
 export type GPSStatus = 
   | 'GPS_PERMISSION_REQUIRED'
@@ -53,6 +53,8 @@ export interface User {
   studentId?: string;
   employeeId?: string;
   phone?: string;
+  status?: string;
+  cdlNumber?: string;
 }
 
 export interface Stop {
