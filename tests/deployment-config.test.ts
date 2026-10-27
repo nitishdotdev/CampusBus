@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 const renderYaml = readFileSync(new URL('../render.yaml', import.meta.url), 'utf8');
 const vercelJson = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
 const deploymentDoc = readFileSync(new URL('../docs/DEPLOYMENT.md', import.meta.url), 'utf8');
+const apiServer = readFileSync(new URL('../apps/api/src/server.ts', import.meta.url), 'utf8');
 
 describe('render.yaml', () => {
   it('defines a single campusbus-api starter service with Mongo API commands', () => {
@@ -22,6 +23,13 @@ describe('render.yaml', () => {
     expect(renderYaml).toMatch(/key:\s*CORS_ORIGIN/);
     expect(renderYaml).toMatch(/key:\s*MONGODB_URI/);
     expect(renderYaml).not.toMatch(/mongodb\+srv:\/\//);
+  });
+});
+
+describe('apps/api production CORS wiring', () => {
+  it('uses resolveAllowedOrigins instead of a localhost default', () => {
+    expect(apiServer).toMatch(/resolveAllowedOrigins/);
+    expect(apiServer).not.toMatch(/CORS_ORIGIN \?\? 'http:\/\/localhost:5173'/);
   });
 });
 

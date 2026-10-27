@@ -10,6 +10,7 @@ import 'dotenv/config';
 import http from 'http';
 import mongoose from 'mongoose';
 import { z } from 'zod';
+import { resolveAllowedOrigins } from '../../../server/config/cors';
 import { loadTrackingConfig } from './config/env';
 import { requireAccessSecret } from './auth/tokens';
 import { verifyAccessToken } from './auth/tokens';
@@ -26,8 +27,7 @@ const MONGODB_URI = process.env.MONGODB_URI;
 if (!MONGODB_URI) { console.error('FATAL: MONGODB_URI is required'); process.exit(1); }
 
 const PORT           = Number(process.env.PORT ?? 4000);
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN ?? 'http://localhost:5173')
-  .split(',').map(s => s.trim()).filter(Boolean);
+const ALLOWED_ORIGINS = resolveAllowedOrigins();
 const BOOTSTRAP_SECRET = process.env.BOOTSTRAP_SECRET ?? '';
 const trackingConfig   = loadTrackingConfig(process.env);
 

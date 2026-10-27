@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type RequestHandler, type Res
 import { z } from 'zod';
 import { buildCorsOptions } from '../../../../server/config/cors';
 import type { AuthService } from '../auth/service';
+import { assertAssignableDriver } from '../domain/assignDriver';
 import { DomainError } from '../domain/errors';
 import type { LiveService } from '../domain/live';
 import type { TelemetryIngestService } from '../domain/telemetry/ingest';
@@ -144,9 +145,14 @@ export function createApp(deps: AppDeps) {
     res.status(204).send();
   }));
   busRouter.post('/:id/assign-driver', auth, requireRole('ADMIN'), wrap(async (req, res) => {
-    const bus = await deps.buses.assignDriver(req.principal.campusId, req.params['id']!, req.body?.driverId ?? null);
-    if (!bus) throw new DomainError(404, 'BUS_NOT_FOUND');
-    res.json(bus);
+    const raw = req.body?.driverId;
+    const driverId = typeof raw === 'string' && raw ? raw : null;
+    const bus = await deps.buses.findById(req.principal.campusId, req.params['id']!);
+    const driver = driverId ? await deps.users.findById(req.principal.campusId, driverId) : null;
+    assertAssignableDriver({ bus, driver, driverId });
+    const updated = await deps.buses.assignDriver(req.principal.campusId, req.params['id']!, driverId);
+    if (!updated) throw new DomainError(404, 'BUS_NOT_FOUND');
+    res.json(updated);
   }));
   busRouter.post('/:id/assign-route', auth, requireRole('ADMIN'), wrap(async (req, res) => {
     const bus = await deps.buses.assignRoute(req.principal.campusId, req.params['id']!, req.body?.routeId ?? null);
