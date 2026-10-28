@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vite';
+import { assertViteV1ApiUrl } from './vite.v1-env.ts';
 
 const VENDOR_CHUNKS: Record<string, string[]> = {
   'vendor-react':  ['react', 'react-dom', 'react-router-dom'],
@@ -11,6 +12,7 @@ const VENDOR_CHUNKS: Record<string, string[]> = {
 };
 
 export default defineConfig(() => {
+  assertViteV1ApiUrl(process.env);
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
