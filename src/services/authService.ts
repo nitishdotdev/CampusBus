@@ -116,9 +116,12 @@ class AuthService {
     this.notifyListeners();
   }
 
-  public async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+  public async changePassword(
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
     try {
-      await apiClient.post('/api/auth/change-password', { currentPassword, newPassword });
+      await apiClient.put('/api/auth/password', { currentPassword, newPassword });
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to update password.' };

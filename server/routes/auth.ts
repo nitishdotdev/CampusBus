@@ -19,7 +19,9 @@ router.post('/register', async (req, res): Promise<void> => {
     }
 
     if (role !== 'STUDENT') {
-      res.status(403).json({ error: 'Public registration is only permitted for students. Drivers and administrators are provisioned by campus transport management.' });
+      res.status(403).json({
+        error: 'Only students can self-register. Driver and admin accounts are created by campus administrators.',
+      });
       return;
     }
 
@@ -197,23 +199,24 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response):
   }
 });
 
-// POST /api/auth/change-password
-router.post('/change-password', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+async function handlePasswordChange(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
-    const user = req.user!;
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
     const { currentPassword, newPassword } = req.body;
-
     if (!currentPassword || !newPassword) {
-      res.status(400).json({ error: 'Current password and new password are required.' });
+      res.status(400).json({ error: 'currentPassword and newPassword are required.' });
       return;
     }
-
     if (typeof newPassword !== 'string' || newPassword.length < 8) {
-      res.status(400).json({ error: 'New password must be at least 8 characters long.' });
+      res.status(400).json({ error: 'New password must be at least 8 characters.' });
       return;
     }
 
-    const dbUser = await db.getUserById(user.userId);
+    const dbUser = await db.getUserById(req.user.userId);
     if (!dbUser || !dbUser.password_hash) {
       res.status(404).json({ error: 'User record not found.' });
       return;
@@ -225,15 +228,17 @@ router.post('/change-password', requireAuth, async (req: AuthenticatedRequest, r
       return;
     }
 
-    const newHashed = await bcrypt.hash(newPassword, 10);
-    await db.updateUser(user.userId, user.collegeId, { password_hash: newHashed });
-
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.updateUser(dbUser.id, req.user.collegeId, { password_hash: hashedPassword });
     res.json({ success: true, message: 'Password updated successfully.' });
   } catch (err: any) {
     console.error('Password change error:', err);
     res.status(500).json({ error: 'Failed to update password.' });
   }
-});
+}
+
+router.put('/password', requireAuth, handlePasswordChange);
+router.post('/change-password', requireAuth, handlePasswordChange);
 
 // GET /api/auth/demo-accounts (Development only)
 router.get('/demo-accounts', async (_req, res): Promise<void> => {

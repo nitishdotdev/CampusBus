@@ -121,9 +121,9 @@ async function startServer() {
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/alerts', alertRoutes);
   app.use('/api/analytics', analyticsRoutes);
+  app.use('/api/users', userRoutes);
   app.use("/api/schedules", scheduleRoutes);
   app.use("/api/complaints", complaintRoutes);
-  app.use('/api/users', userRoutes);
   app.use('/api/assignments', assignmentRoutes);
 
   // Development vs Production Frontend Serving

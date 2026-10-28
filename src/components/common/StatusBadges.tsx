@@ -244,7 +244,7 @@ export const ETAIndicator: React.FC<{
       bg: 'bg-slate-100 text-slate-700 border-slate-200',
     },
   }[confidence] || {
-    label: 'UNAVAILABLE',
+    label: confidence,
     bg: 'bg-slate-100 text-slate-700 border-slate-200',
   };
 

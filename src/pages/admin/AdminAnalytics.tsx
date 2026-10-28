@@ -1,42 +1,103 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../store/AppContext';
 import { EmptyState } from '../../components/common/States';
-import { BarChart3 } from 'lucide-react';
+import { apiClient } from '../../services/apiClient';
+import { BarChart3, AlertCircle, Loader2 } from 'lucide-react';
+
+interface AnalyticsPayload {
+  fleetSize?: number;
+  routesCount?: number;
+  completedTripsToday?: number;
+  completedTripsTotal?: number;
+  totalDistanceCoveredKm?: number;
+  onTimeRatePercent?: number | null;
+  gpsReliabilityPercent?: number | null;
+  totalPassengers?: number | null;
+}
 
 export const AdminAnalytics: React.FC = () => {
   const { buses, routes, trips } = useApp();
+  const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    apiClient.get<AnalyticsPayload>('/api/analytics')
+      .then((data) => {
+        if (mounted) setAnalytics(data || null);
+      })
+      .catch((err: any) => {
+        if (mounted) setError(err?.message || 'Failed to load analytics.');
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const completedTrips = trips.filter((t) => t.status === 'COMPLETED');
   const activeTrips = trips.filter((t) => t.status === 'IN_PROGRESS').length;
-  const totalTrips = trips.length;
+  const metric = (value: number | null | undefined, suffix = '') =>
+    value === null || value === undefined ? '—' : `${value}${suffix}`;
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Transit Analytics</h2>
-        <p className="text-xs text-slate-500">Trip data and operational metrics</p>
+        <p className="text-xs text-slate-500">Metrics derived from stored trips, buses, and routes</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 flex items-center justify-center gap-2 text-sm text-slate-500">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading analytics…
+        </div>
+      ) : error ? (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-start gap-2 text-sm text-rose-700">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200">
+            <div className="text-xs font-semibold text-slate-500 uppercase">Fleet Size</div>
+            <div className="text-2xl font-black text-slate-900 mt-2">{analytics?.fleetSize ?? buses.length}</div>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200">
+            <div className="text-xs font-semibold text-slate-500 uppercase">Completed Today</div>
+            <div className="text-2xl font-black text-emerald-600 mt-2">{analytics?.completedTripsToday ?? 0}</div>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200">
+            <div className="text-xs font-semibold text-slate-500 uppercase">Active Now</div>
+            <div className="text-2xl font-black text-blue-600 mt-2">{activeTrips}</div>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200">
+            <div className="text-xs font-semibold text-slate-500 uppercase">Distance Logged</div>
+            <div className="text-2xl font-black text-indigo-600 mt-2">
+              {analytics?.totalDistanceCoveredKm != null ? `${analytics.totalDistanceCoveredKm.toFixed(1)} km` : '—'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200">
-          <div className="text-xs font-semibold text-slate-500 uppercase">Total Trips</div>
-          <div className="text-2xl font-black text-slate-900 mt-2">{totalTrips}</div>
+          <div className="text-xs font-semibold text-slate-500 uppercase">On-time rate</div>
+          <div className="text-xl font-black text-slate-900 mt-2">{metric(analytics?.onTimeRatePercent, '%')}</div>
+          <p className="text-[11px] text-slate-500 mt-1">Shown only when measured from stored trips</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-200">
-          <div className="text-xs font-semibold text-slate-500 uppercase">Completed</div>
-          <div className="text-2xl font-black text-emerald-600 mt-2">{completedTrips.length}</div>
+          <div className="text-xs font-semibold text-slate-500 uppercase">GPS reliability</div>
+          <div className="text-xl font-black text-slate-900 mt-2">{metric(analytics?.gpsReliabilityPercent, '%')}</div>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-200">
-          <div className="text-xs font-semibold text-slate-500 uppercase">Active Now</div>
-          <div className="text-2xl font-black text-blue-600 mt-2">{activeTrips}</div>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200">
-          <div className="text-xs font-semibold text-slate-500 uppercase">Fleet Size</div>
-          <div className="text-2xl font-black text-indigo-600 mt-2">{buses.length}</div>
+          <div className="text-xs font-semibold text-slate-500 uppercase">Passengers</div>
+          <div className="text-xl font-black text-slate-900 mt-2">{metric(analytics?.totalPassengers)}</div>
         </div>
       </div>
 
-      {totalTrips === 0 && buses.length === 0 ? (
+      {completedTrips.length === 0 && buses.length === 0 ? (
         <EmptyState
           title="No trip data yet"
           description="Trip data and analytics will appear here once buses start running trips."
@@ -78,32 +139,6 @@ export const AdminAnalytics: React.FC = () => {
               </table>
             </div>
           )}
-        </div>
-      )}
-
-      {routes.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6">
-          <h3 className="text-sm font-bold text-slate-900 mb-4">Route Summary</h3>
-          <div className="space-y-3">
-            {routes.map((route) => {
-              const routeTrips = trips.filter((t) => t.routeId === route.id);
-              const routeCompleted = routeTrips.filter((t) => t.status === 'COMPLETED').length;
-              const totalDist = routeTrips.reduce((acc, t) => acc + t.distanceCoveredKm, 0);
-              return (
-                <div key={route.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: route.color }} />
-                    <span className="font-bold text-slate-900">{route.code}</span>
-                    <span className="text-slate-500">{route.name}</span>
-                  </div>
-                  <div className="flex items-center gap-4 text-slate-600">
-                    <span>{routeCompleted} trips</span>
-                    <span>{totalDist.toFixed(1)} km</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </div>
       )}
     </div>

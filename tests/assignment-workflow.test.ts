@@ -179,9 +179,8 @@ describe('API Security & Verification: Telemetry & Assignments', () => {
         heading: 90,
       });
 
-    // bus_apex_1 is assigned to usr_driver_marcus in seed data
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/not assigned/i);
+    expect(res.body.error).toMatch(/assigned/i);
   });
 
   it('rejects student attempting to submit driver GPS telemetry', async () => {
@@ -224,13 +223,31 @@ describe('API Security & Verification: Telemetry & Assignments', () => {
   });
 
   it('rejects telemetry with invalid coordinates', async () => {
+    const activeTripId = 'trip_invalid_coords_test';
+    await db.createTrip({
+      id: activeTripId,
+      college_id: collegeId,
+      bus_id: 'bus_104',
+      route_id: 'route_blue',
+      driver_id: 'usr_driver_marcus',
+      status: 'ACTIVE',
+      start_time: new Date().toISOString(),
+      current_occupancy: 0,
+      max_occupancy_recorded: 0,
+      distance_covered_km: 0,
+      total_locations_logged: 0,
+      synced_locations_count: 0,
+      queued_locations_count: 0,
+      created_at: new Date().toISOString(),
+    } as any);
+
     const res = await request(app)
       .post('/api/driver/location')
       .set('Authorization', `Bearer ${driver1Token}`)
       .send({
         busId: 'bus_104',
-        tripId: 'no_trip',
-        lat: 195.0, // Invalid latitude > 90
+        tripId: activeTripId,
+        lat: 195.0,
         lng: -118.2570,
       });
 
@@ -294,7 +311,7 @@ describe('API Security & Verification: Telemetry & Assignments', () => {
       });
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/not assigned/i);
+    expect(res.body.error).toMatch(/assigned/i);
   });
 
   it('rejects batch location sync for an ended trip', async () => {

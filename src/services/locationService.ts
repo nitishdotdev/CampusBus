@@ -31,6 +31,8 @@ class LocationService {
   private currentTripId: string | null = null;
   private currentBusId: string | null = null;
   private currentDriverId: string | null = null;
+  private lastPostedAt = 0;
+  private readonly minPostIntervalMs = 5000;
 
   private state: LocationServiceState = {
     gpsStatus: 'GPS_PERMISSION_REQUIRED',
@@ -169,6 +171,9 @@ class LocationService {
     this.state.isTracking = false;
     this.state.gpsStatus = 'GPS_PERMISSION_REQUIRED';
     this.currentTripId = null;
+    this.currentBusId = null;
+    this.currentDriverId = null;
+    this.lastPostedAt = 0;
     this.notify();
   }
 
@@ -177,20 +182,24 @@ class LocationService {
     this.state.lastLocation = loc;
 
     const isOffline = this.state.isSimulatedOffline || !navigator.onLine;
+    const now = Date.now();
+    if (!isOffline && now - this.lastPostedAt < this.minPostIntervalMs) {
+      this.notify();
+      return;
+    }
 
     const pointId = 'loc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
 
     if (isOffline) {
-      // Queue location offline in local storage
       this.queueLocationOffline(loc, pointId);
       this.state.networkStatus = 'LOCATION_QUEUED';
       this.notify();
       return;
     }
 
-    // Attempt direct real-time broadcast to backend API
     try {
       if (this.currentBusId) {
+        this.lastPostedAt = now;
         if (USE_V1 && this.currentTripId) {
           await telemetryV1.send({
             eventId: pointId,

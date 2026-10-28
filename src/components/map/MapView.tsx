@@ -261,12 +261,9 @@ export const MapView: React.FC<MapViewProps> = ({
         }
         return;
       }
-
       const lat = bus.lastLocation?.lat;
       const lng = bus.lastLocation?.lng;
 
-      // Guard against null, missing, NaN, or out-of-range coordinates.
-      // NEVER show a bus at a fabricated coordinate simply to populate the map.
       if (
         typeof lat !== 'number' ||
         typeof lng !== 'number' ||

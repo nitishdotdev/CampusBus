@@ -19,6 +19,62 @@ export function normalizeBusStatus(status?: string): 'ACTIVE' | 'IDLE' | 'MAINTE
   return undefined;
 }
 
+export function toClientBus(
+  bus: BusRecord,
+  extras?: {
+    routeName?: string;
+    routeColor?: string;
+    upcomingEtas?: ReturnType<typeof calculateRouteETAs>;
+  }
+) {
+  const confidence =
+    bus.status === 'ACTIVE' && bus.gps_status !== 'GPS_ACTIVE'
+      ? 'SCHEDULED'
+      : determineConfidence(bus.last_sync_timestamp, bus.status, bus.is_simulated);
+  const calculatedEtas = extras?.upcomingEtas;
+  return {
+    id: bus.id,
+    collegeId: bus.college_id,
+    busNumber: bus.bus_number,
+    plateNumber: bus.plate_number,
+    capacity: bus.capacity,
+    model: bus.model,
+    currentRouteId: bus.current_route_id,
+    routeName: extras?.routeName,
+    routeColor: extras?.routeColor,
+    currentDriverId: bus.current_driver_id,
+    driverName: bus.driver_name,
+    status: normalizeBusStatus(bus.status) || 'IDLE',
+    lastLocation: {
+      lat: bus.last_location_lat,
+      lng: bus.last_location_lng,
+      speed: bus.speed_kmh / 3.6,
+      heading: bus.heading,
+      timestamp: bus.last_sync_timestamp,
+    },
+    heading: bus.heading,
+    speedKmh: bus.speed_kmh,
+    currentOccupancy: bus.current_occupancy,
+    gpsStatus: bus.gps_status,
+    networkStatus: bus.network_status,
+    etaConfidence: confidence,
+    isSimulated: bus.is_simulated,
+    lastSyncTimestamp: bus.last_sync_timestamp,
+    currentStopId: bus.current_stop_id || null,
+    nextStopId: bus.next_stop_id || null,
+    completedStopIds: bus.completed_stop_ids || [],
+    upcomingEtas: calculatedEtas,
+    nextStop: calculatedEtas?.[0]
+      ? {
+          stopName: calculatedEtas[0].stopName,
+          etaMinutes: calculatedEtas[0].etaMinutes,
+          distanceKm: calculatedEtas[0].distanceKm,
+        }
+      : undefined,
+    etaToNextStopSeconds: calculatedEtas?.[0]?.etaMinutes ? calculatedEtas[0].etaMinutes * 60 : undefined,
+  };
+}
+
 // GET /api/buses (Multi-Tenant, Scoped to College)
 router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -31,63 +87,20 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): P
 
     // Enrich each bus with honest calculated confidence and ETAs
     const enrichedBuses = buses.map((bus) => {
-      const confidence = determineConfidence(bus.last_sync_timestamp, bus.status, bus.is_simulated);
+      const confidence =
+        bus.status === 'ACTIVE' && bus.gps_status !== 'GPS_ACTIVE'
+          ? 'SCHEDULED'
+          : determineConfidence(bus.last_sync_timestamp, bus.status, bus.is_simulated);
       const route = routes.find((r) => r.id === bus.current_route_id);
       const stops = allStops.filter((s) => s.route_id === bus.current_route_id);
-
-      const calculatedEtas = calculateRouteETAs(
-        bus.last_location_lat,
-        bus.last_location_lng,
-        bus.speed_kmh,
-        stops,
-        confidence,
-        {
-          completedStopIds: bus.completed_stop_ids,
-          nextStopId: bus.next_stop_id,
-        }
-      );
-
-      return {
-        id: bus.id,
-        collegeId: bus.college_id,
-        busNumber: bus.bus_number,
-        plateNumber: bus.plate_number,
-        capacity: bus.capacity,
-        model: bus.model,
-        currentRouteId: bus.current_route_id,
-        routeName: route?.name,
-        routeColor: route?.color,
-        currentDriverId: bus.current_driver_id,
-        driverName: bus.driver_name,
-        status: normalizeBusStatus(bus.status) || 'IDLE',
-        lastLocation: {
-          lat: bus.last_location_lat,
-          lng: bus.last_location_lng,
-          speed: bus.speed_kmh / 3.6,
-          heading: bus.heading,
-          timestamp: bus.last_sync_timestamp,
-        },
-        heading: bus.heading,
-        speedKmh: bus.speed_kmh,
-        currentOccupancy: bus.current_occupancy,
-        gpsStatus: bus.gps_status,
-        networkStatus: bus.network_status,
-        etaConfidence: confidence,
-        isSimulated: bus.is_simulated,
-        lastSyncTimestamp: bus.last_sync_timestamp,
-        currentStopId: bus.current_stop_id || null,
-        nextStopId: bus.next_stop_id || null,
-        completedStopIds: bus.completed_stop_ids || [],
-        upcomingEtas: calculatedEtas,
-        nextStop: calculatedEtas[0]
-          ? {
-              stopName: calculatedEtas[0].stopName,
-              etaMinutes: calculatedEtas[0].etaMinutes,
-              distanceKm: calculatedEtas[0].distanceKm,
-            }
-          : undefined,
-        etaToNextStopSeconds: calculatedEtas[0]?.etaMinutes ? calculatedEtas[0].etaMinutes * 60 : undefined,
-      };
+      const calculatedEtas =
+        confidence === 'LIVE' || confidence === 'DEGRADED'
+          ? calculateRouteETAs(bus.last_location_lat, bus.last_location_lng, bus.speed_kmh, stops, confidence, {
+              completedStopIds: bus.completed_stop_ids,
+              nextStopId: bus.next_stop_id,
+            })
+          : [];
+      return toClientBus(bus, { routeName: route?.name, routeColor: route?.color, upcomingEtas: calculatedEtas });
     });
 
     res.json(enrichedBuses);
@@ -108,7 +121,10 @@ router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response)
       return;
     }
 
-    const confidence = determineConfidence(bus.last_sync_timestamp, bus.status, bus.is_simulated);
+    const confidence =
+      bus.status === 'ACTIVE' && bus.gps_status !== 'GPS_ACTIVE'
+        ? 'SCHEDULED'
+        : determineConfidence(bus.last_sync_timestamp, bus.status, bus.is_simulated);
     const stops = await db.getStops(collegeId, bus.current_route_id);
     const calculatedEtas = calculateRouteETAs(
       bus.last_location_lat,
@@ -189,7 +205,7 @@ router.post('/', requireAuth, requireRole(['ADMIN']), async (req: AuthenticatedR
     };
 
     const created = await db.createBus(newBus);
-    broadcastBusUpdate(collegeId, created);
+    broadcastBusUpdate(collegeId, toClientBus(created));
 
     res.status(201).json(created);
   } catch (err: any) {
@@ -203,12 +219,41 @@ router.put('/:id', requireAuth, requireRole(['ADMIN']), async (req: Authenticate
     const collegeId = req.user!.collegeId;
     const busId = req.params.id;
 
+    const existing = await db.getBusById(busId, collegeId);
+    if (!existing) {
+      res.status(404).json({ error: 'Bus not found.' });
+      return;
+    }
+
     const updates: Partial<BusRecord> = {};
     if (req.body.busNumber) updates.bus_number = req.body.busNumber;
     if (req.body.plateNumber) updates.plate_number = req.body.plateNumber;
     if (req.body.capacity) updates.capacity = Number(req.body.capacity);
     if (req.body.model) updates.model = req.body.model;
     if (req.body.currentRouteId !== undefined) updates.current_route_id = req.body.currentRouteId;
+    if (req.body.currentDriverId !== undefined) {
+      const driverId = req.body.currentDriverId || undefined;
+      const activeTrip = await db.getActiveTripForBus(busId, collegeId);
+      if (activeTrip && driverId !== activeTrip.driver_id) {
+        res.status(409).json({
+          error: 'Cannot reassign a bus while a trip is in progress. End the trip first.',
+          activeTripId: activeTrip.id,
+        });
+        return;
+      }
+      if (driverId) {
+        const driver = await db.getUserById(driverId);
+        if (!driver || driver.college_id !== collegeId || driver.role !== 'DRIVER') {
+          res.status(400).json({ error: 'Assigned driver must belong to this campus fleet.' });
+          return;
+        }
+        updates.current_driver_id = driver.id;
+        updates.driver_name = driver.name;
+      } else {
+        updates.current_driver_id = undefined;
+        updates.driver_name = undefined;
+      }
+    }
     if (req.body.status !== undefined) {
       const normalized = normalizeBusStatus(req.body.status);
       if (!normalized) {
@@ -235,7 +280,7 @@ router.put('/:id', requireAuth, requireRole(['ADMIN']), async (req: Authenticate
       return;
     }
 
-    broadcastBusUpdate(collegeId, updated);
+    broadcastBusUpdate(collegeId, toClientBus(updated));
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update bus.' });

@@ -84,8 +84,16 @@ export const AdminLiveFleet: React.FC = () => {
                 </div>
                 <div className="space-y-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700">
                   <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-slate-500"><Compass className="w-4 h-4" />Coords:</span>
-                    <span className="font-mono font-bold">{selectedBus.lastLocation.lat.toFixed(5)}, {selectedBus.lastLocation.lng.toFixed(5)}</span>
+                    <span className="flex items-center gap-1.5 text-slate-500"><Compass className="w-4 h-4" />GPS:</span>
+                    <span className="font-bold">{selectedBus.etaConfidence || 'SCHEDULED'}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-slate-500">Coords:</span>
+                    <span className="font-mono font-bold">
+                      {selectedBus.lastLocation
+                        ? `${selectedBus.lastLocation.lat.toFixed(5)}, ${selectedBus.lastLocation.lng.toFixed(5)}`
+                        : 'No GPS yet'}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-slate-500"><Navigation className="w-4 h-4" />Speed:</span>
@@ -93,7 +101,7 @@ export const AdminLiveFleet: React.FC = () => {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-slate-500"><Clock className="w-4 h-4" />Updated:</span>
-                    <span className="font-semibold">{new Date(selectedBus.lastSyncTimestamp).toLocaleTimeString()}</span>
+                    <span className="font-semibold">{selectedBus.lastSyncTimestamp ? new Date(selectedBus.lastSyncTimestamp).toLocaleTimeString() : 'Never'}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-slate-500"><Users className="w-4 h-4" />Load:</span>

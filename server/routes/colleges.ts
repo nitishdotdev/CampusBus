@@ -28,9 +28,20 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-// PUT /api/colleges/:id (Admin only)
 router.put('/:id', requireAuth, requireRole(['ADMIN']), enforceTenantIsolation, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    const collegeId = req.user!.collegeId;
+    if (req.params.id !== collegeId) {
+      res.status(403).json({ error: 'You can only update your own campus settings.' });
+      return;
+    }
+
+    const existing = await db.getCollegeById(collegeId);
+    if (!existing) {
+      res.status(404).json({ error: 'College not found.' });
+      return;
+    }
+
     const { name, domain, centerLat, centerLng, zoomLevel, settings } = req.body;
     const updates: any = {};
     if (name) updates.name = name.trim();
@@ -38,9 +49,11 @@ router.put('/:id', requireAuth, requireRole(['ADMIN']), enforceTenantIsolation, 
     if (centerLat !== undefined) updates.center_lat = Number(centerLat);
     if (centerLng !== undefined) updates.center_lng = Number(centerLng);
     if (zoomLevel !== undefined) updates.zoom_level = Number(zoomLevel);
-    if (settings !== undefined) updates.settings = settings;
+    if (settings !== undefined) {
+      updates.settings = { ...existing.settings, ...settings };
+    }
 
-    const updated = await db.updateCollege(req.params.id, updates);
+    const updated = await db.updateCollege(collegeId, updates);
     if (!updated) {
       res.status(404).json({ error: 'College not found.' });
       return;
@@ -48,7 +61,7 @@ router.put('/:id', requireAuth, requireRole(['ADMIN']), enforceTenantIsolation, 
     res.json(updated);
   } catch (err: any) {
     console.error('Failed to update college settings:', err);
-    res.status(500).json({ error: 'Failed to update college settings.' });
+    res.status(500).json({ error: 'Failed to update campus settings.' });
   }
 });
 

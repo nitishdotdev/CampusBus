@@ -53,6 +53,8 @@ export interface User {
   studentId?: string;
   employeeId?: string;
   phone?: string;
+  status?: string;
+  cdlNumber?: string;
 }
 
 export interface Stop {

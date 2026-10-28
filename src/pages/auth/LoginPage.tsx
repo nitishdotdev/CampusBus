@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Mail, Lock, User, AlertCircle, ArrowLeft, Loader2, Eye, EyeOff, Building2 } from 'lucide-react';
 import { authService } from '../../services/authService';
-import { loginV1, registerV1, logoutV1, listCampuses, type V1Campus } from '../../services/v1/auth';
+import { loginV1, registerV1, logoutV1, listCampuses, formatCampusFetchError, type V1Campus } from '../../services/v1/auth';
 import { socketV1 } from '../../services/v1/socket';
 import { BrandMark } from '../../components/brand/BrandMark';
 import {
@@ -31,10 +31,10 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'STUDENT' | 'DRIVER'>('STUDENT');
   const [campusId, setCampusId] = useState('');
   const [campuses, setCampuses] = useState<V1Campus[]>([]);
   const [campusLoading, setCampusLoading] = useState(false);
+  const [campusError, setCampusError] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -54,15 +54,20 @@ export const LoginPage: React.FC = () => {
   useEffect(() => {
     if (!USE_V1) return;
     setCampusLoading(true);
+    setCampusError('');
     listCampuses()
       .then((list) => {
         setCampuses(list);
         if (list.length === 1) setCampusId(list[0].id);
       })
+      .catch((err) => {
+        setCampuses([]);
+        setCampusError(formatCampusFetchError(err));
+      })
       .finally(() => setCampusLoading(false));
   }, []);
 
-  const registerRole: 'STUDENT' | 'DRIVER' = intendedRole === 'DRIVER' ? 'DRIVER' : role;
+  const registerRole: 'STUDENT' = 'STUDENT';
 
   const finishAuthenticated = async (accountRole: UserRole) => {
     if (intendedRole && accountRole !== intendedRole) {
@@ -234,6 +239,10 @@ export const LoginPage: React.FC = () => {
                       <div className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-400">
                         Loading campuses…
                       </div>
+                    ) : campusError ? (
+                      <div className="w-full pl-9 pr-3 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">
+                        {campusError}
+                      </div>
                     ) : campuses.length === 0 ? (
                       <div className="w-full pl-9 pr-3 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">
                         No campuses found — contact your administrator.
@@ -274,20 +283,7 @@ export const LoginPage: React.FC = () => {
                       />
                     </div>
                   </div>
-                  {!canSelfRegister(intendedRole) && (
-                    <div>
-                      <label htmlFor="role" className="block text-xs font-bold text-slate-700 mb-1">Role</label>
-                      <select
-                        id="role"
-                        value={role}
-                        onChange={(e) => setRole(e.target.value as 'STUDENT' | 'DRIVER')}
-                        className="w-full min-h-11 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="STUDENT">Student</option>
-                        <option value="DRIVER">Driver</option>
-                      </select>
-                    </div>
-                  )}
+                  <p className="text-xs text-slate-500">Student accounts can self-register. Driver and admin accounts are created by campus administrators.</p>
                 </>
               )}
 
@@ -345,7 +341,7 @@ export const LoginPage: React.FC = () => {
           </div>
 
           <div className="text-center mt-4 space-y-2">
-            {intendedRole !== 'ADMIN' && (
+            {intendedRole !== 'ADMIN' && intendedRole !== 'DRIVER' && (
               <Link
                 to={switchHref}
                 className="block text-sm text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
@@ -354,8 +350,12 @@ export const LoginPage: React.FC = () => {
                 {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
               </Link>
             )}
-            {intendedRole === 'ADMIN' && (
-              <p className="text-xs text-slate-500">Admin accounts are provisioned by your campus. Public signup is not available.</p>
+            {(intendedRole === 'ADMIN' || intendedRole === 'DRIVER') && (
+              <p className="text-xs text-slate-500">
+                {intendedRole === 'DRIVER'
+                  ? 'Driver accounts are created by campus administrators. Public signup is not available.'
+                  : 'Admin accounts are provisioned by your campus. Public signup is not available.'}
+              </p>
             )}
             <Link to="/" className="block text-sm text-slate-500 hover:text-slate-700 cursor-pointer">
               Back to Home

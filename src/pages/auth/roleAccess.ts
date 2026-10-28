@@ -6,7 +6,7 @@ export const ROLE_REDIRECT: Record<UserRole, string> = {
   ADMIN: '/admin',
 };
 
-export const PUBLIC_REGISTER_ROLES: ReadonlyArray<'STUDENT'> = ['STUDENT'];
+export const PUBLIC_REGISTER_ROLES: ReadonlyArray<Extract<UserRole, 'STUDENT'>> = ['STUDENT'];
 
 export function parseIntendedRole(value: string | null): UserRole | null {
   if (!value) return null;

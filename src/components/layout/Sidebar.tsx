@@ -1,48 +1,55 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useApp } from '../../store/AppContext';
-import { Bus, MapPin, Route as RouteIcon, Bell, User, LayoutDashboard, Navigation, History, ShieldAlert, BarChart3, Users, Settings, Radio, Calendar, MessageSquare, Link2 } from 'lucide-react';
+import { getNavItems } from './navConfig';
+import {
+  Bus,
+  MapPin,
+  Route as RouteIcon,
+  Bell,
+  User,
+  LayoutDashboard,
+  Navigation,
+  History,
+  ShieldAlert,
+  BarChart3,
+  Users,
+  Settings,
+  Radio,
+  Calendar,
+  MessageSquare,
+  Link2,
+} from 'lucide-react';
 
-interface SidebarNavItem {
-  to: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number; badgeColor?: string;
-}
+const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  '/student': LayoutDashboard,
+  '/student/live': Navigation,
+  '/student/routes': RouteIcon,
+  '/student/schedules': Calendar,
+  '/student/notifications': Bell,
+  '/student/complaints': MessageSquare,
+  '/student/profile': User,
+  '/driver': Navigation,
+  '/driver/history': History,
+  '/driver/profile': Bus,
+  '/admin': LayoutDashboard,
+  '/admin/fleet': Navigation,
+  '/admin/buses': Bus,
+  '/admin/routes': RouteIcon,
+  '/admin/schedules': Calendar,
+  '/admin/directory': Users,
+  '/admin/assignments': Link2,
+  '/admin/alerts': ShieldAlert,
+  '/admin/analytics': BarChart3,
+  '/admin/complaints': MessageSquare,
+  '/admin/settings': Settings,
+  '/driver/route': RouteIcon,
+  '/driver/notifications': Bell,
+};
 
 export const Sidebar: React.FC = () => {
   const { role, unreadCount, activeEmergencyCount, currentCollege } = useApp();
-
-  const studentLinks: SidebarNavItem[] = [
-    { to: '/student', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/student/live', label: 'Live Buses', icon: Navigation },
-    { to: '/student/routes', label: 'Routes & Stops', icon: RouteIcon },
-    { to: '/student/schedules', label: 'Schedules', icon: Calendar },
-    { to: '/student/notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
-    { to: '/student/complaints', label: 'Complaints', icon: MessageSquare },
-    { to: '/student/profile', label: 'Profile', icon: User },
-  ];
-
-  const driverLinks: SidebarNavItem[] = [
-    { to: '/driver', label: 'Current Trip', icon: Navigation },
-    { to: '/driver/route', label: 'My Route', icon: RouteIcon },
-    { to: '/driver/history', label: 'Trip History', icon: History },
-    { to: '/driver/notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
-    { to: '/driver/profile', label: 'Profile', icon: User },
-  ];
-
-  const adminLinks: SidebarNavItem[] = [
-    { to: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/admin/fleet', label: 'Live Fleet', icon: Navigation },
-    { to: '/admin/buses', label: 'Buses', icon: Bus },
-    { to: '/admin/directory', label: 'Drivers & Accounts', icon: Users },
-    { to: '/admin/routes', label: 'Routes & Stops', icon: RouteIcon },
-    { to: '/admin/assignments', label: 'Assignments', icon: Link2 },
-    { to: '/admin/schedules', label: 'Schedules', icon: Calendar },
-    { to: '/admin/alerts', label: 'Alerts & Announcements', icon: ShieldAlert, badge: activeEmergencyCount, badgeColor: 'bg-rose-600' },
-    { to: '/admin/complaints', label: 'Complaints', icon: MessageSquare },
-    { to: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
-    { to: '/admin/settings', label: 'Settings', icon: Settings },
-  ];
-
-  const links = role === 'ADMIN' ? adminLinks : role === 'DRIVER' ? driverLinks : studentLinks;
+  const links = getNavItems(role);
 
   return (
     <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-white border-r border-slate-800 shrink-0">
@@ -69,16 +76,21 @@ export const Sidebar: React.FC = () => {
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {links.map((item) => {
-          const Icon = item.icon;
+          const Icon = ICONS[item.to] || LayoutDashboard;
+          const badge =
+            item.to === '/student/notifications' ? unreadCount :
+            item.to === '/admin/alerts' ? activeEmergencyCount :
+            undefined;
+          const badgeColor = item.to === '/admin/alerts' ? 'bg-rose-600' : undefined;
           return (
-            <NavLink key={item.to} to={item.to} end={item.to === '/student' || item.to === '/admin' || item.to === '/driver'}
+            <NavLink key={item.to} to={item.to} end={item.end}
               className={({ isActive }) => `flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${isActive ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-800/60'}`}>
               <div className="flex items-center gap-3">
                 <Icon className="w-4 h-4 shrink-0" />
                 <span>{item.label}</span>
               </div>
-              {item.badge !== undefined && item.badge > 0 && (
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${item.badgeColor ? `${item.badgeColor} text-white` : 'bg-blue-500 text-white'}`}>{item.badge}</span>
+              {badge !== undefined && badge > 0 && (
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${badgeColor ? `${badgeColor} text-white` : 'bg-blue-500 text-white'}`}>{badge}</span>
               )}
             </NavLink>
           );
