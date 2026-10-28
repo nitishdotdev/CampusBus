@@ -156,6 +156,11 @@ export const RoleSelectPage: React.FC = () => {
                         </li>
                       ))}
                     </ul>
+                    {card.id === 'driver' && (
+                      <p className="mt-4 text-xs text-slate-400">
+                        Driver accounts are provisioned by transport administration. Public signup is not available.
+                      </p>
+                    )}
                     {card.id === 'admin' && (
                       <p className="mt-4 text-xs text-slate-400">
                         Admin accounts are provisioned by your campus. Public registration is not available.

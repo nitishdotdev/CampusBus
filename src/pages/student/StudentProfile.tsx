@@ -1,7 +1,7 @@
 import React from 'react';
 import { useApp } from '../../store/AppContext';
 import { GraduationCap, CheckCircle2 } from 'lucide-react';
-import { PasswordChangeForm } from '../../components/common/PasswordChangeForm';
+import { ChangePasswordCard } from '../../components/common/ChangePasswordCard';
 
 export const StudentProfile: React.FC = () => {
   const { currentUser, currentCollege, routes } = useApp();
@@ -101,7 +101,7 @@ export const StudentProfile: React.FC = () => {
           )}
         </div>
       </div>
-      <PasswordChangeForm />
+      <ChangePasswordCard />
     </div>
   );
 };

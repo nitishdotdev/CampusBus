@@ -146,6 +146,25 @@ router.delete('/:id', requireAuth, requireRole(['ADMIN']), async (req: Authentic
     const collegeId = req.user!.collegeId;
     const routeId = req.params.id;
 
+    // 1. Check for active trips on this route
+    const trips = await db.getTrips(collegeId);
+    const activeRouteTrips = trips.filter((t) => t.route_id === routeId && (t.status === 'IN_PROGRESS' || t.status === 'STARTED'));
+    if (activeRouteTrips.length > 0) {
+      res.status(409).json({
+        error: 'Cannot delete route with active trips in progress. End the trips first.',
+      });
+      return;
+    }
+
+    // 2. Prevent destructive deletion if referenced by historical records
+    const historicalTrips = trips.filter((t) => t.route_id === routeId);
+    if (historicalTrips.length > 0) {
+      res.status(409).json({
+        error: `Cannot delete route referenced by ${historicalTrips.length} historical trips. Set status to SUSPENDED instead.`,
+      });
+      return;
+    }
+
     const deleted = await db.deleteRoute(routeId, collegeId);
     if (!deleted) {
       res.status(404).json({ error: 'Route not found.' });
@@ -170,6 +189,13 @@ router.post('/:id/stops', requireAuth, requireRole(['ADMIN']), async (req: Authe
       return;
     }
 
+    const numLat = Number(lat);
+    const numLng = Number(lng);
+    if (isNaN(numLat) || numLat < -90 || numLat > 90 || isNaN(numLng) || numLng < -180 || numLng > 180) {
+      res.status(400).json({ error: 'Valid latitude (-90 to 90) and longitude (-180 to 180) are required.' });
+      return;
+    }
+
     const route = await db.getRouteById(routeId, collegeId);
     if (!route) {
       res.status(404).json({ error: 'Route not found.' });
@@ -183,8 +209,8 @@ router.post('/:id/stops', requireAuth, requireRole(['ADMIN']), async (req: Authe
       route_id: routeId,
       code: code || `${route.code}-${stops.length + 1}`,
       name: name.trim(),
-      lat: Number(lat),
-      lng: Number(lng),
+      lat: numLat,
+      lng: numLng,
       landmark: landmark?.trim(),
       sequence: sequence !== undefined ? Number(sequence) : stops.length + 1,
       created_at: new Date().toISOString(),
@@ -193,6 +219,47 @@ router.post('/:id/stops', requireAuth, requireRole(['ADMIN']), async (req: Authe
     res.status(201).json(newStop);
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to create stop.' });
+  }
+});
+
+// PUT /api/routes/:id/stops/:stopId (Admin Only - update stop)
+router.put('/:id/stops/:stopId', requireAuth, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const collegeId = req.user!.collegeId;
+    const { stopId } = req.params;
+    const { code, name, lat, lng, landmark, sequence } = req.body;
+
+    const updates: any = {};
+    if (code !== undefined) updates.code = code.trim();
+    if (name !== undefined) updates.name = name.trim();
+    if (landmark !== undefined) updates.landmark = landmark?.trim();
+    if (sequence !== undefined) updates.sequence = Number(sequence);
+    if (lat !== undefined) {
+      const numLat = Number(lat);
+      if (isNaN(numLat) || numLat < -90 || numLat > 90) {
+        res.status(400).json({ error: 'Latitude must be between -90 and 90.' });
+        return;
+      }
+      updates.lat = numLat;
+    }
+    if (lng !== undefined) {
+      const numLng = Number(lng);
+      if (isNaN(numLng) || numLng < -180 || numLng > 180) {
+        res.status(400).json({ error: 'Longitude must be between -180 and 180.' });
+        return;
+      }
+      updates.lng = numLng;
+    }
+
+    const updated = await db.updateStop(stopId, collegeId, updates);
+    if (!updated) {
+      res.status(404).json({ error: 'Stop not found.' });
+      return;
+    }
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update stop.' });
   }
 });
 

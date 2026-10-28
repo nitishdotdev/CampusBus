@@ -18,6 +18,7 @@ import {
   Radio,
   Calendar,
   MessageSquare,
+  Link2,
 } from 'lucide-react';
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -37,10 +38,13 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   '/admin/routes': RouteIcon,
   '/admin/schedules': Calendar,
   '/admin/directory': Users,
+  '/admin/assignments': Link2,
   '/admin/alerts': ShieldAlert,
   '/admin/analytics': BarChart3,
   '/admin/complaints': MessageSquare,
   '/admin/settings': Settings,
+  '/driver/route': RouteIcon,
+  '/driver/notifications': Bell,
 };
 
 export const Sidebar: React.FC = () => {

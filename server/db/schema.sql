@@ -233,3 +233,19 @@ CREATE INDEX IF NOT EXISTS idx_complaints_college ON complaints(college_id);
 CREATE INDEX IF NOT EXISTS idx_complaints_student ON complaints(student_id);
 CREATE INDEX IF NOT EXISTS idx_complaints_status ON complaints(status);
 CREATE INDEX IF NOT EXISTS idx_complaints_created ON complaints(created_at DESC);
+
+-- 12. Stop Progression & Realtime Telemetry Migrations
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'trips') THEN
+        ALTER TABLE trips ADD COLUMN IF NOT EXISTS current_stop_id VARCHAR(64);
+        ALTER TABLE trips ADD COLUMN IF NOT EXISTS next_stop_id VARCHAR(64);
+        ALTER TABLE trips ADD COLUMN IF NOT EXISTS completed_stop_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE trips ADD COLUMN IF NOT EXISTS stop_arrivals JSONB DEFAULT '[]'::jsonb;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'buses') THEN
+        ALTER TABLE buses ADD COLUMN IF NOT EXISTS current_stop_id VARCHAR(64);
+        ALTER TABLE buses ADD COLUMN IF NOT EXISTS next_stop_id VARCHAR(64);
+        ALTER TABLE buses ADD COLUMN IF NOT EXISTS completed_stop_ids JSONB DEFAULT '[]'::jsonb;
+    END IF;
+END $$;

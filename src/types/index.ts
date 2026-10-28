@@ -107,7 +107,9 @@ export interface Bus {
   networkStatus: NetworkStatus;
   heading?: number;
   speedKmh?: number;
-  nextStopId?: string;
+  currentStopId?: string | null;
+  nextStopId?: string | null;
+  completedStopIds?: string[];
   etaToNextStopSeconds?: number;
   etaConfidence: ETAConfidence;
   lastSyncTimestamp: string;
@@ -160,6 +162,18 @@ export interface Trip {
   syncedLocationsCount: number;
   queuedLocationsCount: number;
   distanceCoveredKm: number;
+  currentStopId?: string | null;
+  nextStopId?: string | null;
+  completedStopIds?: string[];
+  stopArrivals?: Array<{
+    stop_id: string;
+    stop_name: string;
+    sequence: number;
+    arrived_at: string;
+    lat: number;
+    lng: number;
+    distance_to_stop_m?: number;
+  }>;
   notes?: string;
 }
 

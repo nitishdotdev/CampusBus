@@ -18,6 +18,18 @@ class TripService {
     this.fetchTripHistory();
     socketService.on('trip:started', () => this.fetchTripHistory());
     socketService.on('trip:ended', () => this.fetchTripHistory());
+    socketService.on('trip:stop_arrived', (data: any) => {
+      if (this.activeTrip && this.activeTrip.id === data.tripId) {
+        this.activeTrip = {
+          ...this.activeTrip,
+          currentStopId: data.arrivedStop?.id || this.activeTrip.currentStopId,
+          nextStopId: data.nextStop ? data.nextStop.id : null,
+          completedStopIds: data.completedStopIds || this.activeTrip.completedStopIds,
+        };
+        this.persistActiveTrip();
+        this.notify();
+      }
+    });
   }
 
   public getActiveTrip(): Trip | null { return this.activeTrip; }
@@ -53,6 +65,10 @@ class TripService {
         routeId: st.route_id || routeId, startTime: st.start_time || new Date().toISOString(), status: 'IN_PROGRESS',
         currentOccupancy: 0, initialOccupancy: 0, totalLocationsLogged: 0, syncedLocationsCount: 0,
         queuedLocationsCount: 0, distanceCoveredKm: 0,
+        currentStopId: st.current_stop_id || null,
+        nextStopId: st.next_stop_id || null,
+        completedStopIds: st.completed_stop_ids || [],
+        stopArrivals: st.stop_arrivals || [],
       };
       this.activeTrip = newTrip; this.trips.unshift(newTrip); this.persistActiveTrip(); this.notify();
       await locationService.startTracking(newTrip.id, busId, driverId, useSimulation);

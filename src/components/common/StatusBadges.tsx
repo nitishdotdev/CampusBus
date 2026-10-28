@@ -201,16 +201,24 @@ export const NetworkStatusBadge: React.FC<{
 };
 
 export const ETAIndicator: React.FC<{
-  seconds?: number;
-  confidence: ETAConfidence;
+  seconds?: number | null;
+  confidence?: ETAConfidence;
   size?: 'sm' | 'md' | 'lg';
-}> = ({ seconds = 300, confidence, size = 'md' }) => {
-  const minutes = Math.max(1, Math.round(seconds / 60));
+}> = ({ seconds, confidence = 'LIVE', size = 'md' }) => {
+  const isAvailable =
+    typeof seconds === 'number' &&
+    Number.isFinite(seconds) &&
+    seconds >= 0 &&
+    confidence !== 'OFFLINE';
 
-  let timeText = `~${minutes} min`;
+  const minutes = isAvailable ? Math.max(1, Math.round(seconds! / 60)) : null;
+
+  let timeText = isAvailable ? `~${minutes} min (est.)` : '--';
   if (confidence === 'SCHEDULED') {
-    timeText = 'Scheduled';
-  } else if (minutes <= 1) {
+    timeText = isAvailable ? `~${minutes} min (sched.)` : 'Scheduled';
+  } else if (confidence === 'OFFLINE') {
+    timeText = 'Unavailable';
+  } else if (isAvailable && minutes! <= 1) {
     timeText = 'Due now';
   }
 
@@ -229,7 +237,7 @@ export const ETAIndicator: React.FC<{
     },
     OFFLINE: {
       label: 'OFFLINE',
-      bg: 'bg-slate-100 text-slate-700 border-slate-200',
+      bg: 'bg-rose-100 text-rose-800 border-rose-200',
     },
     SCHEDULED: {
       label: 'SCHEDULED',

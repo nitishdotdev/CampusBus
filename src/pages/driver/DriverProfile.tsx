@@ -1,7 +1,7 @@
 import React from 'react';
 import { useApp } from '../../store/AppContext';
-import { Bus, CheckCircle2 } from 'lucide-react';
-import { PasswordChangeForm } from '../../components/common/PasswordChangeForm';
+import { Bus, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ChangePasswordCard } from '../../components/common/ChangePasswordCard';
 
 export const DriverProfile: React.FC = () => {
   const { currentUser, buses, routes } = useApp();
@@ -12,7 +12,7 @@ export const DriverProfile: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
         <div className="flex items-start gap-4">
           <div className="w-16 h-16 rounded-2xl bg-emerald-100 border-2 border-emerald-200 flex items-center justify-center text-emerald-700 font-bold text-xl overflow-hidden shadow-xs">
             {currentUser?.avatarUrl ? (
@@ -51,10 +51,10 @@ export const DriverProfile: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
         <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
           <Bus className="w-4 h-4 text-blue-600" />
-          Assigned Vehicle
+          Assigned Vehicle &amp; Line
         </h3>
         {assignedBus ? (
           <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -65,7 +65,7 @@ export const DriverProfile: React.FC = () => {
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
                 Capacity: {assignedBus.capacity} passengers
-                {assignedRoute ? ` • Route ${assignedRoute.code}` : ' • No route assigned'}
+                {assignedRoute ? ` • Assigned Line: ${assignedRoute.code} (${assignedRoute.name})` : ' • No route assigned'}
               </div>
             </div>
             <div className="text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-lg shrink-0 self-start sm:self-auto flex items-center gap-1">
@@ -73,12 +73,14 @@ export const DriverProfile: React.FC = () => {
             </div>
           </div>
         ) : (
-          <p className="text-xs text-slate-500">
-            No bus is assigned to your account. An administrator must assign a vehicle before you can start a trip.
-          </p>
+          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>No vehicle or route is currently assigned to you. An administrator must assign a bus before you can start a trip.</span>
+          </div>
         )}
       </div>
-      <PasswordChangeForm />
+
+      <ChangePasswordCard />
     </div>
   );
 };

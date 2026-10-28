@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
-import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/auth';
+import { requireAuth, requireRole, enforceTenantIsolation, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 
@@ -28,7 +28,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-router.put('/:id', requireAuth, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.put('/:id', requireAuth, requireRole(['ADMIN']), enforceTenantIsolation, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const collegeId = req.user!.collegeId;
     if (req.params.id !== collegeId) {
@@ -42,16 +42,25 @@ router.put('/:id', requireAuth, requireRole(['ADMIN']), async (req: Authenticate
       return;
     }
 
-    const nextSettings = req.body.settings
-      ? { ...existing.settings, ...req.body.settings }
-      : existing.settings;
+    const { name, domain, centerLat, centerLng, zoomLevel, settings } = req.body;
+    const updates: any = {};
+    if (name) updates.name = name.trim();
+    if (domain) updates.domain = domain.trim();
+    if (centerLat !== undefined) updates.center_lat = Number(centerLat);
+    if (centerLng !== undefined) updates.center_lng = Number(centerLng);
+    if (zoomLevel !== undefined) updates.zoom_level = Number(zoomLevel);
+    if (settings !== undefined) {
+      updates.settings = { ...existing.settings, ...settings };
+    }
 
-    const updated = await db.updateCollege(collegeId, {
-      name: req.body.name?.trim() || existing.name,
-      settings: nextSettings,
-    });
+    const updated = await db.updateCollege(collegeId, updates);
+    if (!updated) {
+      res.status(404).json({ error: 'College not found.' });
+      return;
+    }
     res.json(updated);
   } catch (err: any) {
+    console.error('Failed to update college settings:', err);
     res.status(500).json({ error: 'Failed to update campus settings.' });
   }
 });

@@ -127,6 +127,11 @@ router.post('/login', async (req, res): Promise<void> => {
       return;
     }
 
+    if (user.status === 'DEACTIVATED') {
+      res.status(403).json({ error: 'This account has been deactivated. Please contact your campus transit administrator.' });
+      return;
+    }
+
     const token = signToken({
       userId: user.id,
       collegeId: user.college_id,
@@ -194,8 +199,7 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response):
   }
 });
 
-// PUT /api/auth/password
-router.put('/password', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+async function handlePasswordChange(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     if (!req.user) {
       res.status(401).json({ error: 'Unauthorized' });
@@ -212,26 +216,29 @@ router.put('/password', requireAuth, async (req: AuthenticatedRequest, res: Resp
       return;
     }
 
-    const user = await db.getUserById(req.user.userId);
-    if (!user || !user.password_hash) {
+    const dbUser = await db.getUserById(req.user.userId);
+    if (!dbUser || !dbUser.password_hash) {
       res.status(404).json({ error: 'User record not found.' });
       return;
     }
 
-    const matches = await bcrypt.compare(currentPassword, user.password_hash);
+    const matches = await bcrypt.compare(currentPassword, dbUser.password_hash);
     if (!matches) {
       res.status(401).json({ error: 'Current password is incorrect.' });
       return;
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await db.updateUser(user.id, { password_hash: hashedPassword });
-    res.json({ success: true });
+    await db.updateUser(dbUser.id, req.user.collegeId, { password_hash: hashedPassword });
+    res.json({ success: true, message: 'Password updated successfully.' });
   } catch (err: any) {
     console.error('Password change error:', err);
     res.status(500).json({ error: 'Failed to update password.' });
   }
-});
+}
+
+router.put('/password', requireAuth, handlePasswordChange);
+router.post('/change-password', requireAuth, handlePasswordChange);
 
 // GET /api/auth/demo-accounts (Development only)
 router.get('/demo-accounts', async (_req, res): Promise<void> => {

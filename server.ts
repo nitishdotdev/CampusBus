@@ -21,6 +21,7 @@ import notificationRoutes from './server/routes/notifications';
 import alertRoutes from './server/routes/alerts';
 import analyticsRoutes from './server/routes/analytics';
 import userRoutes from './server/routes/users';
+import assignmentRoutes from './server/routes/assignments';
 
 const PORT = 3000;
 const HOST = '0.0.0.0';
@@ -123,6 +124,7 @@ async function startServer() {
   app.use('/api/users', userRoutes);
   app.use("/api/schedules", scheduleRoutes);
   app.use("/api/complaints", complaintRoutes);
+  app.use('/api/assignments', assignmentRoutes);
 
   // Development vs Production Frontend Serving
   if (process.env.NODE_ENV !== 'production') {

@@ -4,7 +4,7 @@ import { MapView } from '../../components/map/MapView';
 import { BusStatusBadge } from '../../components/common/StatusBadges';
 import { EmptyState } from '../../components/common/States';
 import { adminService } from '../../services/adminService';
-import { Bus as BusIcon, Navigation, Clock, Compass, Users } from 'lucide-react';
+import { Bus as BusIcon, Navigation, Clock, Compass, Users, MapPin, CheckCircle2 } from 'lucide-react';
 
 export const AdminLiveFleet: React.FC = () => {
   const { buses, routes } = useApp();
@@ -106,6 +106,30 @@ export const AdminLiveFleet: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-slate-500"><Users className="w-4 h-4" />Load:</span>
                     <span className="font-bold">{selectedBus.currentOccupancy} / {selectedBus.capacity}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                    <span className="flex items-center gap-1.5 text-slate-500"><MapPin className="w-4 h-4 text-blue-600" />Next Stop:</span>
+                    <span className="font-bold text-slate-900 truncate max-w-[150px]">
+                      {(() => {
+                        const nextId = selectedBus.nextStopId;
+                        const matchingStop = nextId ? selectedBusRoute?.stops?.find((s) => s.id === nextId) : undefined;
+                        if (matchingStop) return matchingStop.name;
+                        if (
+                          selectedBus.completedStopIds &&
+                          selectedBusRoute?.stops?.length &&
+                          selectedBus.completedStopIds.length >= selectedBusRoute.stops.length
+                        ) {
+                          return 'All Stops Arrived';
+                        }
+                        return selectedBusRoute?.stops?.[0]?.name ?? 'Standby';
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-slate-500"><CheckCircle2 className="w-4 h-4 text-emerald-600" />Progress:</span>
+                    <span className="font-bold text-slate-900 font-mono">
+                      {(selectedBus.completedStopIds?.length || 0)} / {(selectedBusRoute?.stops?.length || 0)} stops
+                    </span>
                   </div>
                 </div>
                 <div className="pt-2 border-t border-slate-100">

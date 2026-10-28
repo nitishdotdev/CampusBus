@@ -342,15 +342,21 @@ class LocationService {
       this.state.networkStatus = 'LOCATION_QUEUED';
       this.state.errorMessage = `Telemetry sync warning: ${err.message || 'Transmission failed, retrying shortly.'}`;
 
-      // Handle server validation error (e.g., corrupt location data)
-      if (err.status === 400 && typeof err.data?.failedIndex === 'number') {
+      // Handle permanent authorization or validation errors
+      if (err.status === 401 || err.status === 403) {
+        console.warn('Authorization failure for telemetry queue. Pruning unauthorized items.');
+        await offlineQueueService.remove(queuedItems.map((q) => q.id));
+      } else if (err.status === 400 && typeof err.data?.failedIndex === 'number') {
         const badItem = queuedItems[err.data.failedIndex];
         if (badItem) {
           console.warn('Pruning unrecoverable location record from queue:', badItem.id);
           await offlineQueueService.remove([badItem.id]);
         }
+      } else if (err.status === 400) {
+        console.warn('Server rejected telemetry batch with 400 validation error. Pruning batch.');
+        await offlineQueueService.remove(queuedItems.map((q) => q.id));
       } else if (err.status !== 405 && err.status !== 404) {
-        await offlineQueueService.incrementAttempts(queuedItems.map((q) => q.id));
+        await offlineQueueService.incrementAttempts(queuedItems.map((q) => q.id), 5);
       }
 
       this.state.queuedCount = await offlineQueueService.getCount();

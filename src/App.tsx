@@ -21,6 +21,9 @@ import { AdminDirectory } from "./pages/admin/AdminDirectory";
 import { AdminAlerts } from "./pages/admin/AdminAlerts";
 import { AdminAnalytics } from "./pages/admin/AdminAnalytics";
 import { AdminSettings } from "./pages/admin/AdminSettings";
+import { DriverRoute } from "./pages/driver/DriverRoute";
+import { DriverNotifications } from "./pages/driver/DriverNotifications";
+import { AdminAssignments } from "./pages/admin/AdminAssignments";
 import  StudentSchedules  from "./pages/student/StudentSchedules";
 import StudentComplaints from "./pages/student/StudentComplaints";
 import AdminSchedules from "./pages/admin/AdminSchedules";
@@ -46,12 +49,15 @@ export default function App() {
             />
             <Route path="/student/profile" element={<StudentProfile />} />
             <Route path="/driver" element={<DriverDashboard />} />
+            <Route path="/driver/route" element={<DriverRoute />} />
             <Route path="/driver/history" element={<DriverHistory />} />
+            <Route path="/driver/notifications" element={<DriverNotifications />} />
             <Route path="/driver/profile" element={<DriverProfile />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/fleet" element={<AdminLiveFleet />} />
             <Route path="/admin/buses" element={<AdminBuses />} />
             <Route path="/admin/routes" element={<AdminRoutes />} />
+            <Route path="/admin/assignments" element={<AdminAssignments />} />
             <Route path="/admin/directory" element={<AdminDirectory />} />
             <Route path="/admin/alerts" element={<AdminAlerts />} />
             <Route path="/admin/analytics" element={<AdminAnalytics />} />

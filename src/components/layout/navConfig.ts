@@ -18,7 +18,9 @@ const STUDENT_NAV: NavItemConfig[] = [
 
 const DRIVER_NAV: NavItemConfig[] = [
   { to: '/driver', label: 'Driver Terminal', end: true },
+  { to: '/driver/route', label: 'My Route' },
   { to: '/driver/history', label: 'Trip History' },
+  { to: '/driver/notifications', label: 'Notifications' },
   { to: '/driver/profile', label: 'Vehicle & Duty' },
 ];
 
@@ -29,6 +31,7 @@ const ADMIN_NAV: NavItemConfig[] = [
   { to: '/admin/routes', label: 'Routes & Stops' },
   { to: '/admin/schedules', label: 'Schedules' },
   { to: '/admin/directory', label: 'Drivers & Students' },
+  { to: '/admin/assignments', label: 'Assignments' },
   { to: '/admin/alerts', label: 'Alerts' },
   { to: '/admin/analytics', label: 'Analytics' },
   { to: '/admin/complaints', label: 'Complaints' },

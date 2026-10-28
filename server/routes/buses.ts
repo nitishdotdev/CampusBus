@@ -60,6 +60,9 @@ export function toClientBus(
     etaConfidence: confidence,
     isSimulated: bus.is_simulated,
     lastSyncTimestamp: bus.last_sync_timestamp,
+    currentStopId: bus.current_stop_id || null,
+    nextStopId: bus.next_stop_id || null,
+    completedStopIds: bus.completed_stop_ids || [],
     upcomingEtas: calculatedEtas,
     nextStop: calculatedEtas?.[0]
       ? {
@@ -68,6 +71,7 @@ export function toClientBus(
           distanceKm: calculatedEtas[0].distanceKm,
         }
       : undefined,
+    etaToNextStopSeconds: calculatedEtas?.[0]?.etaMinutes ? calculatedEtas[0].etaMinutes * 60 : undefined,
   };
 }
 
@@ -91,7 +95,10 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response): P
       const stops = allStops.filter((s) => s.route_id === bus.current_route_id);
       const calculatedEtas =
         confidence === 'LIVE' || confidence === 'DEGRADED'
-          ? calculateRouteETAs(bus.last_location_lat, bus.last_location_lng, bus.speed_kmh, stops, confidence)
+          ? calculateRouteETAs(bus.last_location_lat, bus.last_location_lng, bus.speed_kmh, stops, confidence, {
+              completedStopIds: bus.completed_stop_ids,
+              nextStopId: bus.next_stop_id,
+            })
           : [];
       return toClientBus(bus, { routeName: route?.name, routeColor: route?.color, upcomingEtas: calculatedEtas });
     });
@@ -124,14 +131,29 @@ router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response)
       bus.last_location_lng,
       bus.speed_kmh,
       stops,
-      confidence
+      confidence,
+      {
+        completedStopIds: bus.completed_stop_ids,
+        nextStopId: bus.next_stop_id,
+      }
     );
 
     res.json({
       ...bus,
       status: normalizeBusStatus(bus.status) || 'IDLE',
+      currentStopId: bus.current_stop_id || null,
+      nextStopId: bus.next_stop_id || null,
+      completedStopIds: bus.completed_stop_ids || [],
       etaConfidence: confidence,
       upcomingEtas: calculatedEtas,
+      nextStop: calculatedEtas[0]
+        ? {
+            stopName: calculatedEtas[0].stopName,
+            etaMinutes: calculatedEtas[0].etaMinutes,
+            distanceKm: calculatedEtas[0].distanceKm,
+          }
+        : undefined,
+      etaToNextStopSeconds: calculatedEtas[0]?.etaMinutes ? calculatedEtas[0].etaMinutes * 60 : undefined,
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch bus.' });
@@ -242,6 +264,15 @@ router.put('/:id', requireAuth, requireRole(['ADMIN']), async (req: Authenticate
       }
       updates.status = normalized;
     }
+    if (updates.status !== undefined && ['OFFLINE', 'MAINTENANCE', 'IDLE'].includes(updates.status)) {
+      const activeTrip = await db.getActiveTripForBus(busId, collegeId);
+      if (activeTrip) {
+        res.status(409).json({
+          error: `Cannot deactivate or set bus to ${updates.status} while an active trip is in progress. Complete or cancel the active trip first.`,
+        });
+        return;
+      }
+    }
 
     const updated = await db.updateBus(busId, collegeId, updates);
     if (!updated) {
@@ -260,7 +291,28 @@ router.put('/:id', requireAuth, requireRole(['ADMIN']), async (req: Authenticate
 router.delete('/:id', requireAuth, requireRole(['ADMIN']), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const collegeId = req.user!.collegeId;
-    const deleted = await db.deleteBus(req.params.id, collegeId);
+    const busId = req.params.id;
+
+    // 1. Check for active trip
+    const activeTrip = await db.getActiveTripForBus(busId, collegeId);
+    if (activeTrip) {
+      res.status(409).json({
+        error: 'Cannot delete bus while an active trip is currently in progress. End the active trip first.',
+      });
+      return;
+    }
+
+    // 2. Prevent destructive deletion if referenced by historical records
+    const trips = await db.getTrips(collegeId);
+    const busTrips = trips.filter((t) => t.bus_id === busId);
+    if (busTrips.length > 0) {
+      res.status(409).json({
+        error: `Cannot delete bus referenced by historical records (${busTrips.length} past trip(s) recorded). Set status to OFFLINE or MAINTENANCE instead.`,
+      });
+      return;
+    }
+
+    const deleted = await db.deleteBus(busId, collegeId);
     if (!deleted) {
       res.status(404).json({ error: 'Bus not found or already deleted.' });
       return;
