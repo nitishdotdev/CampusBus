@@ -373,7 +373,7 @@ export const DriverDashboard: React.FC = () => {
 
             {/* Active Next Stop Target & Progression Card */}
             {(() => {
-              const stops = [...(assignedRoute.stops || [])].sort((a, b) => a.sequence - b.sequence);
+              const stops = [...(assignedRoute?.stops || [])].sort((a, b) => a.sequence - b.sequence);
               const completedIds = new Set(activeTrip?.completedStopIds || assignment?.completedStopIds || []);
               const nextStop = stops.find((s) => s.id === (activeTrip?.nextStopId || assignment?.nextStopId))
                 || stops.find((s) => !completedIds.has(s.id));

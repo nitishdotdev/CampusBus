@@ -1431,39 +1431,6 @@ export const db = {
     return memoryData.colleges.find((c) => c.id === id) || null;
   },
 
-  async updateCollege(id: string, updates: Partial<CollegeRecord>): Promise<CollegeRecord | null> {
-    if (pool) {
-      const allowed = ['name', 'domain', 'center_lat', 'center_lng', 'zoom_level', 'settings'];
-      const setClauses: string[] = [];
-      const values: any[] = [];
-      let paramIndex = 1;
-      for (const [key, value] of Object.entries(updates)) {
-        if (allowed.includes(key)) {
-          setClauses.push(`${key} = $${paramIndex}`);
-          values.push(key === 'settings' ? (typeof value === 'string' ? value : JSON.stringify(value)) : value);
-          paramIndex++;
-        }
-      }
-      if (setClauses.length === 0) return this.getCollegeById(id);
-      values.push(id);
-      const res = await pool.query(
-        `UPDATE colleges SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-        values
-      );
-      if (res.rows.length === 0) return null;
-      const r = res.rows[0];
-      return {
-        ...r,
-        settings: typeof r.settings === 'string' ? JSON.parse(r.settings) : r.settings,
-      };
-    }
-    const idx = memoryData.colleges.findIndex((c) => c.id === id);
-    if (idx === -1) return null;
-    memoryData.colleges[idx] = { ...memoryData.colleges[idx], ...updates };
-    saveFileDb();
-    return memoryData.colleges[idx];
-  },
-
   // Users
   async getUserByEmail(email: string): Promise<UserRecord | null> {
     const norm = email.trim().toLowerCase();

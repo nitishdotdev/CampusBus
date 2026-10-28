@@ -17,7 +17,9 @@ describe('dashboard navigation', () => {
   it('lists driver items for trip control, history, and profile', () => {
     expect(getNavItems('DRIVER').map((item) => item.label)).toEqual([
       'Driver Terminal',
+      'My Route',
       'Trip History',
+      'Notifications',
       'Vehicle & Duty',
     ]);
   });
@@ -30,6 +32,7 @@ describe('dashboard navigation', () => {
       'Routes & Stops',
       'Schedules',
       'Drivers & Students',
+      'Assignments',
       'Alerts',
       'Analytics',
       'Complaints',
