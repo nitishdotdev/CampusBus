@@ -3,7 +3,11 @@ import { v1Token } from './client';
 
 const getSocketBase = (): string => {
   const v = (import.meta as any).env?.VITE_API_V1_URL;
-  return typeof v === 'string' && v ? v.replace(/\/$/, '') : window.location.origin;
+  if (typeof v === 'string' && v) return v.replace(/\/$/, '');
+  if ((import.meta as any).env?.VITE_USE_V1_API === 'true') {
+    throw new Error('VITE_API_V1_URL is required when VITE_USE_V1_API=true');
+  }
+  return window.location.origin;
 };
 
 export interface BusLocationPayload {

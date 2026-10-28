@@ -10,7 +10,7 @@ Status key: **Implemented** (verified in code), **Proposed** (not built).
 - Auth: JWT (HS256, 7 days) in a Bearer header, token kept in `localStorage`, bcryptjs hashes.
 - Tenancy: every record carries `college_id`; routes filter by `req.user.collegeId`; sockets join `college:<id>` rooms.
 - Offline GPS: IndexedDB queue in `src/services/offlineQueue.ts`.
-- Deploy files: `render.yaml` (web service plus Render Postgres), `vercel.json` plus `api/index.ts` (serverless entry, cannot host Socket.IO).
+- Legacy deploy files historically mentioned Render Postgres. **Current production `render.yaml` deploys `apps/api` against MongoDB Atlas (`MONGODB_URI`), not PostgreSQL.** `vercel.json` serves the Vite SPA. `api/index.ts` is a leftover serverless entry and cannot host Socket.IO.
 
 ## 2. Known gaps in the current GPS path (Implemented behavior, verified in `server/routes/driver.ts`)
 - `POST /api/driver/location` checks that the bus is in the caller's college, not that the caller is the assigned driver or has an active trip; `ADMIN` may also post.
@@ -21,9 +21,13 @@ Status key: **Implemented** (verified in code), **Proposed** (not built).
 - The room is `college:<id>`; there is no per-route or per-student subscription check.
 These are Stage 4 work items and are covered by planned tests (see `IMPLEMENTATION_STATUS.md`).
 
-## 2b. apps/api (Implemented, tested, not connected to anything yet)
-New strict-TypeScript package-in-progress under `apps/api`, using the root `node_modules` until the workspace split:
-`domain/` (business rules, depend only on ports in `domain/types.ts`), `infra/mongo/` (connection-bound Mongoose models and repositories), `http/` (Express app factory), `realtime/` (Socket.IO gateway), `auth/` (access tokens), `compose.ts` (wiring). Business logic never imports Mongoose. See `GPS_TRACKING.md` and `DATABASE.md`. The legacy `server/` code is untouched and remains the running backend.
+## 2b. apps/api (Implemented — this is the Render production backend)
+Strict-TypeScript package under `apps/api`, using the root `node_modules` until a workspace split:
+`domain/` (business rules, depend only on ports in `domain/types.ts`), `infra/mongo/` (connection-bound Mongoose models and repositories), `http/` (Express app factory), `realtime/` (Socket.IO gateway), `auth/` (access + rotating refresh tokens), `compose.ts` (wiring). Business logic never imports Mongoose. See `GPS_TRACKING.md`, `DATABASE.md`, and `DEPLOYMENT.md`.
+
+`render.yaml` starts this process with `npm run api:build` / `npm run api:start` and health-checks `/healthz`. Auth secrets are `ACCESS_TOKEN_SECRET` and `REFRESH_TOKEN_SECRET`. The database is Atlas via `MONGODB_URI`.
+
+The root `server.ts` + `pg` + `DATABASE_URL` + `JWT_SECRET` stack remains in the repo as a **legacy/startable path only**. It is not the application Render deploys.
 
 ## 3. Target system (Proposed)
 ```

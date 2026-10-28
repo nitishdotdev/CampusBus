@@ -48,12 +48,14 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
 
   // ── Login ─────────────────────────────────────────────────────────────────
   describe('login', () => {
-    it('correct credentials return access token and session info', async () => {
+    it('correct credentials return access token, refreshToken, and session info', async () => {
       await reg('login1@t.test');
       const r = await login('login1@t.test');
       expect(r.status).toBe(200);
       expect(r.body.tokens.accessToken).toBeTypeOf('string');
       expect(r.body.tokens.expiresIn).toBe(900);
+      expect(r.body.refreshToken).toBeTypeOf('string');
+      expect(r.body.refreshToken.length).toBeGreaterThan(32);
       expect(r.body.user).toMatchObject({ role: 'STUDENT', email: 'login1@t.test' });
       globalTok = r.body.tokens.accessToken;
     });

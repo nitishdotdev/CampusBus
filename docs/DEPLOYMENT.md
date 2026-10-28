@@ -1,11 +1,14 @@
 # CampusMove Deployment Guide
 
+Production is the **v1 MongoDB stack** (`apps/api` on Render + Vite SPA on Vercel + Atlas).
+The root PostgreSQL stack (`server.ts`, `DATABASE_URL`, `JWT_SECRET`, `npm start`) is a separate legacy path and is **not** what `render.yaml` deploys.
+
 ## Stack
 | Layer | Provider | URL |
 |-------|----------|-----|
 | Frontend | Vercel | https://campus-move-one.vercel.app |
-| Backend API | Render | https://campusmove-api.onrender.com (after deploy) |
-| Database | MongoDB Atlas | Cluster in your Atlas project |
+| Backend API (`apps/api`) | Render | https://campusmove-api.onrender.com (after deploy) |
+| Database | MongoDB Atlas via `MONGODB_URI` | Cluster in your Atlas project |
 
 ---
 
@@ -98,9 +101,9 @@ curl -X POST https://campusmove-api.onrender.com/api/v1/auth/login \
 ---
 
 ## Rollback
-- Render: click **Manual Deploy** → select a previous deploy.
-- The legacy backend (`server.ts` + PostgreSQL) remains on `main` and is unaffected by this branch.
-- To revert the frontend: set `VITE_USE_V1_API=false` in Vercel and redeploy.
+- Render: click **Manual Deploy** → select a previous deploy of the `apps/api` service (`npm run api:build` / `npm run api:start`, health `/healthz`).
+- Do not point Render at `npm start` / `server.ts`. That is the legacy PostgreSQL path and is not production.
+- To revert the frontend: set `VITE_USE_V1_API=false` in Vercel and redeploy (legacy UI only; it will not talk to the Render v1 API).
 
 ---
 

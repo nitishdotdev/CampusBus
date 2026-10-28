@@ -144,6 +144,14 @@ export class MongoBusRepository implements BusRepository {
     return r.deletedCount > 0;
   }
   async assignDriver(campusId: string, id: string, driverId: string | null): Promise<BusDTO | null> {
+    if (!isValidId(id) || !isValidId(campusId)) return null;
+    if (driverId) {
+      if (!isValidId(driverId)) throw new DomainError(404, 'DRIVER_NOT_FOUND');
+      const u: any = await this.m.User.findOne({ _id: driverId, campusId }).lean();
+      if (!u) throw new DomainError(404, 'DRIVER_NOT_FOUND');
+      if (u.role !== 'DRIVER') throw new DomainError(400, 'NOT_A_DRIVER');
+      if (u.status !== 'ACTIVE') throw new DomainError(403, 'DRIVER_NOT_ELIGIBLE');
+    }
     const upd = driverId ? { $set: { driverId } } : { $unset: { driverId: 1 } };
     try {
       const d = await this.m.Bus.findOneAndUpdate({ _id: id, campusId }, upd, { returnDocument: 'after' }).lean();

@@ -31,7 +31,6 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'STUDENT' | 'DRIVER'>('STUDENT');
   const [campusId, setCampusId] = useState('');
   const [campuses, setCampuses] = useState<V1Campus[]>([]);
   const [campusLoading, setCampusLoading] = useState(false);
@@ -62,7 +61,7 @@ export const LoginPage: React.FC = () => {
       .finally(() => setCampusLoading(false));
   }, []);
 
-  const registerRole: 'STUDENT' | 'DRIVER' = intendedRole === 'DRIVER' ? 'DRIVER' : role;
+  const registerRole: 'STUDENT' = 'STUDENT';
 
   const finishAuthenticated = async (accountRole: UserRole) => {
     if (intendedRole && accountRole !== intendedRole) {
@@ -274,20 +273,6 @@ export const LoginPage: React.FC = () => {
                       />
                     </div>
                   </div>
-                  {!canSelfRegister(intendedRole) && (
-                    <div>
-                      <label htmlFor="role" className="block text-xs font-bold text-slate-700 mb-1">Role</label>
-                      <select
-                        id="role"
-                        value={role}
-                        onChange={(e) => setRole(e.target.value as 'STUDENT' | 'DRIVER')}
-                        className="w-full min-h-11 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="STUDENT">Student</option>
-                        <option value="DRIVER">Driver</option>
-                      </select>
-                    </div>
-                  )}
                 </>
               )}
 
@@ -345,7 +330,7 @@ export const LoginPage: React.FC = () => {
           </div>
 
           <div className="text-center mt-4 space-y-2">
-            {intendedRole !== 'ADMIN' && (
+            {(intendedRole === null || canSelfRegister(intendedRole) || mode === 'register') && (
               <Link
                 to={switchHref}
                 className="block text-sm text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
