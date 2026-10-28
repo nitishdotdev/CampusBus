@@ -30,8 +30,10 @@ export function resolveAllowedOrigins(env: NodeJS.ProcessEnv = process.env): str
   if (isProduction) {
     for (const o of normalized) {
       const u = new URL(o);
-      const isLocal = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
-      if (u.protocol !== 'https:' && !isLocal) {
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+        throw new Error(`FATAL: CORS origin must not use localhost in production: ${o}`);
+      }
+      if (u.protocol !== 'https:') {
         throw new Error(`FATAL: CORS origin must use HTTPS in production: ${o}`);
       }
     }

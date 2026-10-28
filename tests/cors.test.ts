@@ -18,6 +18,10 @@ describe('resolveAllowedOrigins', () => {
     expect(() => resolveAllowedOrigins({ NODE_ENV: 'production', CORS_ORIGIN: 'http://example.com' } as any)).toThrow(/HTTPS/);
     expect(resolveAllowedOrigins({ NODE_ENV: 'production', CORS_ORIGIN: APPROVED } as any)).toEqual([APPROVED]);
   });
+  it('rejects localhost origins in production', () => {
+    expect(() => resolveAllowedOrigins({ NODE_ENV: 'production', CORS_ORIGIN: 'http://localhost:5173' } as any)).toThrow(/localhost/);
+    expect(() => resolveAllowedOrigins({ NODE_ENV: 'production', CORS_ORIGIN: 'https://127.0.0.1' } as any)).toThrow(/localhost/);
+  });
   it('rejects origins with paths and malformed values', () => {
     expect(() => resolveAllowedOrigins({ NODE_ENV: 'production', CORS_ORIGIN: `${APPROVED}/app` } as any)).toThrow(/bare origins/);
     expect(() => resolveAllowedOrigins({ NODE_ENV: 'production', CORS_ORIGIN: 'not a url' } as any)).toThrow(/invalid origin/);

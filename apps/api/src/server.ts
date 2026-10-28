@@ -120,7 +120,11 @@ async function main() {
 
   httpServer.listen(PORT, () => {
     console.info(`[api] listening on :${PORT}`);
-    console.info(`[api] allowed origins: ${ALLOWED_ORIGINS.join(', ')}`);
+    if (ALLOWED_ORIGINS.length === 0) {
+      console.warn('[api] CORS_ORIGIN is unset; browser cross-origin requests will be rejected (fail-closed). Set CORS_ORIGIN to your Vercel origin.');
+    } else {
+      console.info(`[api] allowed origins: ${ALLOWED_ORIGINS.join(', ')}`);
+    }
     console.info(`[api] simulation: ${trackingConfig.simulationEnabled ? 'ON' : 'off'}`);
   });
 
