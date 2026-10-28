@@ -1,10 +1,8 @@
 import { io, type Socket } from 'socket.io-client';
+import { readViteV1Env, resolveV1ApiBase } from './apiBase';
 import { v1Token } from './client';
 
-const getSocketBase = (): string => {
-  const v = (import.meta as any).env?.VITE_API_V1_URL;
-  return typeof v === 'string' && v ? v.replace(/\/$/, '') : window.location.origin;
-};
+const getSocketBase = (): string => resolveV1ApiBase(readViteV1Env((import.meta as any).env));
 
 export interface BusLocationPayload {
   busId: string; campusId: string; tripId: string;

@@ -10,8 +10,8 @@ import 'dotenv/config';
 import http from 'http';
 import mongoose from 'mongoose';
 import { z } from 'zod';
-import { loadTrackingConfig } from './config/env';
-import { requireAccessSecret } from './auth/tokens';
+import { loadAllowedOrigins, loadTrackingConfig } from './config/env';
+import { requireAccessSecret, requireRefreshSecret } from './auth/tokens';
 import { verifyAccessToken } from './auth/tokens';
 import { createServices } from './compose';
 import { DomainError } from './domain/errors';
@@ -26,13 +26,16 @@ const MONGODB_URI = process.env.MONGODB_URI;
 if (!MONGODB_URI) { console.error('FATAL: MONGODB_URI is required'); process.exit(1); }
 
 const PORT           = Number(process.env.PORT ?? 4000);
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN ?? 'http://localhost:5173')
-  .split(',').map(s => s.trim()).filter(Boolean);
+const ALLOWED_ORIGINS = loadAllowedOrigins(process.env);
 const BOOTSTRAP_SECRET = process.env.BOOTSTRAP_SECRET ?? '';
 const trackingConfig   = loadTrackingConfig(process.env);
 
 // Validate token secrets (throws with a clear message if missing/short)
 const accessSecret = requireAccessSecret(process.env);
+requireRefreshSecret(process.env);
+if (process.env.NODE_ENV === 'production' && ALLOWED_ORIGINS.length === 0) {
+  console.warn('[api] CORS_ORIGIN is unset; browser cross-origin requests will be denied.');
+}
 
 // ── MongoDB connection ────────────────────────────────────────────────────────
 const conn = mongoose.createConnection(MONGODB_URI, {

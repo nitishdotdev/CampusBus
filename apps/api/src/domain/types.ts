@@ -54,6 +54,7 @@ export interface RegisterInput {
   campusId: string; email: string; password: string; name: string; role: Role;
 }
 export interface AuthTokens { accessToken: string; expiresIn: number }
+export interface AuthSessionTokens { tokens: AuthTokens; refreshToken: string }
 export interface SessionInfo { userId: string; campusId: string; role: Role; name: string; email: string; status: UserStatus }
 
 // ---- Ports ----

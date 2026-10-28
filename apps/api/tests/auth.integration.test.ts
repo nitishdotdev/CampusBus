@@ -54,6 +54,7 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       expect(r.status).toBe(200);
       expect(r.body.tokens.accessToken).toBeTypeOf('string');
       expect(r.body.tokens.expiresIn).toBe(900);
+      expect(r.body.refreshToken).toMatch(/^[a-f0-9]{96}$/);
       expect(r.body.user).toMatchObject({ role: 'STUDENT', email: 'login1@t.test' });
       globalTok = r.body.tokens.accessToken;
     });

@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type RequestHandler, type Res
 import { z } from 'zod';
 import { buildCorsOptions } from '../../../../server/config/cors';
 import type { AuthService } from '../auth/service';
+import { assertAssignableDriver } from '../domain/access';
 import { DomainError } from '../domain/errors';
 import type { LiveService } from '../domain/live';
 import type { TelemetryIngestService } from '../domain/telemetry/ingest';
@@ -49,47 +50,45 @@ export function createApp(deps: AppDeps) {
 
   // ─── Auth routes ─────────────────────────────────────────────────────────
   const ar = express.Router();
-  ar.post('/register', async (req, res) => { res.status(201).json(await deps.auth.register(req.body)); });
-  ar.post('/login', async (req, res) => { res.json(await deps.auth.login(req.body)); });
-  ar.post('/refresh', async (req, res) => {
+  ar.post('/register', wrap(async (req, res) => { res.status(201).json(await deps.auth.register(req.body)); }));
+  ar.post('/login', wrap(async (req, res) => { res.json(await deps.auth.login(req.body)); }));
+  ar.post('/refresh', wrap(async (req, res) => {
     const raw = req.body?.refreshToken;
-    if (typeof raw !== 'string') throw badReq('MISSING_REFRESH_TOKEN');
+    if (typeof raw !== 'string' || raw.trim() === '') throw badReq('MISSING_REFRESH_TOKEN');
     res.json(await deps.auth.refresh(raw));
-  });
-  ar.post('/logout', async (req, res) => {
+  }));
+  ar.post('/logout', wrap(async (req, res) => {
     const raw = req.body?.refreshToken;
     if (typeof raw === 'string') await deps.auth.logout(raw);
     res.status(204).send();
-  });
-  ar.post('/logout-all', auth, async (req, res) => {
-    await deps.auth.logoutAll((req as AuthedRequest).principal);
+  }));
+  ar.post('/logout-all', auth, wrap(async (req, res) => {
+    await deps.auth.logoutAll(req.principal);
     res.status(204).send();
-  });
-  ar.post('/verify-email', auth, async (req, res) => {
+  }));
+  ar.post('/verify-email', auth, wrap(async (req, res) => {
     const { otp } = req.body ?? {};
     if (typeof otp !== 'string') throw badReq('MISSING_OTP');
-    const p = (req as AuthedRequest).principal;
-    await deps.auth.verifyEmail(p.campusId, p.userId, otp);
+    await deps.auth.verifyEmail(req.principal.campusId, req.principal.userId, otp);
     res.status(204).send();
-  });
-  ar.post('/resend-verification', auth, async (req, res) => {
-    const p = (req as AuthedRequest).principal;
-    const user = await deps.users.findById(p.campusId, p.userId);
+  }));
+  ar.post('/resend-verification', auth, wrap(async (req, res) => {
+    const user = await deps.users.findById(req.principal.campusId, req.principal.userId);
     if (!user) { res.status(404).json({ error: 'USER_NOT_FOUND' }); return; }
-    await deps.auth.sendVerification(p.campusId, p.userId, user.email, user.name);
+    await deps.auth.sendVerification(req.principal.campusId, req.principal.userId, user.email, user.name);
     res.status(204).send();
-  });
-  ar.post('/request-password-reset', async (req, res) => {
+  }));
+  ar.post('/request-password-reset', wrap(async (req, res) => {
     const { campusId, email } = req.body ?? {};
     if (typeof campusId === 'string' && typeof email === 'string') await deps.auth.requestPasswordReset(campusId, email);
-    res.status(204).send(); // always 204
-  });
-  ar.post('/confirm-password-reset', async (req, res) => {
+    res.status(204).send();
+  }));
+  ar.post('/confirm-password-reset', wrap(async (req, res) => {
     const { campusId, email, otp, newPassword } = req.body ?? {};
     if (typeof campusId !== 'string' || typeof email !== 'string' || typeof otp !== 'string' || typeof newPassword !== 'string') throw badReq('INVALID_REQUEST');
     await deps.auth.confirmPasswordReset(campusId, email, otp, newPassword);
     res.status(204).send();
-  });
+  }));
   app.use('/api/v1/auth', ar);
 
   // ─── Telemetry ────────────────────────────────────────────────────────────
@@ -144,12 +143,28 @@ export function createApp(deps: AppDeps) {
     res.status(204).send();
   }));
   busRouter.post('/:id/assign-driver', auth, requireRole('ADMIN'), wrap(async (req, res) => {
-    const bus = await deps.buses.assignDriver(req.principal.campusId, req.params['id']!, req.body?.driverId ?? null);
+    const existing = await deps.buses.findById(req.principal.campusId, req.params['id']!);
+    if (!existing) throw new DomainError(404, 'BUS_NOT_FOUND');
+    const driverId = req.body?.driverId ?? null;
+    if (driverId !== null) {
+      if (typeof driverId !== 'string') throw badReq('INVALID_REQUEST');
+      const driver = await deps.users.findById(req.principal.campusId, driverId);
+      assertAssignableDriver(req.principal.campusId, driver);
+    }
+    const bus = await deps.buses.assignDriver(req.principal.campusId, req.params['id']!, driverId);
     if (!bus) throw new DomainError(404, 'BUS_NOT_FOUND');
     res.json(bus);
   }));
   busRouter.post('/:id/assign-route', auth, requireRole('ADMIN'), wrap(async (req, res) => {
-    const bus = await deps.buses.assignRoute(req.principal.campusId, req.params['id']!, req.body?.routeId ?? null);
+    const existing = await deps.buses.findById(req.principal.campusId, req.params['id']!);
+    if (!existing) throw new DomainError(404, 'BUS_NOT_FOUND');
+    const routeId = req.body?.routeId ?? null;
+    if (routeId !== null) {
+      if (typeof routeId !== 'string') throw badReq('INVALID_REQUEST');
+      const route = await deps.routes.findById(req.principal.campusId, routeId);
+      if (!route) throw new DomainError(404, 'ROUTE_NOT_FOUND');
+    }
+    const bus = await deps.buses.assignRoute(req.principal.campusId, req.params['id']!, routeId);
     if (!bus) throw new DomainError(404, 'BUS_NOT_FOUND');
     res.json(bus);
   }));

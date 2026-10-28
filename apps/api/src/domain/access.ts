@@ -1,3 +1,4 @@
+import { badRequest, forbidden, notFound } from './errors';
 import type { BusDTO, Principal, UserDTO } from './types';
 
 /**
@@ -18,4 +19,11 @@ export function canViewBus(principal: Principal, user: UserDTO, bus: BusDTO): bo
         || (!!user.assignedRouteId && !!bus.routeId && user.assignedRouteId === bus.routeId);
     default: return false;
   }
+}
+
+/** Server-side checks before assigning a user as a bus driver. Never trusts client-supplied role or campus. */
+export function assertAssignableDriver(campusId: string, driver: UserDTO | null): asserts driver is UserDTO {
+  if (!driver || driver.campusId !== campusId) throw notFound('DRIVER_NOT_FOUND');
+  if (driver.role !== 'DRIVER') throw badRequest('TARGET_NOT_DRIVER');
+  if (driver.status !== 'ACTIVE') throw forbidden('DRIVER_NOT_ELIGIBLE');
 }

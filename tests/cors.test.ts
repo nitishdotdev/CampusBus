@@ -53,6 +53,15 @@ describe('Express CORS middleware', () => {
     const good = await request(app).options('/ping').set('Origin', APPROVED).set('Access-Control-Request-Method', 'POST');
     expect(good.headers['access-control-allow-origin']).toBe(APPROVED);
   });
+  it('allows PATCH preflight from an approved origin', async () => {
+    const res = await request(app)
+      .options('/ping')
+      .set('Origin', APPROVED)
+      .set('Access-Control-Request-Method', 'PATCH')
+      .set('Access-Control-Request-Headers', 'Authorization,Content-Type');
+    expect(res.headers['access-control-allow-origin']).toBe(APPROVED);
+    expect(String(res.headers['access-control-allow-methods'] ?? '')).toMatch(/PATCH/);
+  });
   it('still serves non-browser requests without an Origin header', async () => {
     const res = await request(app).get('/ping');
     expect(res.status).toBe(200);

@@ -144,6 +144,14 @@ export class MongoBusRepository implements BusRepository {
     return r.deletedCount > 0;
   }
   async assignDriver(campusId: string, id: string, driverId: string | null): Promise<BusDTO | null> {
+    if (!isValidId(id) || !isValidId(campusId)) return null;
+    if (driverId) {
+      if (!isValidId(driverId)) throw new DomainError(400, 'INVALID_REQUEST');
+      const driver: any = await this.m.User.findOne({ _id: driverId, campusId }).lean();
+      if (!driver) throw new DomainError(404, 'DRIVER_NOT_FOUND');
+      if (driver.role !== 'DRIVER') throw new DomainError(400, 'TARGET_NOT_DRIVER');
+      if (driver.status !== 'ACTIVE') throw new DomainError(403, 'DRIVER_NOT_ELIGIBLE');
+    }
     const upd = driverId ? { $set: { driverId } } : { $unset: { driverId: 1 } };
     try {
       const d = await this.m.Bus.findOneAndUpdate({ _id: id, campusId }, upd, { returnDocument: 'after' }).lean();
@@ -151,6 +159,12 @@ export class MongoBusRepository implements BusRepository {
     } catch (e) { if (isDuplicateKey(e)) throw new DomainError(409, 'DRIVER_ALREADY_ASSIGNED'); throw e; }
   }
   async assignRoute(campusId: string, id: string, routeId: string | null): Promise<BusDTO | null> {
+    if (!isValidId(id) || !isValidId(campusId)) return null;
+    if (routeId) {
+      if (!isValidId(routeId)) throw new DomainError(400, 'INVALID_REQUEST');
+      const route = await this.m.Route.findOne({ _id: routeId, campusId }).lean();
+      if (!route) throw new DomainError(404, 'ROUTE_NOT_FOUND');
+    }
     const upd = routeId ? { $set: { routeId } } : { $unset: { routeId: 1 } };
     const d = await this.m.Bus.findOneAndUpdate({ _id: id, campusId }, upd, { returnDocument: 'after' }).lean();
     return d ? toBus(d) : null;

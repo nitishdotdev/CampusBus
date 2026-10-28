@@ -1,3 +1,5 @@
+import { resolveAllowedOrigins } from '../../../../server/config/cors';
+
 export interface TrackingConfig {
   maxEventsPerBatch: number;
   maxFutureSkewMs: number;      // capture time may be at most this far ahead of the server clock
@@ -54,4 +56,9 @@ export function loadTrackingConfig(env: NodeJS.ProcessEnv = process.env): Tracki
     rateLimitEvents: num('TELEMETRY_RATE_LIMIT_EVENTS', DEFAULT_TRACKING.rateLimitEvents),
     simulationEnabled: wantsSimulation,
   };
+}
+
+/** Production-safe CORS origin list. Missing CORS_ORIGIN in production yields [] (fail-closed). */
+export function loadAllowedOrigins(env: NodeJS.ProcessEnv = process.env): string[] {
+  return resolveAllowedOrigins(env);
 }
