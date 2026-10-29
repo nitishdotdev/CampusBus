@@ -49,13 +49,13 @@ export function createApp(deps: AppDeps) {
 
   // ─── Auth routes ─────────────────────────────────────────────────────────
   const ar = express.Router();
-  ar.post('/register', async (req, res) => { res.status(201).json(await deps.auth.register(req.body)); });
-  ar.post('/login', async (req, res) => { res.json(await deps.auth.login(req.body)); });
-  ar.post('/refresh', async (req, res) => {
+  ar.post('/register', wrap(async (req, res) => { res.status(201).json(await deps.auth.register(req.body)); }));
+  ar.post('/login', wrap(async (req, res) => { res.json(await deps.auth.login(req.body)); }));
+  ar.post('/refresh', wrap(async (req, res) => {
     const raw = req.body?.refreshToken;
     if (typeof raw !== 'string') throw badReq('MISSING_REFRESH_TOKEN');
     res.json(await deps.auth.refresh(raw));
-  });
+  }));
   ar.post('/logout', async (req, res) => {
     const raw = req.body?.refreshToken;
     if (typeof raw === 'string') await deps.auth.logout(raw);
@@ -144,7 +144,15 @@ export function createApp(deps: AppDeps) {
     res.status(204).send();
   }));
   busRouter.post('/:id/assign-driver', auth, requireRole('ADMIN'), wrap(async (req, res) => {
-    const bus = await deps.buses.assignDriver(req.principal.campusId, req.params['id']!, req.body?.driverId ?? null);
+    const driverId = req.body?.driverId ?? null;
+    if (driverId !== null) {
+      if (typeof driverId !== 'string' || !idParam.safeParse(driverId).success) throw new DomainError(400, 'INVALID_REQUEST');
+      const driver = await deps.users.findById(req.principal.campusId, driverId);
+      if (!driver) throw new DomainError(404, 'DRIVER_NOT_FOUND');
+      if (driver.role !== 'DRIVER') throw new DomainError(400, 'INVALID_DRIVER');
+      if (driver.status !== 'ACTIVE') throw new DomainError(400, 'DRIVER_NOT_ACTIVE');
+    }
+    const bus = await deps.buses.assignDriver(req.principal.campusId, req.params['id']!, driverId);
     if (!bus) throw new DomainError(404, 'BUS_NOT_FOUND');
     res.json(bus);
   }));

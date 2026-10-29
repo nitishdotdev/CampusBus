@@ -97,7 +97,7 @@ export class AuthService {
   }
 
   // ─── Login ─────────────────────────────────────────────────────────────────
-  async login(body: unknown): Promise<{ tokens: { accessToken: string; expiresIn: number }; user: SessionInfo }> {
+  async login(body: unknown): Promise<{ tokens: { accessToken: string; expiresIn: number }; refreshToken: string; user: SessionInfo }> {
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
     const { campusId, email, password } = parsed.data;
@@ -119,13 +119,13 @@ export class AuthService {
     // Opportunistic live migration of bcrypt hashes to Argon2id.
     if (verify.needsRehash) await this.d.users.updatePassword(campusId, user.id, verify.newHash);
 
-    const tokens = await this.issueRefreshToken(user.id, campusId);
+    const { raw } = await this.issueRefreshToken(user.id, campusId);
     const accessToken = signAccessToken({ userId: user.id, campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
-    return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, user: toSession(user) };
+    return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw, user: toSession(user) };
   }
 
   // ─── Refresh ───────────────────────────────────────────────────────────────
-  async refresh(rawToken: string): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
+  async refresh(rawToken: string): Promise<{ tokens: { accessToken: string; expiresIn: number }; refreshToken: string }> {
     const hash = hashRefreshToken(rawToken);
     const stored = await this.d.refreshTokens.find(hash);
     if (!stored) throw new DomainError(401, 'INVALID_REFRESH_TOKEN');
@@ -144,7 +144,7 @@ export class AuthService {
     const { raw, id } = await this.issueRefreshToken(user.id, stored.campusId, stored.familyId, stored.id);
     void id; // used internally
     const accessToken = signAccessToken({ userId: user.id, campusId: stored.campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
-    return { accessToken, refreshToken: raw, expiresIn: this.d.config.accessTtlSeconds };
+    return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw };
   }
 
   // ─── Logout ────────────────────────────────────────────────────────────────
