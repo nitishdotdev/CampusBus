@@ -47,6 +47,13 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(256),
 }).strict();
 
+export const createDriverSchema = z.object({
+  email: emailSchema,
+  password: passwordSchema,
+  name: nameSchema,
+  phone: z.string().max(32).optional(),
+}).strict();
+
 // Simple in-process per-email login rate limiter
 class LoginLimiter {
   private windows = new Map<string, { start: number; count: number }>();
@@ -80,6 +87,19 @@ export class AuthService {
     this.accessSecret = requireAccessSecret(d.config.env);
     this.refreshSecret = requireRefreshSecret(d.config.env);
     this.limiter = new LoginLimiter(d.config.rateLimitLoginAttempts, d.config.rateLimitWindowMs, () => this.now().getTime());
+  }
+
+  // ─── Admin-provisioned driver ──────────────────────────────────────────────
+  async createDriver(principal: Principal, body: unknown): Promise<SessionInfo> {
+    if (principal.role !== 'ADMIN') throw forbidden();
+    const parsed = createDriverSchema.safeParse(body);
+    if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
+    const { email, password, name, phone } = parsed.data;
+    const hash = await hashPassword(password);
+    const user = await this.d.users.create({
+      campusId: principal.campusId, email, passwordHash: hash, name, role: 'DRIVER', status: 'ACTIVE', phone,
+    });
+    return toSession(user);
   }
 
   // ─── Register ──────────────────────────────────────────────────────────────

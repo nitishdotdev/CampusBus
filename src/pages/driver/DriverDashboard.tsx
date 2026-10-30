@@ -6,9 +6,10 @@ import { adminService } from '../../services/adminService';
 import { socketService } from '../../services/socketService';
 import { tripsV1 } from '../../services/v1/trips';
 import { alertsV1 } from '../../services/v1/notifications';
+import { locationService } from '../../services/locationService';
+import { GPSStatusBadge, NetworkStatusBadge } from '../../components/common/StatusBadges';
 
 const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
-import { GPSStatusBadge, NetworkStatusBadge } from '../../components/common/StatusBadges';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
 import {
   Play,
@@ -53,6 +54,15 @@ export const DriverDashboard: React.FC = () => {
     let isMounted = true;
     const loadAssignment = async () => {
       try {
+        if (USE_V1) {
+          const assigned = buses.find((b) => b.currentDriverId === currentUser?.id);
+          if (isMounted) {
+            setAssignment(assigned
+              ? { busId: assigned.id, busNumber: assigned.busNumber, busCapacity: assigned.capacity, routeId: assigned.currentRouteId, currentOccupancy: assigned.currentOccupancy }
+              : null);
+          }
+          return;
+        }
         const res = await apiClient.get<any>('/api/driver/assignments');
         if (isMounted) {
           setAssignment(res?.assignment || null);
@@ -85,7 +95,7 @@ export const DriverDashboard: React.FC = () => {
       unsubTripEnd();
       unsubConn();
     };
-  }, [activeTrip]);
+  }, [activeTrip, buses, currentUser?.id]);
 
   // Determine driver's assigned bus and route strictly from database
   const assignedBus =
@@ -104,11 +114,11 @@ export const DriverDashboard: React.FC = () => {
           status: activeTrip ? 'ACTIVE' : 'IDLE',
           currentRouteId: assignment.routeId,
           currentDriverId: currentUser?.id,
-          lastLocation: { lat: 34.0537, lng: -118.2570, timestamp: new Date().toISOString() },
-          gpsStatus: 'GPS_ACTIVE',
-          networkStatus: 'NETWORK_ONLINE',
-          etaConfidence: 'LIVE',
-          lastSyncTimestamp: new Date().toISOString(),
+          lastLocation: locationState.lastLocation ?? undefined,
+          gpsStatus: locationState.gpsStatus,
+          networkStatus: locationState.networkStatus,
+          etaConfidence: 'OFFLINE',
+          lastSyncTimestamp: locationState.lastSyncTime || new Date().toISOString(),
         } as any)
       : null);
 
@@ -170,7 +180,9 @@ export const DriverDashboard: React.FC = () => {
     try {
       if (!assignedBus) { setTripError('No bus assigned.'); return; }
       if (USE_V1) {
-        await tripsV1.start(assignedBus.id);
+        const { trip } = await tripsV1.start(assignedBus.id);
+        const adopted = tripService.adoptV1Trip(trip);
+        await locationService.startTracking(adopted.id, assignedBus.id, currentUser?.id || '', false);
       } else {
         if (!assignedRoute) { setTripError('No route assigned.'); return; }
         await tripService.startTrip(
@@ -190,6 +202,8 @@ export const DriverDashboard: React.FC = () => {
     setShowEndTripConfirm(false);
     if (USE_V1 && activeTrip?.id) {
       await tripsV1.end(activeTrip.id);
+      locationService.stopTracking();
+      tripService.clearActiveTrip();
       setTripSummary({ message: 'Trip ended.' } as any);
     } else {
       const summary = await tripService.endTrip();
@@ -213,10 +227,11 @@ export const DriverDashboard: React.FC = () => {
       driverName: currentUser?.name || 'Marcus Vance',
       routeId: assignedRoute.id,
       routeName: assignedRoute.name,
-      location: locationState.lastLocation || {
-        lat: assignedBus.lastLocation.lat,
-        lng: assignedBus.lastLocation.lng,
-      },
+      location: locationState.lastLocation
+        ? { lat: locationState.lastLocation.lat, lng: locationState.lastLocation.lng }
+        : assignedBus.lastLocation
+          ? { lat: assignedBus.lastLocation.lat, lng: assignedBus.lastLocation.lng }
+          : { lat: 0, lng: 0 },
       reason: emergencyReason,
     });
 

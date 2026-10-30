@@ -192,14 +192,13 @@ class LocationService {
     try {
       if (this.currentBusId) {
         if (USE_V1 && this.currentTripId) {
-          await telemetryV1.send({
+          await telemetryV1.send(this.currentTripId, {
             eventId: pointId,
-            tripId: this.currentTripId,
-            busId: this.currentBusId,
-            location: { lat: loc.lat, lng: loc.lng },
-            accuracyM: loc.accuracy ?? null,
-            speedMps: loc.speed ?? null,
-            headingDeg: loc.heading ?? null,
+            lat: loc.lat,
+            lng: loc.lng,
+            accuracyM: loc.accuracy ?? undefined,
+            speedMps: typeof loc.speed === 'number' ? loc.speed : undefined,
+            headingDeg: typeof loc.heading === 'number' ? loc.heading : undefined,
             capturedAt: new Date(loc.timestamp).toISOString(),
           });
         } else {
@@ -286,20 +285,25 @@ class LocationService {
       let syncRes: any;
       if (USE_V1) {
         syncRes = await telemetryV1.sendBatch(
+          tripId,
           queuedItems.map((q) => ({
             eventId: q.id,
-            tripId: q.tripId || tripId,
-            busId: q.busId || busId,
-            location: { lat: q.lat, lng: q.lng },
-            accuracyM: q.accuracy ?? null,
-            speedMps: q.speed ?? null,
-            headingDeg: q.heading ?? null,
+            lat: q.lat,
+            lng: q.lng,
+            accuracyM: q.accuracy ?? undefined,
+            speedMps: typeof q.speed === 'number' ? q.speed : undefined,
+            headingDeg: typeof q.heading === 'number' ? q.heading : undefined,
             capturedAt: new Date(q.timestamp).toISOString(),
           }))
         );
-        // v1 returns { accepted, rejected, errors } — treat all non-rejected as saved
-        if (syncRes?.rejected === 0) {
-          await offlineQueueService.remove(queuedItems.map((q) => q.id));
+        const rejectedIds = new Set(
+          (syncRes?.results ?? [])
+            .filter((r: { status: string; eventId: string | null }) => r.status === 'rejected' && r.eventId)
+            .map((r: { eventId: string | null }) => r.eventId as string)
+        );
+        const savedIds = queuedItems.filter((q) => !rejectedIds.has(q.id)).map((q) => q.id);
+        if (savedIds.length > 0) {
+          await offlineQueueService.remove(savedIds);
         }
       } else {
         syncRes = await apiClient.post<any>('/api/driver/location/sync', {

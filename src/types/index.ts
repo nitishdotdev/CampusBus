@@ -100,7 +100,7 @@ export interface Bus {
   status: BusStatus;
   currentRouteId?: string;
   currentDriverId?: string;
-  lastLocation: LocationPoint;
+  lastLocation?: LocationPoint;
   gpsStatus: GPSStatus;
   networkStatus: NetworkStatus;
   heading?: number;

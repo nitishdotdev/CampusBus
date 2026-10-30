@@ -37,6 +37,17 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       allowedHosts: ['.monkeycode-ai.live'],
+      proxy: {
+        '/api': {
+          target: 'http://localhost:4000',
+          changeOrigin: true,
+        },
+        '/socket.io': {
+          target: 'http://localhost:4000',
+          changeOrigin: true,
+          ws: true,
+        },
+      },
     },
     build: {
       rollupOptions: {

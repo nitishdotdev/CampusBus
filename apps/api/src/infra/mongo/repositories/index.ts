@@ -19,6 +19,7 @@ const toUser = (d: any): UserDTO => ({
   id: str(d._id), campusId: str(d.campusId), email: d.email, name: d.name,
   role: d.role, status: d.status, emailVerifiedAt: d.emailVerifiedAt ?? null,
   assignedBusId: optStr(d.assignedBusId), assignedRouteId: optStr(d.assignedRouteId),
+  phone: typeof d.phone === 'string' ? d.phone : null,
 });
 
 // ─── UserRepository ─────────────────────────────────────────────────────────

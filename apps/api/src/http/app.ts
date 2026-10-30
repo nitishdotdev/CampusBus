@@ -44,6 +44,11 @@ export function createApp(deps: AppDeps) {
     if (!roles.includes(p?.role)) { res.status(403).json({ error: 'FORBIDDEN' }); return; }
     next();
   };
+  const requireDriver: RequestHandler = (req, res, next) => {
+    const p = (req as AuthedRequest).principal;
+    if (p?.role !== 'DRIVER') { res.status(403).json({ error: 'DRIVER_ROLE_REQUIRED' }); return; }
+    next();
+  };
   const wrap = (fn: (req: AuthedRequest, res: Response) => Promise<void>): RequestHandler =>
     (req, res, next) => { fn(req as AuthedRequest, res).catch(next); };
 
@@ -93,7 +98,7 @@ export function createApp(deps: AppDeps) {
   app.use('/api/v1/auth', ar);
 
   // ─── Telemetry ────────────────────────────────────────────────────────────
-  app.post('/api/v1/telemetry', auth, requireRole('DRIVER'), wrap(async (req, res) => { res.json(await deps.ingest.ingest(req.principal, req.body)); }));
+  app.post('/api/v1/telemetry', auth, requireDriver, wrap(async (req, res) => { res.json(await deps.ingest.ingest(req.principal, req.body)); }));
 
   // ─── Trips ───────────────────────────────────────────────────────────────
   app.post('/api/v1/trips/start', auth, requireRole('DRIVER'), wrap(async (req, res) => {
@@ -201,6 +206,9 @@ export function createApp(deps: AppDeps) {
   userRouter.get('/', auth, requireRole('ADMIN'), wrap(async (req, res) => {
     const q = z.object({ role: z.enum(['STUDENT', 'DRIVER', 'ADMIN']).optional(), status: z.enum(['PENDING', 'ACTIVE', 'REJECTED', 'DISABLED']).optional(), page: z.coerce.number().int().min(1).optional(), pageSize: z.coerce.number().int().min(1).max(100).optional() }).parse(req.query);
     res.json(await deps.users.list(req.principal.campusId, q));
+  }));
+  userRouter.post('/drivers', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+    res.status(201).json({ user: await deps.auth.createDriver(req.principal, req.body) });
   }));
   userRouter.patch('/:id/status', auth, requireRole('ADMIN'), wrap(async (req, res) => {
     const { status } = z.object({ status: z.enum(['ACTIVE', 'PENDING', 'REJECTED', 'DISABLED']) }).parse(req.body);

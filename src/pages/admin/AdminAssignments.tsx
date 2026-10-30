@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../store/AppContext';
 import { apiClient } from '../../services/apiClient';
 import { socketService } from '../../services/socketService';
+import { adminV1 } from '../../services/v1/admin';
+import { busesV1 } from '../../services/v1/buses';
+import { routesV1 } from '../../services/v1/routes';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
 import { EmptyState } from '../../components/common/States';
 import {
@@ -18,6 +21,8 @@ import {
   Loader2,
   Search,
 } from 'lucide-react';
+
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 
 interface AssignmentItem {
   id: string;
@@ -73,6 +78,44 @@ export const AdminAssignments: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
+      if (USE_V1) {
+        const [busPage, driverPage, routePage] = await Promise.all([
+          busesV1.list(),
+          adminV1.users.list({ role: 'DRIVER', pageSize: 100 }),
+          routesV1.list(),
+        ]);
+        const driverById = new Map(driverPage.items.map((d) => [d.id, d]));
+        const routeById = new Map(routePage.items.map((r) => [r.id, r]));
+        setAssignments(busPage.items.map((b) => {
+          const driver = b.driverId ? driverById.get(b.driverId) : undefined;
+          const route = b.routeId ? routeById.get(b.routeId) : undefined;
+          return {
+            id: b.id,
+            busId: b.id,
+            busNumber: b.number,
+            plateNumber: '',
+            capacity: b.capacity,
+            driverId: b.driverId ?? null,
+            driverName: driver?.name || 'Unassigned',
+            driverPhone: driver?.phone ?? null,
+            driverCdl: null,
+            routeId: b.routeId ?? null,
+            routeName: route?.name ?? null,
+            routeCode: route?.code ?? null,
+            routeColor: route?.color || '#2563EB',
+            status: b.status === 'MAINTENANCE' ? 'MAINTENANCE' : b.driverId ? 'ASSIGNED' : 'ASSIGNED',
+            activeTripId: null,
+          } as AssignmentItem;
+        }));
+        setDrivers(driverPage.items.filter((d) => d.status === 'ACTIVE').map((d) => ({
+          id: d.id,
+          name: d.name,
+          email: d.email,
+          phone: d.phone ?? undefined,
+          status: d.status,
+        })));
+        return;
+      }
       const [assignmentData, driverData] = await Promise.all([
         apiClient.get<AssignmentItem[]>('/api/assignments'),
         apiClient.get<DirectoryDriver[]>('/api/users?role=DRIVER'),
@@ -127,12 +170,17 @@ export const AdminAssignments: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      await apiClient.post('/api/assignments', {
-        busId: selectedBusId,
-        driverId: selectedDriverId,
-        routeId: selectedRouteId,
-        shift,
-      });
+      if (USE_V1) {
+        await busesV1.assignDriver(selectedBusId, selectedDriverId);
+        await busesV1.assignRoute(selectedBusId, selectedRouteId);
+      } else {
+        await apiClient.post('/api/assignments', {
+          busId: selectedBusId,
+          driverId: selectedDriverId,
+          routeId: selectedRouteId,
+          shift,
+        });
+      }
 
       setSuccessNotice('Driver assigned successfully. Terminal will immediately reflect this assignment.');
       setTimeout(() => setSuccessNotice(null), 4000);
@@ -148,7 +196,12 @@ export const AdminAssignments: React.FC = () => {
   const handleUnassign = async () => {
     if (!unassigningBusId) return;
     try {
-      await apiClient.delete(`/api/assignments/${unassigningBusId}`);
+      if (USE_V1) {
+        await busesV1.assignDriver(unassigningBusId, null);
+        await busesV1.assignRoute(unassigningBusId, null);
+      } else {
+        await apiClient.delete(`/api/assignments/${unassigningBusId}`);
+      }
       setSuccessNotice('Assignment cleared successfully.');
       setTimeout(() => setSuccessNotice(null), 3000);
       setUnassigningBusId(null);
