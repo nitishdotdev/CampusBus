@@ -212,11 +212,9 @@ export class AuthService {
     const user = await this.d.users.findByEmail(campusId, email.toLowerCase());
     if (!user || user.id !== rec.userId) throw new DomainError(400, 'INVALID_OR_EXPIRED_TOKEN');
     const hash = await hashPassword(newPassword);
-    await Promise.all([
-      this.d.users.updatePassword(campusId, user.id, hash),
-      this.d.emailTokens.markUsed(hashToken(otp), this.now()),
-      this.d.refreshTokens.revokeAll(user.id, this.now()),
-    ]);
+    await this.d.refreshTokens.revokeAll(user.id, this.now());
+    await this.d.users.updatePassword(campusId, user.id, hash);
+    await this.d.emailTokens.markUsed(hashToken(otp), this.now());
   }
 
   // ─── Admin bootstrap ───────────────────────────────────────────────────────
