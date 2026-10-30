@@ -61,40 +61,40 @@ export function createApp(deps: AppDeps) {
     if (typeof raw !== 'string') throw badReq('MISSING_REFRESH_TOKEN');
     res.json(await deps.auth.refresh(raw));
   }));
-  ar.post('/logout', async (req, res) => {
+  ar.post('/logout', wrap(async (req, res) => {
     const raw = req.body?.refreshToken;
     if (typeof raw === 'string') await deps.auth.logout(raw);
     res.status(204).send();
-  });
-  ar.post('/logout-all', auth, async (req, res) => {
-    await deps.auth.logoutAll((req as AuthedRequest).principal);
+  }));
+  ar.post('/logout-all', auth, wrap(async (req, res) => {
+    await deps.auth.logoutAll(req.principal);
     res.status(204).send();
-  });
-  ar.post('/verify-email', auth, async (req, res) => {
+  }));
+  ar.post('/verify-email', auth, wrap(async (req, res) => {
     const { otp } = req.body ?? {};
     if (typeof otp !== 'string') throw badReq('MISSING_OTP');
-    const p = (req as AuthedRequest).principal;
+    const p = req.principal;
     await deps.auth.verifyEmail(p.campusId, p.userId, otp);
     res.status(204).send();
-  });
-  ar.post('/resend-verification', auth, async (req, res) => {
-    const p = (req as AuthedRequest).principal;
+  }));
+  ar.post('/resend-verification', auth, wrap(async (req, res) => {
+    const p = req.principal;
     const user = await deps.users.findById(p.campusId, p.userId);
     if (!user) { res.status(404).json({ error: 'USER_NOT_FOUND' }); return; }
     await deps.auth.sendVerification(p.campusId, p.userId, user.email, user.name);
     res.status(204).send();
-  });
-  ar.post('/request-password-reset', async (req, res) => {
+  }));
+  ar.post('/request-password-reset', wrap(async (req, res) => {
     const { campusId, email } = req.body ?? {};
     if (typeof campusId === 'string' && typeof email === 'string') await deps.auth.requestPasswordReset(campusId, email);
     res.status(204).send(); // always 204
-  });
-  ar.post('/confirm-password-reset', async (req, res) => {
+  }));
+  ar.post('/confirm-password-reset', wrap(async (req, res) => {
     const { campusId, email, otp, newPassword } = req.body ?? {};
     if (typeof campusId !== 'string' || typeof email !== 'string' || typeof otp !== 'string' || typeof newPassword !== 'string') throw badReq('INVALID_REQUEST');
     await deps.auth.confirmPasswordReset(campusId, email, otp, newPassword);
     res.status(204).send();
-  });
+  }));
   app.use('/api/v1/auth', ar);
 
   // ─── Telemetry ────────────────────────────────────────────────────────────
@@ -119,7 +119,6 @@ export function createApp(deps: AppDeps) {
 
   // ─── Live position ────────────────────────────────────────────────────────
   app.get('/api/v1/buses/:id/live', auth, wrap(async (req, res) => {
-    idParam.parse(req.params['id']);
     res.json(await deps.live.snapshot(req.principal, req.params['id']!));
   }));
 

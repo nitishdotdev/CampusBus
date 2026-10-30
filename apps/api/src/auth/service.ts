@@ -127,7 +127,7 @@ export class AuthService {
 
     // Constant-time: fetch the user first and only then verify (no timing difference for unknown emails).
     const user = await this.d.users.findByEmail(campusId, email);
-    const dummyHash = '$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dummy'; // always run a verify to avoid timing leak
+    const dummyHash = await dummyArgon2Hash();
     const verify = await verifyPassword(password, user?.passwordHash ?? dummyHash);
     if (!user || !verify.ok) throw new DomainError(401, 'INVALID_CREDENTIALS');
 
@@ -253,3 +253,9 @@ function toSession(u: { id: string; campusId: string; role: Role; name: string; 
   return { userId: u.id, campusId: u.campusId, role: u.role, name: u.name, email: u.email, status: u.status };
 }
 function d_requireVerify(cfg: AuthConfig) { return cfg.emailVerificationRequired || cfg.env.EMAIL_VERIFICATION_REQUIRED === 'true'; }
+
+let dummyHashPromise: Promise<string> | null = null;
+function dummyArgon2Hash(): Promise<string> {
+  dummyHashPromise ??= hashPassword('not-a-real-user');
+  return dummyHashPromise;
+}

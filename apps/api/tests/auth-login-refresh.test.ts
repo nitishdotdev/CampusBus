@@ -134,4 +134,53 @@ describe('login / refresh token contract (SPA)', () => {
     expect(res.body.refreshToken).toEqual(expect.stringMatching(/^[a-f0-9]{96}$/));
     expect(res.body.refreshToken).not.toBe(login.refreshToken);
   });
+
+  it('unknown email login returns 401 INVALID_CREDENTIALS, not 500', async () => {
+    const { auth, users } = await makeAuth();
+    const app = createApp({
+      ...unusedDeps(),
+      auth,
+      users,
+      verifyToken: () => null,
+      allowedOrigins: [],
+    });
+    const res = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ campusId: CAMPUS, email: 'nobody@t.test', password: 'WrongPass1!' });
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('verify-email with a bad OTP returns 400 instead of hanging', async () => {
+    const { auth, users } = await makeAuth();
+    const app = createApp({
+      ...unusedDeps(),
+      auth,
+      users,
+      verifyToken: (t: string) => (t === 'ok' ? { userId: USER_ID, campusId: CAMPUS, role: 'STUDENT' } : null),
+      allowedOrigins: [],
+    });
+    const res = await request(app)
+      .post('/api/v1/auth/verify-email')
+      .set('Authorization', 'Bearer ok')
+      .send({ otp: '999999' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('INVALID_OR_EXPIRED_TOKEN');
+  });
+
+  it('confirm-password-reset with a bad OTP returns 400 instead of hanging', async () => {
+    const { auth, users } = await makeAuth();
+    const app = createApp({
+      ...unusedDeps(),
+      auth,
+      users,
+      verifyToken: () => null,
+      allowedOrigins: [],
+    });
+    const res = await request(app)
+      .post('/api/v1/auth/confirm-password-reset')
+      .send({ campusId: CAMPUS, email: 'alex.chen@apex.edu', otp: '445566', newPassword: 'NewPass2!' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('INVALID_OR_EXPIRED_TOKEN');
+  });
 });
