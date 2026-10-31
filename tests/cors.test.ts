@@ -26,6 +26,10 @@ describe('resolveAllowedOrigins', () => {
     expect(resolveAllowedOrigins({ NODE_ENV: 'production' } as any)).toEqual([]);
     expect(resolveAllowedOrigins({ NODE_ENV: 'development' } as any)).toContain('http://localhost:5173');
   });
+  it('rejects localhost and loopback origins in production', () => {
+    expect(() => resolveAllowedOrigins({ NODE_ENV: 'production', CORS_ORIGIN: 'http://localhost:5173' } as any)).toThrow(/localhost|loopback|production/i);
+    expect(() => resolveAllowedOrigins({ NODE_ENV: 'production', CORS_ORIGIN: 'http://127.0.0.1:5173' } as any)).toThrow(/localhost|loopback|production/i);
+  });
   it('normalizes trailing slashes and whitespace', () => {
     expect(resolveAllowedOrigins({ NODE_ENV: 'production', CORS_ORIGIN: ` ${APPROVED}/ , https://b.example.com ` } as any))
       .toEqual([APPROVED, 'https://b.example.com']);
@@ -52,6 +56,12 @@ describe('Express CORS middleware', () => {
     expect(bad.headers['access-control-allow-origin']).toBeUndefined();
     const good = await request(app).options('/ping').set('Origin', APPROVED).set('Access-Control-Request-Method', 'POST');
     expect(good.headers['access-control-allow-origin']).toBe(APPROVED);
+  });
+  it('allows PATCH preflight for an approved origin', async () => {
+    const res = await request(app).options('/ping').set('Origin', APPROVED).set('Access-Control-Request-Method', 'PATCH');
+    expect(res.headers['access-control-allow-origin']).toBe(APPROVED);
+    const methods = (res.headers['access-control-allow-methods'] ?? '').toUpperCase();
+    expect(methods.split(/,\s*/)).toContain('PATCH');
   });
   it('still serves non-browser requests without an Origin header', async () => {
     const res = await request(app).get('/ping');

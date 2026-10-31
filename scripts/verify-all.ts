@@ -21,6 +21,18 @@ function assert(suite: string, name: string, condition: boolean, details?: strin
   }
 }
 
+async function drainActiveTrips(token: string): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    const res = await fetch(`${BASE_URL}/api/trips/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({}),
+    });
+    if (res.status === 404) return;
+    if (res.status !== 200) return;
+  }
+}
+
 async function runAllTests() {
   console.log('=== RUNNING SMART CAMPUS BUS VERIFICATION SUITE ===\n');
 
@@ -198,13 +210,9 @@ async function runAllTests() {
   // 5. Driver Trip Lifecycle & Occupancy
   let testTripId = '';
   try {
-    // Setup (not an assertion): the dev seed data and earlier interrupted runs can leave this driver with an
-    // active trip, and the one-active-trip-per-driver rule would then reject the trip started below.
-    await fetch(`${BASE_URL}/api/trips/end`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${driverToken}` },
-      body: JSON.stringify({}),
-    });
+    // Setup (not an assertion): seed data and unit tests sharing the file-backed store can leave this
+    // driver with multiple IN_PROGRESS trips. End only closes one per call, so drain until none remain.
+    await drainActiveTrips(driverToken);
 
     // Driver starts trip
     const startRes = await fetch(`${BASE_URL}/api/trips/start`, {
@@ -307,8 +315,21 @@ async function runAllTests() {
     });
     assert('P0 Validation', 'Invalid longitude (>180) rejected with 400 Bad Request', badLngRes.status === 400);
 
+    await drainActiveTrips(driverToken);
+    const gpsTripRes = await fetch(`${BASE_URL}/api/trips/start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${driverToken}`,
+      },
+      body: JSON.stringify({ busId: 'bus_104', routeId: 'route_blue' }),
+    });
+    const gpsTrip = await gpsTripRes.json() as any;
+    const gpsTripId = gpsTrip.trip?.id;
+    assert('GPS & Deduplication', 'Active trip available for live GPS persistence', gpsTripRes.status === 201 && !!gpsTripId);
+
     const fixedLocationId = 'loc_test_fixed_' + Date.now();
-    const fixedTimestamp = '2026-09-20T05:00:00.000Z';
+    const fixedTimestamp = new Date().toISOString();
 
     // First transmission of GPS point
     const locRes1 = await fetch(`${BASE_URL}/api/driver/location`, {
@@ -320,7 +341,7 @@ async function runAllTests() {
       body: JSON.stringify({
         id: fixedLocationId,
         busId: 'bus_104',
-        tripId: 'trip_active_marcus',
+        tripId: gpsTripId,
         lat: 34.0537,
         lng: -118.2570,
         speed: 7.5,
@@ -342,7 +363,7 @@ async function runAllTests() {
       body: JSON.stringify({
         id: fixedLocationId,
         busId: 'bus_104',
-        tripId: 'trip_active_marcus',
+        tripId: gpsTripId,
         lat: 34.0537,
         lng: -118.2570,
         speed: 7.5,
@@ -365,7 +386,7 @@ async function runAllTests() {
         locations: [
           {
             id: 'loc_batch_1_' + Date.now(),
-            tripId: 'trip_active_marcus',
+            tripId: gpsTripId,
             busId: 'bus_104',
             lat: 34.0540,
             lng: -118.2575,
@@ -376,7 +397,7 @@ async function runAllTests() {
           },
           {
             id: 'loc_batch_2_' + Date.now(),
-            tripId: 'trip_active_marcus',
+            tripId: gpsTripId,
             busId: 'bus_104',
             lat: 34.0545,
             lng: -118.2580,

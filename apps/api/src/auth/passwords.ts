@@ -18,7 +18,12 @@ export type VerifyResult =
 
 export async function verifyPassword(password: string, stored: string): Promise<VerifyResult> {
   if (stored.startsWith('$argon2')) {
-    const ok = await argon2.verify(stored, password);
+    let ok = false;
+    try {
+      ok = await argon2.verify(stored, password);
+    } catch {
+      return { ok: false };
+    }
     if (!ok) return { ok: false };
     // In tests, needsRehash is expected (different params); skip it to avoid spurious DB writes.
     const needsRehash = !isTest && argon2.needsRehash(stored, OPTS);

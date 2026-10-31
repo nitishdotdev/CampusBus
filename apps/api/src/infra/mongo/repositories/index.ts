@@ -19,6 +19,7 @@ const toUser = (d: any): UserDTO => ({
   id: str(d._id), campusId: str(d.campusId), email: d.email, name: d.name,
   role: d.role, status: d.status, emailVerifiedAt: d.emailVerifiedAt ?? null,
   assignedBusId: optStr(d.assignedBusId), assignedRouteId: optStr(d.assignedRouteId),
+  phone: typeof d.phone === 'string' ? d.phone : null,
 });
 
 // ─── UserRepository ─────────────────────────────────────────────────────────
@@ -94,7 +95,13 @@ export class MongoRefreshTokenRepository implements RefreshTokenRepository {
   }
   async revoke(id: string, at: Date) { await (this.m as any).RefreshToken.updateOne({ _id: id }, { revokedAt: at }); }
   async revokeFamily(familyId: string, at: Date) { await (this.m as any).RefreshToken.updateMany({ familyId, revokedAt: null }, { revokedAt: at }); }
-  async revokeAll(userId: string, at: Date) { await (this.m as any).RefreshToken.updateMany({ userId, revokedAt: null }, { revokedAt: at }); }
+  async revokeAll(userId: string, at: Date) {
+    if (!isValidId(userId)) return;
+    await (this.m as any).RefreshToken.updateMany(
+      { userId: new mongoose.Types.ObjectId(userId), revokedAt: null },
+      { revokedAt: at },
+    );
+  }
   async purgeExpired(cutoff: Date): Promise<number> { const r = await (this.m as any).RefreshToken.deleteMany({ expiresAt: { $lt: cutoff } }); return r.deletedCount ?? 0; }
 }
 

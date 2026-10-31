@@ -21,6 +21,7 @@ export interface Principal { userId: string; campusId: string; role: Role }
 export interface UserDTO {
   id: string; campusId: string; email: string; name: string; role: Role; status: UserStatus;
   emailVerifiedAt: Date | null; assignedBusId?: string | null; assignedRouteId?: string | null;
+  phone?: string | null;
 }
 export interface BusDTO {
   id: string; campusId: string; number: string; capacity: number;
@@ -60,7 +61,7 @@ export interface SessionInfo { userId: string; campusId: string; role: Role; nam
 export interface UserRepository {
   findById(campusId: string, id: string): Promise<UserDTO | null>;
   findByEmail(campusId: string, email: string): Promise<(UserDTO & { passwordHash: string }) | null>;
-  create(u: { campusId: string; email: string; passwordHash: string; name: string; role: Role; status: UserStatus }): Promise<UserDTO>;
+  create(u: { campusId: string; email: string; passwordHash: string; name: string; role: Role; status: UserStatus; phone?: string }): Promise<UserDTO>;
   updateStatus(campusId: string, id: string, status: UserStatus): Promise<boolean>;
   verifyEmail(campusId: string, id: string, at: Date): Promise<boolean>;
   updatePassword(campusId: string, id: string, hash: string): Promise<boolean>;

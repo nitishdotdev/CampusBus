@@ -1,7 +1,24 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { assertProductionV1Env } from './src/services/v1/apiBase.ts';
+
+function campusBusV1EnvPlugin(): Plugin {
+  return {
+    name: 'campusbus-v1-env',
+    config(_userConfig, { command, mode }) {
+      if (command !== 'build' || mode !== 'production') return;
+      const env = loadEnv(mode, process.cwd(), '');
+      assertProductionV1Env({
+        VITE_USE_V1_API: process.env.VITE_USE_V1_API ?? env.VITE_USE_V1_API,
+        VITE_API_V1_URL: process.env.VITE_API_V1_URL ?? env.VITE_API_V1_URL,
+        NODE_ENV: 'production',
+        PROD: true,
+      });
+    },
+  };
+}
 
 const VENDOR_CHUNKS: Record<string, string[]> = {
   'vendor-react':  ['react', 'react-dom', 'react-router-dom'],
@@ -12,7 +29,7 @@ const VENDOR_CHUNKS: Record<string, string[]> = {
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), campusBusV1EnvPlugin()],
     resolve: {
       alias: { '@': path.resolve('.') },
     },
@@ -20,6 +37,17 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       allowedHosts: ['.monkeycode-ai.live'],
+      proxy: {
+        '/api': {
+          target: 'http://localhost:4000',
+          changeOrigin: true,
+        },
+        '/socket.io': {
+          target: 'http://localhost:4000',
+          changeOrigin: true,
+          ws: true,
+        },
+      },
     },
     build: {
       rollupOptions: {

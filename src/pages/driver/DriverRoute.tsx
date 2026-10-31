@@ -5,6 +5,8 @@ import { MapView } from '../../components/map/MapView';
 import { EmptyState } from '../../components/common/States';
 import { Route as RouteIcon, MapPin, Bus, Clock, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
+
 export const DriverRoute: React.FC = () => {
   const { currentUser, routes, buses, activeTrip } = useApp();
   const [assignment, setAssignment] = useState<any>(null);
@@ -14,9 +16,18 @@ export const DriverRoute: React.FC = () => {
     let isMounted = true;
     const fetchAssignment = async () => {
       try {
-        const res = await apiClient.get<any>('/api/driver/assignments');
-        if (isMounted && res?.assignment) {
-          setAssignment(res.assignment);
+        if (USE_V1) {
+          const assigned = buses.find((b) => b.currentDriverId === currentUser?.id);
+          if (isMounted) {
+            setAssignment(assigned
+              ? { busId: assigned.id, routeId: assigned.currentRouteId }
+              : null);
+          }
+        } else {
+          const res = await apiClient.get<any>('/api/driver/assignments');
+          if (isMounted && res?.assignment) {
+            setAssignment(res.assignment);
+          }
         }
       } catch (err) {
         console.warn('Could not load driver assignment:', err);
@@ -28,7 +39,7 @@ export const DriverRoute: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [buses, currentUser?.id]);
 
   const assignedBus =
     buses.find((b) => b.id === activeTrip?.busId) ||

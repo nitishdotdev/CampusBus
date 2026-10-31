@@ -1,24 +1,54 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../store/AppContext';
 import { MapView } from '../../components/map/MapView';
 import { BusStatusBadge } from '../../components/common/StatusBadges';
 import { EmptyState } from '../../components/common/States';
 import { adminService } from '../../services/adminService';
 import { Bus as BusIcon, Navigation, Clock, Compass, Users, MapPin, CheckCircle2 } from 'lucide-react';
+import { socketV1, type BusLocationPayload } from '../../services/v1/socket';
+import type { Bus } from '../../types';
+
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 
 export const AdminLiveFleet: React.FC = () => {
   const { buses, routes } = useApp();
   const [selectedBusId, setSelectedBusId] = useState<string | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [routeFilter, setRouteFilter] = useState<string>('ALL');
+  const [livePositions, setLivePositions] = useState<Map<string, BusLocationPayload>>(new Map());
 
-  const filteredBuses = buses.filter((b) => {
+  useEffect(() => {
+    if (!USE_V1) return;
+    const unsubs = buses.map((b) =>
+      socketV1.subscribeTobus(b.id, (payload) => {
+        setLivePositions((prev) => new Map(prev).set(b.id, payload));
+      })
+    );
+    return () => unsubs.forEach((fn) => fn());
+  }, [buses]);
+
+  const overlayBuses: Bus[] = buses.map((b) => {
+    const l = livePositions.get(b.id);
+    if (!l) return b;
+    const stale = l.freshness === 'STALE' || l.freshness === 'UNAVAILABLE';
+    return {
+      ...b,
+      lastLocation: { lat: l.location.lat, lng: l.location.lng, timestamp: l.receivedAt, accuracy: l.accuracyM ?? undefined },
+      heading: l.headingDeg ?? b.heading,
+      speedKmh: l.speedMps != null ? Number((l.speedMps * 3.6).toFixed(1)) : b.speedKmh,
+      gpsStatus: stale ? 'LOCATION_STALE' : 'GPS_ACTIVE',
+      lastSyncTimestamp: l.receivedAt,
+      status: l.freshness === 'LIVE' ? 'ACTIVE' : b.status,
+    };
+  });
+
+  const filteredBuses = overlayBuses.filter((b) => {
     if (statusFilter !== 'ALL' && b.status !== statusFilter) return false;
     if (routeFilter !== 'ALL' && b.currentRouteId !== routeFilter) return false;
     return true;
   });
 
-  const selectedBus = buses.find((b) => b.id === selectedBusId) || filteredBuses[0];
+  const selectedBus = overlayBuses.find((b) => b.id === selectedBusId) || filteredBuses[0];
   const selectedBusRoute = routes.find((r) => r.id === selectedBus?.currentRouteId);
 
   const handleStatusChange = (newStatus: string) => {
@@ -85,7 +115,7 @@ export const AdminLiveFleet: React.FC = () => {
                 <div className="space-y-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700">
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-slate-500"><Compass className="w-4 h-4" />Coords:</span>
-                    <span className="font-mono font-bold">{selectedBus.lastLocation.lat.toFixed(5)}, {selectedBus.lastLocation.lng.toFixed(5)}</span>
+                    <span className="font-mono font-bold">{typeof selectedBus.lastLocation?.lat === 'number' ? `${selectedBus.lastLocation.lat.toFixed(5)}, ${selectedBus.lastLocation.lng.toFixed(5)}` : 'No GPS'}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-slate-500"><Navigation className="w-4 h-4" />Speed:</span>

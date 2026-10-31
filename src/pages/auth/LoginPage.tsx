@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Mail, Lock, User, AlertCircle, ArrowLeft, Loader2, Eye, EyeOff, Building2 } from 'lucide-react';
 import { authService } from '../../services/authService';
-import { loginV1, registerV1, logoutV1, listCampuses, type V1Campus } from '../../services/v1/auth';
+import { loginV1, registerV1, logoutV1, listCampuses, formatCampusFetchError, type V1Campus } from '../../services/v1/auth';
 import { socketV1 } from '../../services/v1/socket';
 import { BrandMark } from '../../components/brand/BrandMark';
 import {
@@ -35,6 +35,7 @@ export const LoginPage: React.FC = () => {
   const [campusId, setCampusId] = useState('');
   const [campuses, setCampuses] = useState<V1Campus[]>([]);
   const [campusLoading, setCampusLoading] = useState(false);
+  const [campusError, setCampusError] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -54,10 +55,15 @@ export const LoginPage: React.FC = () => {
   useEffect(() => {
     if (!USE_V1) return;
     setCampusLoading(true);
+    setCampusError('');
     listCampuses()
       .then((list) => {
         setCampuses(list);
         if (list.length === 1) setCampusId(list[0].id);
+      })
+      .catch((err) => {
+        setCampuses([]);
+        setCampusError(formatCampusFetchError(err));
       })
       .finally(() => setCampusLoading(false));
   }, []);
@@ -233,6 +239,10 @@ export const LoginPage: React.FC = () => {
                     {campusLoading ? (
                       <div className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-400">
                         Loading campuses…
+                      </div>
+                    ) : campusError ? (
+                      <div className="w-full pl-9 pr-3 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">
+                        {campusError}
                       </div>
                     ) : campuses.length === 0 ? (
                       <div className="w-full pl-9 pr-3 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">

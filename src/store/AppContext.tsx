@@ -25,6 +25,7 @@ import { busesV1 } from '../services/v1/buses';
 import { routesV1 } from '../services/v1/routes';
 import { notificationsV1, alertsV1 } from '../services/v1/notifications';
 import { socketV1 } from '../services/v1/socket';
+import { tripsV1 } from '../services/v1/trips';
 
 const DEFAULT_COLLEGE: College = {
   id: 'college_apex',
@@ -151,6 +152,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const recoverActiveTrip = async () => {
       try {
+        if (USE_V1) {
+          const page = await tripsV1.list(1, 20);
+          const active = page.items.find((t) => t.status === 'ACTIVE' && t.driverId === currentUser?.id);
+          if (active) {
+            const adopted = tripService.adoptV1Trip(active);
+            setActiveTrip(adopted);
+            await locationService.startTracking(adopted.id, adopted.busId, currentUser?.id || '', false);
+          }
+          return;
+        }
         const response = await apiClient.get<{ activeTrip: Trip | null }>('/api/trips/active');
         if (response && response.activeTrip) {
           setActiveTrip(response.activeTrip);
@@ -189,26 +200,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       if (USE_V1) {
         // ── v1 API path ─────────────────────────────────────────────────────
-        const [busPage, routePage, notifPage, alertPage] = await Promise.allSettled([
+        const [busPage, routePage, notifPage, alertPage, tripPage] = await Promise.allSettled([
           busesV1.list(),
           routesV1.list(),
           notificationsV1.list(),
           alertsV1.list(),
+          tripsV1.list(1, 50),
         ]);
         if (busPage.status === 'fulfilled') {
+          const activeTripBusIds = new Set(
+            tripPage.status === 'fulfilled'
+              ? tripPage.value.items.filter((t) => t.status === 'ACTIVE').map((t) => t.busId)
+              : []
+          );
           setBuses(busPage.value.items.map(b => ({
             id: b.id, collegeId: b.campusId, busNumber: b.number,
+            plateNumber: '', model: 'Campus Shuttle',
             capacity: b.capacity, currentOccupancy: 0,
-            status: b.status === 'ACTIVE' ? 'ACTIVE' : b.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE',
-            driverId: b.driverId ?? undefined, routeId: b.routeId ?? undefined,
+            status: b.status === 'MAINTENANCE' ? 'MAINTENANCE' : b.status === 'OFFLINE' ? 'OFFLINE' : activeTripBusIds.has(b.id) ? 'ACTIVE' : 'IDLE',
+            currentDriverId: b.driverId ?? undefined,
+            currentRouteId: b.routeId ?? undefined,
+            gpsStatus: 'GPS_UNAVAILABLE',
+            networkStatus: 'NETWORK_ONLINE',
+            etaConfidence: 'OFFLINE',
+            lastSyncTimestamp: new Date().toISOString(),
             isSimulated: false,
-          } as any)));
+          } as Bus)));
         }
         if (routePage.status === 'fulfilled') {
           setRoutes(routePage.value.items.map(r => ({
-            id: r.id, collegeId: r.campusId, name: r.name, shortCode: r.code, color: r.color,
-            stops: r.stops.map(s => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, order: s.order })),
-          } as any)));
+            id: r.id, collegeId: r.campusId, name: r.name, code: r.code, color: r.color,
+            description: '', status: 'LIVE', scheduleHours: '', frequencyMinutes: 0,
+            pathCoordinates: [],
+            stops: r.stops.map(s => ({
+              id: s.id, collegeId: r.campusId, name: s.name, code: '',
+              lat: s.lat, lng: s.lng, sequence: s.order,
+            })),
+          } as Route)));
         }
         if (notifPage.status === 'fulfilled') {
           setNotifications(notifPage.value.items.map(n => ({

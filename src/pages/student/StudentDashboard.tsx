@@ -49,10 +49,10 @@ export const StudentDashboard: React.FC = () => {
   // Subscribe to socket telemetry
   useEffect(() => {
     if (!USE_V1) return;
-    const activeBuses = buses.filter((b) => b.status === 'ACTIVE');
-    if (activeBuses.length === 0) return;
+    const tracked = buses.filter((b) => b.status === 'ACTIVE' || b.status === 'IDLE');
+    if (tracked.length === 0) return;
 
-    const unsubs = activeBuses.map((b) =>
+    const unsubs = tracked.map((b) =>
       socketV1.subscribeTobus(b.id, (payload) => {
         setLivePositions((prev) => new Map(prev).set(b.id, payload));
       })

@@ -47,6 +47,13 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(256),
 }).strict();
 
+export const createDriverSchema = z.object({
+  email: emailSchema,
+  password: passwordSchema,
+  name: nameSchema,
+  phone: z.string().max(32).optional(),
+}).strict();
+
 // Simple in-process per-email login rate limiter
 class LoginLimiter {
   private windows = new Map<string, { start: number; count: number }>();
@@ -82,6 +89,19 @@ export class AuthService {
     this.limiter = new LoginLimiter(d.config.rateLimitLoginAttempts, d.config.rateLimitWindowMs, () => this.now().getTime());
   }
 
+  // ─── Admin-provisioned driver ──────────────────────────────────────────────
+  async createDriver(principal: Principal, body: unknown): Promise<SessionInfo> {
+    if (principal.role !== 'ADMIN') throw forbidden();
+    const parsed = createDriverSchema.safeParse(body);
+    if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
+    const { email, password, name, phone } = parsed.data;
+    const hash = await hashPassword(password);
+    const user = await this.d.users.create({
+      campusId: principal.campusId, email, passwordHash: hash, name, role: 'DRIVER', status: 'ACTIVE', phone,
+    });
+    return toSession(user);
+  }
+
   // ─── Register ──────────────────────────────────────────────────────────────
   async register(body: unknown): Promise<{ user: SessionInfo }> {
     const parsed = registerSchema.safeParse(body);
@@ -97,7 +117,7 @@ export class AuthService {
   }
 
   // ─── Login ─────────────────────────────────────────────────────────────────
-  async login(body: unknown): Promise<{ tokens: { accessToken: string; expiresIn: number }; user: SessionInfo }> {
+  async login(body: unknown): Promise<{ tokens: { accessToken: string; expiresIn: number }; refreshToken: string; user: SessionInfo }> {
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
     const { campusId, email, password } = parsed.data;
@@ -107,7 +127,7 @@ export class AuthService {
 
     // Constant-time: fetch the user first and only then verify (no timing difference for unknown emails).
     const user = await this.d.users.findByEmail(campusId, email);
-    const dummyHash = '$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dummy'; // always run a verify to avoid timing leak
+    const dummyHash = await dummyArgon2Hash();
     const verify = await verifyPassword(password, user?.passwordHash ?? dummyHash);
     if (!user || !verify.ok) throw new DomainError(401, 'INVALID_CREDENTIALS');
 
@@ -119,13 +139,13 @@ export class AuthService {
     // Opportunistic live migration of bcrypt hashes to Argon2id.
     if (verify.needsRehash) await this.d.users.updatePassword(campusId, user.id, verify.newHash);
 
-    const tokens = await this.issueRefreshToken(user.id, campusId);
+    const { raw } = await this.issueRefreshToken(user.id, campusId);
     const accessToken = signAccessToken({ userId: user.id, campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
-    return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, user: toSession(user) };
+    return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw, user: toSession(user) };
   }
 
   // ─── Refresh ───────────────────────────────────────────────────────────────
-  async refresh(rawToken: string): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
+  async refresh(rawToken: string): Promise<{ tokens: { accessToken: string; expiresIn: number }; refreshToken: string }> {
     const hash = hashRefreshToken(rawToken);
     const stored = await this.d.refreshTokens.find(hash);
     if (!stored) throw new DomainError(401, 'INVALID_REFRESH_TOKEN');
@@ -144,7 +164,7 @@ export class AuthService {
     const { raw, id } = await this.issueRefreshToken(user.id, stored.campusId, stored.familyId, stored.id);
     void id; // used internally
     const accessToken = signAccessToken({ userId: user.id, campusId: stored.campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
-    return { accessToken, refreshToken: raw, expiresIn: this.d.config.accessTtlSeconds };
+    return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw };
   }
 
   // ─── Logout ────────────────────────────────────────────────────────────────
@@ -192,11 +212,9 @@ export class AuthService {
     const user = await this.d.users.findByEmail(campusId, email.toLowerCase());
     if (!user || user.id !== rec.userId) throw new DomainError(400, 'INVALID_OR_EXPIRED_TOKEN');
     const hash = await hashPassword(newPassword);
-    await Promise.all([
-      this.d.users.updatePassword(campusId, user.id, hash),
-      this.d.emailTokens.markUsed(hashToken(otp), this.now()),
-      this.d.refreshTokens.revokeAll(user.id, this.now()),
-    ]);
+    await this.d.refreshTokens.revokeAll(user.id, this.now());
+    await this.d.users.updatePassword(campusId, user.id, hash);
+    await this.d.emailTokens.markUsed(hashToken(otp), this.now());
   }
 
   // ─── Admin bootstrap ───────────────────────────────────────────────────────
@@ -233,3 +251,9 @@ function toSession(u: { id: string; campusId: string; role: Role; name: string; 
   return { userId: u.id, campusId: u.campusId, role: u.role, name: u.name, email: u.email, status: u.status };
 }
 function d_requireVerify(cfg: AuthConfig) { return cfg.emailVerificationRequired || cfg.env.EMAIL_VERIFICATION_REQUIRED === 'true'; }
+
+let dummyHashPromise: Promise<string> | null = null;
+function dummyArgon2Hash(): Promise<string> {
+  dummyHashPromise ??= hashPassword('not-a-real-user');
+  return dummyHashPromise;
+}

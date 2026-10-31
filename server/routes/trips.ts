@@ -210,6 +210,11 @@ router.post('/end', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req: A
       return;
     }
 
+    if (tripId && activeTrip.status !== 'IN_PROGRESS' && activeTrip.status !== 'STARTED') {
+      res.status(404).json({ error: 'No active trip found to complete.' });
+      return;
+    }
+
     clearTripProgressionState(activeTrip.id);
 
     const completed = await db.updateTrip(activeTrip.id, user.collegeId, {
@@ -217,7 +222,6 @@ router.post('/end', requireAuth, requireRole(['DRIVER', 'ADMIN']), async (req: A
       end_time: new Date().toISOString(),
     });
 
-    // Put bus back to off duty without automatically marking remaining stops completed
     const bus = await db.updateBus(activeTrip.bus_id, user.collegeId, {
       status: 'OFF_DUTY',
       current_occupancy: 0,

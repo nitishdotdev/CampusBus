@@ -44,56 +44,61 @@ export function createApp(deps: AppDeps) {
     if (!roles.includes(p?.role)) { res.status(403).json({ error: 'FORBIDDEN' }); return; }
     next();
   };
+  const requireDriver: RequestHandler = (req, res, next) => {
+    const p = (req as AuthedRequest).principal;
+    if (p?.role !== 'DRIVER') { res.status(403).json({ error: 'DRIVER_ROLE_REQUIRED' }); return; }
+    next();
+  };
   const wrap = (fn: (req: AuthedRequest, res: Response) => Promise<void>): RequestHandler =>
     (req, res, next) => { fn(req as AuthedRequest, res).catch(next); };
 
   // ─── Auth routes ─────────────────────────────────────────────────────────
   const ar = express.Router();
-  ar.post('/register', async (req, res) => { res.status(201).json(await deps.auth.register(req.body)); });
-  ar.post('/login', async (req, res) => { res.json(await deps.auth.login(req.body)); });
-  ar.post('/refresh', async (req, res) => {
+  ar.post('/register', wrap(async (req, res) => { res.status(201).json(await deps.auth.register(req.body)); }));
+  ar.post('/login', wrap(async (req, res) => { res.json(await deps.auth.login(req.body)); }));
+  ar.post('/refresh', wrap(async (req, res) => {
     const raw = req.body?.refreshToken;
     if (typeof raw !== 'string') throw badReq('MISSING_REFRESH_TOKEN');
     res.json(await deps.auth.refresh(raw));
-  });
-  ar.post('/logout', async (req, res) => {
+  }));
+  ar.post('/logout', wrap(async (req, res) => {
     const raw = req.body?.refreshToken;
     if (typeof raw === 'string') await deps.auth.logout(raw);
     res.status(204).send();
-  });
-  ar.post('/logout-all', auth, async (req, res) => {
-    await deps.auth.logoutAll((req as AuthedRequest).principal);
+  }));
+  ar.post('/logout-all', auth, wrap(async (req, res) => {
+    await deps.auth.logoutAll(req.principal);
     res.status(204).send();
-  });
-  ar.post('/verify-email', auth, async (req, res) => {
+  }));
+  ar.post('/verify-email', auth, wrap(async (req, res) => {
     const { otp } = req.body ?? {};
     if (typeof otp !== 'string') throw badReq('MISSING_OTP');
-    const p = (req as AuthedRequest).principal;
+    const p = req.principal;
     await deps.auth.verifyEmail(p.campusId, p.userId, otp);
     res.status(204).send();
-  });
-  ar.post('/resend-verification', auth, async (req, res) => {
-    const p = (req as AuthedRequest).principal;
+  }));
+  ar.post('/resend-verification', auth, wrap(async (req, res) => {
+    const p = req.principal;
     const user = await deps.users.findById(p.campusId, p.userId);
     if (!user) { res.status(404).json({ error: 'USER_NOT_FOUND' }); return; }
     await deps.auth.sendVerification(p.campusId, p.userId, user.email, user.name);
     res.status(204).send();
-  });
-  ar.post('/request-password-reset', async (req, res) => {
+  }));
+  ar.post('/request-password-reset', wrap(async (req, res) => {
     const { campusId, email } = req.body ?? {};
     if (typeof campusId === 'string' && typeof email === 'string') await deps.auth.requestPasswordReset(campusId, email);
     res.status(204).send(); // always 204
-  });
-  ar.post('/confirm-password-reset', async (req, res) => {
+  }));
+  ar.post('/confirm-password-reset', wrap(async (req, res) => {
     const { campusId, email, otp, newPassword } = req.body ?? {};
     if (typeof campusId !== 'string' || typeof email !== 'string' || typeof otp !== 'string' || typeof newPassword !== 'string') throw badReq('INVALID_REQUEST');
     await deps.auth.confirmPasswordReset(campusId, email, otp, newPassword);
     res.status(204).send();
-  });
+  }));
   app.use('/api/v1/auth', ar);
 
   // ─── Telemetry ────────────────────────────────────────────────────────────
-  app.post('/api/v1/telemetry', auth, requireRole('DRIVER'), wrap(async (req, res) => { res.json(await deps.ingest.ingest(req.principal, req.body)); }));
+  app.post('/api/v1/telemetry', auth, requireDriver, wrap(async (req, res) => { res.json(await deps.ingest.ingest(req.principal, req.body)); }));
 
   // ─── Trips ───────────────────────────────────────────────────────────────
   app.post('/api/v1/trips/start', auth, requireRole('DRIVER'), wrap(async (req, res) => {
@@ -114,7 +119,6 @@ export function createApp(deps: AppDeps) {
 
   // ─── Live position ────────────────────────────────────────────────────────
   app.get('/api/v1/buses/:id/live', auth, wrap(async (req, res) => {
-    idParam.parse(req.params['id']);
     res.json(await deps.live.snapshot(req.principal, req.params['id']!));
   }));
 
@@ -144,7 +148,15 @@ export function createApp(deps: AppDeps) {
     res.status(204).send();
   }));
   busRouter.post('/:id/assign-driver', auth, requireRole('ADMIN'), wrap(async (req, res) => {
-    const bus = await deps.buses.assignDriver(req.principal.campusId, req.params['id']!, req.body?.driverId ?? null);
+    const driverId = req.body?.driverId ?? null;
+    if (driverId !== null) {
+      if (typeof driverId !== 'string' || !idParam.safeParse(driverId).success) throw new DomainError(400, 'INVALID_REQUEST');
+      const driver = await deps.users.findById(req.principal.campusId, driverId);
+      if (!driver) throw new DomainError(404, 'DRIVER_NOT_FOUND');
+      if (driver.role !== 'DRIVER') throw new DomainError(400, 'INVALID_DRIVER');
+      if (driver.status !== 'ACTIVE') throw new DomainError(400, 'DRIVER_NOT_ACTIVE');
+    }
+    const bus = await deps.buses.assignDriver(req.principal.campusId, req.params['id']!, driverId);
     if (!bus) throw new DomainError(404, 'BUS_NOT_FOUND');
     res.json(bus);
   }));
@@ -193,6 +205,9 @@ export function createApp(deps: AppDeps) {
   userRouter.get('/', auth, requireRole('ADMIN'), wrap(async (req, res) => {
     const q = z.object({ role: z.enum(['STUDENT', 'DRIVER', 'ADMIN']).optional(), status: z.enum(['PENDING', 'ACTIVE', 'REJECTED', 'DISABLED']).optional(), page: z.coerce.number().int().min(1).optional(), pageSize: z.coerce.number().int().min(1).max(100).optional() }).parse(req.query);
     res.json(await deps.users.list(req.principal.campusId, q));
+  }));
+  userRouter.post('/drivers', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+    res.status(201).json({ user: await deps.auth.createDriver(req.principal, req.body) });
   }));
   userRouter.patch('/:id/status', auth, requireRole('ADMIN'), wrap(async (req, res) => {
     const { status } = z.object({ status: z.enum(['ACTIVE', 'PENDING', 'REJECTED', 'DISABLED']) }).parse(req.body);

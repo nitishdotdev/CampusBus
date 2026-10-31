@@ -6,10 +6,9 @@
  * - On 401, attempts one silent refresh before propagating the error.
  */
 
-const getApiBase = (): string => {
-  const v = (import.meta as any).env?.VITE_API_V1_URL;
-  return typeof v === 'string' && v ? v.replace(/\/$/, '') : '';
-};
+import { readViteV1Env, resolveV1ApiBase } from './apiBase';
+
+const getApiBase = (): string => resolveV1ApiBase(readViteV1Env((import.meta as any).env));
 
 export class ApiV1Error extends Error {
   constructor(message: string, public status: number, public code?: string) {

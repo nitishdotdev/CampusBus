@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../store/AppContext';
 import { apiClient } from '../../services/apiClient';
+import { adminV1 } from '../../services/v1/admin';
+import { busesV1 } from '../../services/v1/buses';
+import { routesV1 } from '../../services/v1/routes';
 import { SearchInput } from '../../components/common/Inputs';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
 import { EmptyState } from '../../components/common/States';
@@ -22,6 +25,8 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
+
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 
 interface DirectoryUser {
   id: string;
@@ -74,6 +79,35 @@ export const AdminDirectory: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
+      if (USE_V1) {
+        const [userPage, busPage, routePage] = await Promise.all([
+          adminV1.users.list({ pageSize: 100 }),
+          busesV1.list(),
+          routesV1.list(),
+        ]);
+        const busById = new Map(busPage.items.map((b) => [b.id, b]));
+        const routeById = new Map(routePage.items.map((r) => [r.id, r]));
+        setUsers(userPage.items.map((u) => {
+          const assignedBus = u.assignedBusId ? busById.get(u.assignedBusId) : undefined;
+          const assignedRoute = u.assignedRouteId ? routeById.get(u.assignedRouteId) : undefined;
+          return {
+            id: u.id,
+            collegeId: u.campusId,
+            email: u.email,
+            name: u.name,
+            role: u.role,
+            phone: u.phone ?? undefined,
+            status: u.status === 'ACTIVE' ? 'ACTIVE' : 'DEACTIVATED',
+            createdAt: '',
+            assignedBusId: u.assignedBusId ?? null,
+            assignedBusNumber: assignedBus?.number ?? null,
+            assignedRouteId: u.assignedRouteId ?? null,
+            assignedRouteName: assignedRoute?.name ?? null,
+            assignedRouteCode: assignedRoute?.code ?? null,
+          } as DirectoryUser;
+        }));
+        return;
+      }
       const res = await apiClient.get<DirectoryUser[]>('/api/users');
       setUsers(res || []);
     } catch (err: any) {
@@ -121,13 +155,22 @@ export const AdminDirectory: React.FC = () => {
 
     setIsSubmittingCreate(true);
     try {
-      await apiClient.post('/api/users/drivers', {
-        name: createName,
-        email: createEmail,
-        phone: createPhone,
-        cdlNumber: createCdl,
-        password: createPassword,
-      });
+      if (USE_V1) {
+        await adminV1.users.createDriver({
+          name: createName.trim(),
+          email: createEmail.trim(),
+          password: createPassword,
+          phone: createPhone.trim() || undefined,
+        });
+      } else {
+        await apiClient.post('/api/users/drivers', {
+          name: createName,
+          email: createEmail,
+          phone: createPhone,
+          cdlNumber: createCdl,
+          password: createPassword,
+        });
+      }
 
       setSuccessNotice(`Driver account created for ${createName}.`);
       setTimeout(() => setSuccessNotice(null), 4000);
@@ -148,7 +191,11 @@ export const AdminDirectory: React.FC = () => {
   const handleToggleStatus = async (user: DirectoryUser) => {
     const nextStatus = user.status === 'ACTIVE' ? 'DEACTIVATED' : 'ACTIVE';
     try {
-      await apiClient.put(`/api/users/${user.id}`, { status: nextStatus });
+      if (USE_V1) {
+        await adminV1.users.setStatus(user.id, nextStatus === 'ACTIVE' ? 'ACTIVE' : 'DISABLED');
+      } else {
+        await apiClient.put(`/api/users/${user.id}`, { status: nextStatus });
+      }
       setSuccessNotice(`Account status updated to ${nextStatus}.`);
       setTimeout(() => setSuccessNotice(null), 3000);
       setDeactivatingUser(null);

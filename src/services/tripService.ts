@@ -4,6 +4,8 @@ import { locationService } from './locationService';
 import { realtimeService } from './realtimeService';
 import { socketService } from './socketService';
 
+const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
+
 const ACTIVE_TRIP_KEY = 'smart_campus_bus_active_trip';
 
 class TripService {
@@ -14,8 +16,10 @@ class TripService {
   constructor() {
     const saved = localStorage.getItem(ACTIVE_TRIP_KEY);
     if (saved) try { this.activeTrip = JSON.parse(saved); } catch { this.activeTrip = null; }
-    this.refreshActiveTripFromApi();
-    this.fetchTripHistory();
+    if (!USE_V1) {
+      this.refreshActiveTripFromApi();
+      this.fetchTripHistory();
+    }
     socketService.on('trip:started', () => this.fetchTripHistory());
     socketService.on('trip:ended', () => this.fetchTripHistory());
     socketService.on('trip:stop_arrived', (data: any) => {
@@ -54,6 +58,35 @@ class TripService {
       if (Array.isArray(res)) { this.trips = res; this.notify(); }
     } catch (err) { console.warn('Could not load trip history:', err); }
     return this.trips;
+  }
+
+  public adoptV1Trip(v1: { id: string; campusId: string; busId: string; driverId: string; routeId: string; startedAt: string; status: string }): Trip {
+    const trip: Trip = {
+      id: v1.id,
+      collegeId: v1.campusId,
+      busId: v1.busId,
+      driverId: v1.driverId,
+      routeId: v1.routeId,
+      startTime: v1.startedAt,
+      status: v1.status === 'ACTIVE' ? 'IN_PROGRESS' : v1.status === 'COMPLETED' ? 'COMPLETED' : 'CANCELLED',
+      currentOccupancy: 0,
+      initialOccupancy: 0,
+      totalLocationsLogged: 0,
+      syncedLocationsCount: 0,
+      queuedLocationsCount: 0,
+      distanceCoveredKm: 0,
+    };
+    this.activeTrip = trip;
+    this.persistActiveTrip();
+    this.notify();
+    return trip;
+  }
+
+  public clearActiveTrip(): void {
+    locationService.stopTracking();
+    this.activeTrip = null;
+    localStorage.removeItem(ACTIVE_TRIP_KEY);
+    this.notify();
   }
 
   public async startTrip(busId: string, driverId: string, routeId: string, collegeId = 'college_apex', useSimulation = false): Promise<Trip> {

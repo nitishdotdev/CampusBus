@@ -5,6 +5,7 @@ export interface V1User {
   id: string; campusId: string; email: string; name: string;
   role: V1Role; status: V1Status; emailVerifiedAt: string | null;
   assignedBusId?: string | null; assignedRouteId?: string | null;
+  phone?: string | null;
 }
 interface Page<T> { items: T[]; total: number; page: number; pageSize: number }
 
@@ -22,5 +23,10 @@ export const adminV1 = {
       v1Client.patch<void>(`/api/v1/users/${id}/status`, { status }),
     assignTransport: (id: string, busId: string | null, routeId: string | null) =>
       v1Client.post<void>(`/api/v1/users/${id}/assign-transport`, { busId, routeId }),
+    createDriver: (body: { email: string; password: string; name: string; phone?: string }) =>
+      v1Client.post<{ user: { userId: string; campusId: string; email: string; name: string; role: V1Role; status: V1Status } }>(
+        '/api/v1/users/drivers',
+        body,
+      ),
   },
 };
