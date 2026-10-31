@@ -161,6 +161,10 @@ router.post('/login', async (req, res): Promise<void> => {
   }
 });
 
+router.post('/switch-role', requireAuth, (_req: AuthenticatedRequest, res: Response): void => {
+  res.status(403).json({ error: 'Role switching is not permitted.' });
+});
+
 // GET /api/auth/me
 router.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {

@@ -126,6 +126,10 @@ async function startServer() {
   app.use('/api/users', userRoutes);
   app.use('/api/assignments', assignmentRoutes);
 
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+
   // Development vs Production Frontend Serving
   if (process.env.NODE_ENV !== 'production') {
     console.log('Starting Vite middleware in development mode...');

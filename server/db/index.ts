@@ -1788,9 +1788,11 @@ export const db = {
       );
       return res.rows[0] ? normalizeTripRecord(res.rows[0]) : null;
     }
-    const trip = memoryData.trips.find(
-      (t) => t.driver_id === driverId && t.college_id === collegeId && (t.status === 'STARTED' || t.status === 'IN_PROGRESS')
-    );
+    const trip = memoryData.trips
+      .filter(
+        (t) => t.driver_id === driverId && t.college_id === collegeId && (t.status === 'STARTED' || t.status === 'IN_PROGRESS')
+      )
+      .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())[0];
     return trip ? normalizeTripRecord(trip) : null;
   },
 
@@ -1891,15 +1893,21 @@ export const db = {
       return res.rows[0] ? normalizeTripRecord(res.rows[0]) : null;
     }
 
-    const idx = memoryData.trips.findIndex((t) => t.id === id && t.college_id === collegeId);
-    if (idx === -1) return null;
+    const matches = memoryData.trips
+      .map((t, idx) => (t.id === id && t.college_id === collegeId ? idx : -1))
+      .filter((idx) => idx !== -1);
+    if (matches.length === 0) return null;
 
-    memoryData.trips[idx] = {
-      ...memoryData.trips[idx],
-      ...updates,
-    };
+    let last = memoryData.trips[matches[0]];
+    for (const idx of matches) {
+      memoryData.trips[idx] = {
+        ...memoryData.trips[idx],
+        ...updates,
+      };
+      last = memoryData.trips[idx];
+    }
     saveFileDb();
-    return normalizeTripRecord(memoryData.trips[idx]);
+    return normalizeTripRecord(last);
   },
 
   async getTripById(id: string, collegeId: string): Promise<TripRecord | null> {
