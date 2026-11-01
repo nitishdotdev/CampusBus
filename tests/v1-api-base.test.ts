@@ -8,6 +8,15 @@ describe('resolveV1ApiBase', () => {
     );
   });
 
+  it('strips a trailing /api/v1 suffix so callers always append /api/v1/... paths', () => {
+    expect(resolveV1ApiBase({ VITE_API_V1_URL: 'https://api.example.edu/api/v1' })).toBe(
+      'https://api.example.edu',
+    );
+    expect(resolveV1ApiBase({ VITE_API_V1_URL: 'https://api.example.edu/api/v1/' })).toBe(
+      'https://api.example.edu',
+    );
+  });
+
   it('throws in production v1 mode when the URL is missing or empty', () => {
     expect(() => resolveV1ApiBase({ VITE_USE_V1_API: 'true', PROD: true })).toThrow(
       /VITE_API_V1_URL/,
@@ -37,14 +46,14 @@ describe('resolveV1ApiBase', () => {
 });
 
 describe('assertProductionV1Env', () => {
-  it('fails a production v1 build when VITE_API_V1_URL is not a valid absolute URL', () => {
+  it('fails a production build when VITE_API_V1_URL is not a valid absolute URL', () => {
     expect(() =>
       assertProductionV1Env({ VITE_USE_V1_API: 'true', NODE_ENV: 'production' }),
     ).toThrow(/VITE_API_V1_URL/);
+    expect(() => assertProductionV1Env({ NODE_ENV: 'production' })).toThrow(/VITE_USE_V1_API|VITE_API_V1_URL/);
   });
 
-  it('allows production builds when v1 is off, and v1 builds when the URL is absolute', () => {
-    expect(() => assertProductionV1Env({ NODE_ENV: 'production' })).not.toThrow();
+  it('allows production v1 builds when the URL is an absolute origin without requiring a trailing path', () => {
     expect(() =>
       assertProductionV1Env({
         VITE_USE_V1_API: 'true',
@@ -52,5 +61,11 @@ describe('assertProductionV1Env', () => {
         VITE_API_V1_URL: 'https://campusbus-api.example.com',
       }),
     ).not.toThrow();
+  });
+
+  it('does not allow production to silently skip V1', () => {
+    expect(() =>
+      assertProductionV1Env({ VITE_USE_V1_API: 'false', NODE_ENV: 'production', VITE_API_V1_URL: 'https://api.example.edu' }),
+    ).toThrow(/VITE_USE_V1_API/);
   });
 });

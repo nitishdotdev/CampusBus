@@ -19,8 +19,17 @@ export interface V1LoginResult {
   expiresIn: number;
 }
 
-export function formatCampusFetchError(_err: unknown): string {
-  return 'Cannot reach the campus directory. Check your connection and try again.';
+export function formatCampusFetchError(err: unknown): string {
+  if (err instanceof ApiV1Error) {
+    if (err.status === 404) {
+      return 'Campus directory route not found. The app is calling a missing V1 API path.';
+    }
+    if (err.status === 0 || err.status >= 500) {
+      return 'Cannot reach the campus directory. Check your connection and try again.';
+    }
+    return `Cannot load campuses (${err.status}). Check the API and try again.`;
+  }
+  return 'Cannot reach the campus directory. Check your connection or CORS configuration and try again.';
 }
 
 // ── Campus list (public) ──────────────────────────────────────────────────────
@@ -48,10 +57,7 @@ export async function loginV1(
     v1Token.setRefresh(data.refreshToken);
     return { ok: true, result: { user: data.user, accessToken: data.tokens.accessToken, expiresIn: data.tokens.expiresIn } };
   } catch (err) {
-    const msg = err instanceof ApiV1Error
-      ? humanizeError(err.code ?? err.message)
-      : 'Login failed. Check your connection.';
-    return { ok: false, error: msg };
+    return { ok: false, error: formatAuthError(err, 'login') };
   }
 }
 
@@ -63,10 +69,7 @@ export async function registerV1(params: {
     const data = await v1Client.postPublic<{ user: V1SessionUser }>('/api/v1/auth/register', params);
     return { ok: true, user: data.user };
   } catch (err) {
-    const msg = err instanceof ApiV1Error
-      ? humanizeError(err.code ?? err.message)
-      : 'Registration failed.';
-    return { ok: false, error: msg };
+    return { ok: false, error: formatAuthError(err, 'register') };
   }
 }
 
@@ -87,6 +90,18 @@ export async function getMeV1(): Promise<V1SessionUser | null> {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+function formatAuthError(err: unknown, action: 'login' | 'register'): string {
+  if (err instanceof ApiV1Error) {
+    if (err.status === 404) {
+      return 'Authentication route not found. The app is not talking to the V1 API.';
+    }
+    return humanizeError(err.code ?? err.message);
+  }
+  return action === 'login'
+    ? 'Login failed. Check your connection or CORS configuration.'
+    : 'Registration failed. Check your connection or CORS configuration.';
+}
+
 function humanizeError(code: string): string {
   const map: Record<string, string> = {
     INVALID_CREDENTIALS: 'Incorrect email or password.',

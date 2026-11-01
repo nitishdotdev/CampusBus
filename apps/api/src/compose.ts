@@ -35,7 +35,7 @@ export function createServices(
   now?: () => Date,
 ) {
   const auth = new AuthService({
-    users: repos.users, refreshTokens: repos.refreshTokens, emailTokens: repos.emailTokens,
+    users: repos.users, campuses: repos.campuses, refreshTokens: repos.refreshTokens, emailTokens: repos.emailTokens,
     email: email ?? new ConsoleEmailSender(),
     config: { ...DEFAULT_AUTH_CONFIG, ...(authConfig ?? {}), env: authConfig?.env ?? process.env },
     now,

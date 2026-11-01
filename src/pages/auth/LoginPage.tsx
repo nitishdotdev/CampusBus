@@ -14,7 +14,6 @@ import {
 import type { UserRole } from '../../types';
 
 type Mode = 'login' | 'register';
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 
 function mismatchMessage(accountRole: UserRole, intended: UserRole): string {
   return `This account is a ${roleLabel(accountRole)}, not a ${roleLabel(intended)}. Sign in from the matching role, or switch roles.`;
@@ -53,7 +52,6 @@ export const LoginPage: React.FC = () => {
   }, [navigate]);
 
   useEffect(() => {
-    if (!USE_V1) return;
     setCampusLoading(true);
     setCampusError('');
     listCampuses()
@@ -69,47 +67,6 @@ export const LoginPage: React.FC = () => {
   }, []);
 
   const registerRole: 'STUDENT' | 'DRIVER' = intendedRole === 'DRIVER' ? 'DRIVER' : role;
-
-  const finishAuthenticated = async (accountRole: UserRole) => {
-    if (intendedRole && accountRole !== intendedRole) {
-      authService.logout();
-      if (USE_V1) await logoutV1();
-      setError(mismatchMessage(accountRole, intendedRole));
-      return false;
-    }
-    navigate(ROLE_REDIRECT[accountRole] ?? '/student', { replace: true });
-    return true;
-  };
-
-  const handleLegacy = async () => {
-    if (mode === 'login') {
-      const result = await authService.login(email, password);
-      if (result.success && result.user) {
-        await finishAuthenticated(result.user.role);
-      } else {
-        setError(result.error ?? 'Login failed.');
-      }
-      return;
-    }
-    if (!canSelfRegister(registerRole)) {
-      setError('Admin accounts cannot be created from this page.');
-      return;
-    }
-    if (!name.trim()) { setError('Name is required.'); return; }
-    if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
-    const result = await authService.register({
-      email,
-      password,
-      name,
-      role: registerRole,
-      collegeId: 'college_apex',
-    });
-    if (result.success && result.user) {
-      await finishAuthenticated(result.user.role);
-    } else {
-      setError(result.error ?? 'Registration failed.');
-    }
-  };
 
   const handleV1 = async () => {
     if (!campusId) { setError('Please select your campus.'); return; }
@@ -165,8 +122,7 @@ export const LoginPage: React.FC = () => {
     setNotice('');
     setIsSubmitting(true);
     try {
-      if (USE_V1) await handleV1();
-      else await handleLegacy();
+      await handleV1();
     } catch (err: any) {
       setError(err?.message ?? 'An unexpected error occurred.');
     } finally {
@@ -191,7 +147,7 @@ export const LoginPage: React.FC = () => {
     : `/login${intendedRole ? `?role=${intendedRole.toLowerCase()}` : ''}`;
 
   return (
-    <div className="min-h-dvh bg-white flex flex-col overflow-x-hidden">
+    <div className="min-h-screen bg-white flex flex-col overflow-x-hidden">
       <header className="border-b border-slate-100">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           <BrandMark compact />
@@ -231,8 +187,7 @@ export const LoginPage: React.FC = () => {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {USE_V1 && (
-                <div>
+              <div>
                   <label htmlFor="campus" className="block text-xs font-bold text-slate-700 mb-1">Campus</label>
                   <div className="relative">
                     <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
@@ -264,7 +219,6 @@ export const LoginPage: React.FC = () => {
                     )}
                   </div>
                 </div>
-              )}
 
               {mode === 'register' && (
                 <>
@@ -345,7 +299,7 @@ export const LoginPage: React.FC = () => {
 
               <button
                 type="submit"
-                disabled={isSubmitting || (USE_V1 && campusLoading)}
+                disabled={isSubmitting || campusLoading}
                 className="w-full min-h-12 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-sm rounded-full shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
               >
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : null}

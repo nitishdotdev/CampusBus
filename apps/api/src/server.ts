@@ -70,6 +70,7 @@ async function main() {
     tripRepo:  services.repos.trips,
     verifyToken: (t) => verifyAccessToken(t, accessSecret),
     allowedOrigins: ALLOWED_ORIGINS,
+    bootstrapSecret: BOOTSTRAP_SECRET,
     ...services.extraRepos,
   });
 

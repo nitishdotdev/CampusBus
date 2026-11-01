@@ -62,6 +62,9 @@ jobs:
       - name: Unit + integration tests (Vitest; fails if integration suites are skipped)
         run: npm test
       - name: Production build
+        env:
+          VITE_USE_V1_API: 'true'
+          VITE_API_V1_URL: https://campusmove-api.example.com
         run: npm run build
       - name: Legacy integration suite (dev server, file-backed store)
         run: |

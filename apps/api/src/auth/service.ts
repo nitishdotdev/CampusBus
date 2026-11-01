@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { z } from 'zod';
 import { badRequest, DomainError, forbidden, notFound, tooMany } from '../domain/errors';
-import type { EmailSender, EmailTokenRepository, Principal, RefreshTokenRepository, Role, SessionInfo, UserRepository, UserStatus } from '../domain/types';
+import type { CampusRepository, EmailSender, EmailTokenRepository, Principal, RefreshTokenRepository, Role, SessionInfo, UserRepository, UserStatus } from '../domain/types';
 import { hashPassword, verifyPassword } from './passwords';
 import { generateOTP, generateRefreshToken, hashRefreshToken, hashToken, requireAccessSecret, requireRefreshSecret, signAccessToken, type VerifiedPrincipal, verifyAccessToken } from './tokens';
 
@@ -54,6 +54,13 @@ export const createDriverSchema = z.object({
   phone: z.string().max(32).optional(),
 }).strict();
 
+export const bootstrapAdminSchema = z.object({
+  campusId: z.string().regex(/^[a-f0-9]{24}$/i),
+  email: emailSchema,
+  password: passwordSchema,
+  name: nameSchema,
+}).strict();
+
 // Simple in-process per-email login rate limiter
 class LoginLimiter {
   private windows = new Map<string, { start: number; count: number }>();
@@ -69,6 +76,7 @@ class LoginLimiter {
 
 export interface AuthDeps {
   users: UserRepository;
+  campuses?: CampusRepository;
   refreshTokens: RefreshTokenRepository;
   emailTokens: EmailTokenRepository;
   email: EmailSender;
@@ -225,10 +233,23 @@ export class AuthService {
    * Must be called from a trusted internal path (e.g. CLI script, not an HTTP route exposed to the public).
    */
   async bootstrapAdmin(campusId: string, email: string, password: string, name: string): Promise<SessionInfo> {
-    const existing = await this.d.users.list(campusId, { role: 'ADMIN', pageSize: 1 });
+    const parsed = bootstrapAdminSchema.safeParse({ campusId, email, password, name });
+    if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
+    if (this.d.campuses) {
+      const campus = await this.d.campuses.findById(parsed.data.campusId);
+      if (!campus) throw badRequest('CAMPUS_NOT_FOUND');
+    }
+    const existing = await this.d.users.list(parsed.data.campusId, { role: 'ADMIN', pageSize: 1 });
     if (existing.total > 0) throw new DomainError(409, 'ADMIN_ALREADY_EXISTS');
-    const hash = await hashPassword(password);
-    const user = await this.d.users.create({ campusId, email: email.toLowerCase(), passwordHash: hash, name, role: 'ADMIN', status: 'ACTIVE' });
+    const hash = await hashPassword(parsed.data.password);
+    const user = await this.d.users.create({
+      campusId: parsed.data.campusId,
+      email: parsed.data.email,
+      passwordHash: hash,
+      name: parsed.data.name,
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    });
     return toSession(user);
   }
 

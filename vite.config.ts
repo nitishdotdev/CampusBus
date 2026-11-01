@@ -1,4 +1,3 @@
-import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
@@ -29,7 +28,7 @@ const VENDOR_CHUNKS: Record<string, string[]> = {
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), campusBusV1EnvPlugin()],
+    plugins: [react(), campusBusV1EnvPlugin()],
     resolve: {
       alias: { '@': path.resolve('.') },
     },
@@ -50,6 +49,8 @@ export default defineConfig(() => {
       },
     },
     build: {
+      target: 'chrome109',
+      cssTarget: 'chrome109',
       rollupOptions: {
         output: {
           manualChunks(id: string) {

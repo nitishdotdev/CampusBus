@@ -27,11 +27,11 @@ services:
       - key: REFRESH_TOKEN_SECRET
         sync: false
 
-      # Remove or blank after first campus record is created
+      # One-time campus + first-admin bootstrap. Blank after initial setup.
       - key: BOOTSTRAP_SECRET
         sync: false
 
-      # Update once you know your Vercel frontend URL
+      # Must match the actual Vercel production origin (no trailing slash).
       - key: CORS_ORIGIN
         value: https://campus-move-one.vercel.app
 

@@ -1,41 +1,42 @@
-# CampusMove Deployment Guide
+# CampusBus Deployment Guide
 
 ## Stack
-| Layer | Provider | URL |
-|-------|----------|-----|
-| Frontend | Vercel | https://campus-move-one.vercel.app |
-| Backend API | Render | https://campusmove-api.onrender.com (after deploy) |
-| Database | MongoDB Atlas | Cluster in your Atlas project |
+| Layer | Provider | Notes |
+|-------|----------|-------|
+| Frontend | Vercel | Vite SPA. Production must set `VITE_USE_V1_API=true` and `VITE_API_V1_URL`. |
+| Backend API | Render | `apps/api/src/server.ts` compiled by `npm run api:build`. |
+| Database | Neon PostgreSQL | Required `DATABASE_URL`. MongoDB is not used by the running V1 API. |
+
+Do not guess hostnames. Use the actual Vercel production origin for `CORS_ORIGIN` and the actual Render origin for `VITE_API_V1_URL`.
 
 ---
 
 ## One-time setup checklist
 
-### 1. MongoDB Atlas
-1. Create a free M0 (or paid) cluster.
-2. Create a database user with `readWrite` on the `campusmove` database.
-3. Allowlist IPs: add Render's outbound IPs **or** `0.0.0.0/0` for testing.
-4. Copy the connection string: `mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/campusmove?retryWrites=true&w=majority`
+### 1. Neon PostgreSQL
+1. Create a Neon project and database.
+2. Copy the pooled or direct connection string into Render as `DATABASE_URL`.
+3. The API applies `apps/api/src/infra/postgres/schema.sql` on startup.
 
 ### 2. Render (Backend API)
-1. Create a new **Web Service** → connect the `nitishdotdev/CampusMove` repo.
-2. Use branch: `feature/frontend-v1-integration` (or `main` after merge).
-3. Render auto-reads `render.yaml` for build/start commands.
-4. Set these secret env vars in the Render dashboard:
-   - `MONGODB_URI` → Atlas connection string from step 1
-   - `ACCESS_TOKEN_SECRET` → `openssl rand -hex 32`
-   - `REFRESH_TOKEN_SECRET` → `openssl rand -hex 32` (must differ)
-   - `BOOTSTRAP_SECRET` → `openssl rand -hex 16` (temporary)
-   - `CORS_ORIGIN` → `https://campus-move-one.vercel.app`
-5. Deploy. Wait for health check to pass at `/healthz`.
-6. Note the Render service URL (e.g. `https://campusmove-api.onrender.com`).
+1. Create a **Web Service** connected to this repository.
+2. Render reads `render.yaml` for build/start commands (`npm ci && npm run api:build`, `npm run api:start`).
+3. Set these secret env vars in the Render dashboard:
+   - `DATABASE_URL` — Neon connection string
+   - `ACCESS_TOKEN_SECRET` — `openssl rand -hex 32`
+   - `REFRESH_TOKEN_SECRET` — `openssl rand -hex 32` (must differ)
+   - `BOOTSTRAP_SECRET` — `openssl rand -hex 16` (temporary, campus + first admin)
+   - `CORS_ORIGIN` — the actual Vercel frontend origin, e.g. `https://campus-move-one.vercel.app`
+4. Deploy. Confirm `/healthz` returns `{"status":"ok"}`.
+5. Confirm `GET /api/v1/campuses` returns JSON (an empty array is valid before bootstrap).
 
 ### 3. Bootstrap the first campus
-Run once after the Render service is live:
+Run once after the Render service is live. Do not commit the secret.
+
 ```bash
-curl -X POST https://campusmove-api.onrender.com/api/v1/campuses \
+curl -X POST "$RENDER_API_ORIGIN/api/v1/campuses" \
   -H "Content-Type: application/json" \
-  -H "x-bootstrap-secret: YOUR_BOOTSTRAP_SECRET" \
+  -H "x-bootstrap-secret: $BOOTSTRAP_SECRET" \
   -d '{
     "name": "Apex State University",
     "shortCode": "ASU",
@@ -46,67 +47,74 @@ curl -X POST https://campusmove-api.onrender.com/api/v1/campuses \
     "timezone": "America/Los_Angeles"
   }'
 ```
-Copy the `id` from the response — this is your `campusId` for the first admin registration.
 
-After this, clear or blank `BOOTSTRAP_SECRET` in the Render dashboard.
+Copy the `id` from the response. Signup cannot succeed until at least one campus exists.
 
-### 4. Register the first admin
-There is no admin-creation UI yet. Register via curl and then manually promote in Atlas:
+### 4. Provision the first administrator
+Do not register an admin through the public signup form. Use the one-time bootstrap route, then remove `BOOTSTRAP_SECRET`.
+
 ```bash
-# Register as STUDENT (any role works for initial bootstrap)
-curl -X POST https://campusmove-api.onrender.com/api/v1/auth/register \
+curl -X POST "$RENDER_API_ORIGIN/api/v1/auth/bootstrap-admin" \
   -H "Content-Type: application/json" \
+  -H "x-bootstrap-secret: $BOOTSTRAP_SECRET" \
   -d '{
     "campusId": "<id from step 3>",
     "email": "admin@yourcampus.edu",
-    "password": "ChangeMe123!",
-    "name": "Campus Admin",
-    "role": "STUDENT"
+    "password": "<unique-admin-password>",
+    "name": "Campus Admin"
   }'
 ```
-Then in Atlas → Browse Collections → `users`:
-- Set `role: "ADMIN"`
-- Set `status: "ACTIVE"`
 
-### 5. Vercel (Frontend)
-1. Connect the same GitHub repo to Vercel.
-2. Set env var in Vercel dashboard:
-   - `VITE_API_V1_URL` → `https://campusmove-api.onrender.com`
-   - `VITE_USE_V1_API` → `true` (already set in `vercel.json` env block)
-3. Deploy. `vercel.json` already configures SPA rewrites and security headers.
+Alternatively, from a trusted host with `DATABASE_URL` set:
+
+```bash
+ADMIN_PASSWORD='<unique-admin-password>' npm run bootstrap:admin -- \
+  --campus-id '<id from step 3>' \
+  --email 'admin@yourcampus.edu' \
+  --name 'Campus Admin'
+```
+
+Then blank or delete `BOOTSTRAP_SECRET` in Render. The route refuses a second administrator.
+
+### 5. Working accounts by role
+- **Student**: public V1 registration (`POST /api/v1/auth/register`, role `STUDENT`) then `POST /api/v1/auth/login`.
+- **Driver**: created by an administrator via `POST /api/v1/users/drivers`. Public driver signup stays `PENDING` until approved.
+- **Administrator**: bootstrap only. Sign in through the same V1 login API and land on `/admin`.
+
+Do not seed shared demo credentials. Legacy sample accounts are not V1 accounts.
+
+### 6. Vercel (Frontend)
+1. Import the repository into Vercel.
+2. Set env vars in the Vercel dashboard:
+   - `VITE_USE_V1_API` = `true` (also present in `vercel.json`)
+   - `VITE_API_V1_URL` = Render origin with **no** `/api/v1` suffix
+3. Production builds fail if `VITE_API_V1_URL` is missing or invalid.
+4. `vercel.json` already configures SPA rewrites and security headers.
 
 ---
 
 ## Smoke test after deploy
 
 ```bash
-# 1. Health check
-curl https://campusmove-api.onrender.com/healthz
-# Expected: {"status":"ok"}
-
-# 2. Campus list (should return your campus)
-curl https://campusmove-api.onrender.com/api/v1/campuses
-# Expected: [{...}]
-
-# 3. Login
-curl -X POST https://campusmove-api.onrender.com/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"campusId":"<id>","email":"admin@yourcampus.edu","password":"ChangeMe123!"}'
-# Expected: { tokens: {...}, user: {...}, refreshToken: "..." }
+curl "$RENDER_API_ORIGIN/healthz"
+curl "$RENDER_API_ORIGIN/api/v1/campuses"
 ```
+
+Login from the Vercel app using the campus selector. A missing campus directory, empty campus list, and connectivity/CORS failure show distinct messages.
+
+---
+
+## Windows 7 / Chrome 109
+
+The production frontend is built for `chrome109` with Tailwind CSS 3.4.x. Windows 7 is an unsupported, insecure operating system. Upgrade the OS and browser for production account usage whenever possible.
+
+Remaining Chrome 109 limits:
+- Modern CSS such as `dvh` is avoided on auth pages; layout uses `min-h-screen`.
+- Leaflet maps and Socket.IO remain usable if the browser can load the production bundle.
+- Google Fonts and unpkg Leaflet CSS require network access.
 
 ---
 
 ## Rollback
-- Render: click **Manual Deploy** → select a previous deploy.
-- The legacy backend (`server.ts` + PostgreSQL) remains on `main` and is unaffected by this branch.
-- To revert the frontend: set `VITE_USE_V1_API=false` in Vercel and redeploy.
-
----
-
-## Verified integrations (requires live services)
-- [ ] MongoDB Atlas connectivity and index creation
-- [ ] Auth flow end-to-end (register → login → refresh)
-- [ ] GPS update pipeline (driver → Socket.IO → student map)
-- [ ] Email delivery (SMTP configuration)
-- [ ] Render ↔ Vercel CORS (check browser network tab)
+- Render: Manual Deploy of a previous build.
+- Frontend: keep `VITE_USE_V1_API=true`. Do not silently fall back to `/api/auth/*` in production.

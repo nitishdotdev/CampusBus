@@ -7,7 +7,9 @@ export type V1Env = {
 };
 
 const MISSING_URL =
-  'VITE_API_V1_URL must be a valid absolute http(s) URL in production when VITE_USE_V1_API=true';
+  'VITE_API_V1_URL must be a valid absolute http(s) URL in production (Render API origin, no /api/v1 suffix)';
+const MISSING_FLAG =
+  'VITE_USE_V1_API must be "true" in production; legacy /api/auth/* fallback is not allowed';
 
 function isProduction(env: V1Env): boolean {
   return env.PROD === true || env.NODE_ENV === 'production' || env.MODE === 'production';
@@ -17,6 +19,10 @@ function isV1Enabled(env: V1Env): boolean {
   return env.VITE_USE_V1_API === 'true';
 }
 
+function stripApiV1Suffix(url: string): string {
+  return url.replace(/\/api\/v1$/i, '');
+}
+
 function parseAbsoluteHttpUrl(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim().replace(/\/$/, '');
@@ -24,7 +30,7 @@ function parseAbsoluteHttpUrl(raw: unknown): string | null {
   try {
     const u = new URL(trimmed);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-    return trimmed;
+    return stripApiV1Suffix(trimmed);
   } catch {
     return null;
   }
@@ -33,13 +39,16 @@ function parseAbsoluteHttpUrl(raw: unknown): string | null {
 export function resolveV1ApiBase(env: V1Env = {}): string {
   const parsed = parseAbsoluteHttpUrl(env.VITE_API_V1_URL);
   if (parsed) return parsed;
-  if (isV1Enabled(env) && isProduction(env)) {
+  if (isProduction(env)) {
     throw new Error(MISSING_URL);
   }
   return '';
 }
 
 export function assertProductionV1Env(env: V1Env = {}): void {
+  if (isProduction(env) && !isV1Enabled(env)) {
+    throw new Error(MISSING_FLAG);
+  }
   resolveV1ApiBase(env);
 }
 

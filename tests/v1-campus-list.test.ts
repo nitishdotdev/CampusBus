@@ -53,9 +53,13 @@ describe('listCampuses', () => {
 });
 
 describe('formatCampusFetchError', () => {
-  it('explains API and network failures without calling them an empty campus list', () => {
-    expect(formatCampusFetchError(new ApiV1Error('HTTP 404', 404))).toMatch(/cannot reach|try again|connection/i);
-    expect(formatCampusFetchError(new TypeError('Failed to fetch'))).toMatch(/connection|try again/i);
-    expect(formatCampusFetchError(new ApiV1Error('HTTP 404', 404))).not.toMatch(/no campuses found/i);
+  it('distinguishes a missing route from connectivity/CORS and never calls either an empty campus list', () => {
+    const missing = formatCampusFetchError(new ApiV1Error('HTTP 404', 404));
+    const network = formatCampusFetchError(new TypeError('Failed to fetch'));
+    expect(missing).toMatch(/not found|missing route/i);
+    expect(network).toMatch(/connection|cors|reach/i);
+    expect(missing).not.toEqual(network);
+    expect(missing).not.toMatch(/no campuses found/i);
+    expect(network).not.toMatch(/no campuses found/i);
   });
 });

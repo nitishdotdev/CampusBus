@@ -95,7 +95,7 @@ export const RoleSelectPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-dvh bg-white text-slate-900 flex flex-col overflow-x-hidden">
+    <div className="min-h-screen bg-white text-slate-900 flex flex-col overflow-x-hidden">
       <a
         href="#choose-role"
         className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-[70] focus:bg-white focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lg focus:text-sm focus:font-semibold"

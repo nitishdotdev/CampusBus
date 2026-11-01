@@ -13,6 +13,7 @@ export interface AppDeps {
   ingest: TelemetryIngestService; trips: TripService; live: LiveService; auth: AuthService;
   users: UserRepository; buses: BusRepository; routes: RouteRepository; tripRepo: TripRepository;
   verifyToken: (token: string) => Principal | null; allowedOrigins: string[];
+  bootstrapSecret?: string;
 }
 type AuthedRequest = Request & { principal: Principal };
 
@@ -56,6 +57,16 @@ export function createApp(deps: AppDeps) {
   const ar = express.Router();
   ar.post('/register', wrap(async (req, res) => { res.status(201).json(await deps.auth.register(req.body)); }));
   ar.post('/login', wrap(async (req, res) => { res.json(await deps.auth.login(req.body)); }));
+  ar.post('/bootstrap-admin', wrap(async (req, res) => {
+    const secret = deps.bootstrapSecret ?? '';
+    if (!secret || req.headers['x-bootstrap-secret'] !== secret) {
+      res.status(403).json({ error: 'FORBIDDEN' });
+      return;
+    }
+    res.status(201).json({ user: await deps.auth.bootstrapAdmin(
+      req.body?.campusId, req.body?.email, req.body?.password, req.body?.name,
+    ) });
+  }));
   ar.post('/refresh', wrap(async (req, res) => {
     const raw = req.body?.refreshToken;
     if (typeof raw !== 'string') throw badReq('MISSING_REFRESH_TOKEN');
