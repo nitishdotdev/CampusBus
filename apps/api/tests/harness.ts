@@ -4,6 +4,7 @@ import { createServices } from '../src/compose';
 import { DEFAULT_TRACKING, type TrackingConfig } from '../src/config/env';
 import { signAccessToken, verifyAccessToken } from '../src/auth/tokens';
 import { createModels, ensureIndexes, type Models } from '../src/infra/mongo/models';
+import { createRepositories } from '../src/infra/mongo/repositories';
 import { createApp } from '../src/http/app';
 import { createGateway } from '../src/realtime/gateway';
 import type { Principal, Role } from '../src/domain/types';
@@ -48,8 +49,8 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
   let forward: (c: string, b: string, p: unknown) => void = () => {};
   const emitter = { emitLocation: (c: string, b: string, p: unknown) => { emitted.push({ campusId: c, busId: b, payload: p }); forward(c, b, p); } };
   const testEnv = { ...process.env, ACCESS_TOKEN_SECRET: SECRET, REFRESH_TOKEN_SECRET: REFRESH_SECRET } as NodeJS.ProcessEnv;
-  const services = createServices(models, config, emitter, undefined, { env: testEnv, accessTtlSeconds: 900, refreshTtlDays: 30, emailVerificationRequired: false, emailTokenTtlMinutes: 60, resetTokenTtlMinutes: 20, rateLimitLoginAttempts: 100, rateLimitWindowMs: 60_000 }, clock.now);
-  const repos = services.repos;
+  const repos = createRepositories(models);
+  const services = createServices(repos, config, emitter, undefined, { env: testEnv, accessTtlSeconds: 900, refreshTtlDays: 30, emailVerificationRequired: false, emailTokenTtlMinutes: 60, resetTokenTtlMinutes: 20, rateLimitLoginAttempts: 100, rateLimitWindowMs: 60_000 }, clock.now);
   const verifyToken = (t: string) => verifyAccessToken(t, SECRET);
   const app = createApp({
     ingest: services.ingest, trips: services.trips, live: services.live, auth: services.auth,

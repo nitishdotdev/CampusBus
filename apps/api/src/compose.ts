@@ -3,20 +3,37 @@ import { AuthService, DEFAULT_AUTH_CONFIG, type AuthConfig } from './auth/servic
 import { LiveService } from './domain/live';
 import { TelemetryIngestService } from './domain/telemetry/ingest';
 import { TripService } from './domain/trips';
-import type { EmailSender, LiveEmitter } from './domain/types';
+import type {
+  BusRepository, CampusRepository, EmailSender, EmailTokenRepository,
+  EmergencyAlertRepository, LiveEmitter, NotificationRepository,
+  RefreshTokenRepository, RouteRepository, ScheduleRepository,
+  TelemetryRepository, TripRepository, UserRepository, VehicleLocationRepository,
+} from './domain/types';
 import { ConsoleEmailSender } from './infra/email/stub';
-import type { Models } from './infra/mongo/models';
-import { createRepositories } from './infra/mongo/repositories';
+
+export interface AppRepositories {
+  campuses: CampusRepository;
+  users: UserRepository;
+  refreshTokens: RefreshTokenRepository;
+  emailTokens: EmailTokenRepository;
+  buses: BusRepository;
+  routes: RouteRepository;
+  trips: TripRepository;
+  live: VehicleLocationRepository;
+  telemetry: TelemetryRepository;
+  schedules: ScheduleRepository;
+  notifications: NotificationRepository;
+  alerts: EmergencyAlertRepository;
+}
 
 export function createServices(
-  models: Models,
+  repos: AppRepositories,
   config: TrackingConfig,
   emitter: LiveEmitter,
   email?: EmailSender,
   authConfig?: Partial<AuthConfig>,
   now?: () => Date,
 ) {
-  const repos = createRepositories(models);
   const auth = new AuthService({
     users: repos.users, refreshTokens: repos.refreshTokens, emailTokens: repos.emailTokens,
     email: email ?? new ConsoleEmailSender(),

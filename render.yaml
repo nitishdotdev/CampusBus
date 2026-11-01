@@ -17,8 +17,8 @@ services:
       - key: NODE_ENV
         value: production
 
-      # Mark as secret in the Render dashboard — do not commit actual values
-      - key: MONGODB_URI
+      # Neon PostgreSQL connection string — mark as secret in the Render dashboard
+      - key: DATABASE_URL
         sync: false
 
       - key: ACCESS_TOKEN_SECRET

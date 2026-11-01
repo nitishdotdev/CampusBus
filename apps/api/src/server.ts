@@ -3,72 +3,62 @@
  * Usage:  tsx apps/api/src/server.ts
  *         node dist/api.cjs
  *
- * Required env: MONGODB_URI, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET
- * Optional env: PORT (default 4000), CORS_ORIGIN (comma-separated), BOOTSTRAP_SECRET
+ * Required env: DATABASE_URL, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET
+ * Optional env: PORT (default 4000), CORS_ORIGIN (comma-separated), BOOTSTRAP_SECRET, DATABASE_SSL_MODE
  */
 import 'dotenv/config';
 import http from 'http';
-import mongoose from 'mongoose';
+import pg from 'pg';
 import { z } from 'zod';
 import { loadTrackingConfig } from './config/env';
 import { requireAccessSecret } from './auth/tokens';
 import { verifyAccessToken } from './auth/tokens';
 import { createServices } from './compose';
-import { DomainError } from './domain/errors';
 import type { CampusRepository, LiveEmitter } from './domain/types';
 import { createApp } from './http/app';
-import { createModels, ensureIndexes } from './infra/mongo/models';
-import { createRepositories } from './infra/mongo/repositories';
+import { applyV1Schema } from './infra/postgres/pool';
+import { createPostgresRepositories } from './infra/postgres/repositories';
 import { createGateway } from './realtime/gateway';
 import { resolveAllowedOrigins } from '../../../server/config/cors';
+import { buildPgConnection } from '../../../server/db/tls';
 
-// ── Validate required env vars early ─────────────────────────────────────────
-const MONGODB_URI = process.env.MONGODB_URI;
-if (!MONGODB_URI) { console.error('FATAL: MONGODB_URI is required'); process.exit(1); }
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) { console.error('FATAL: DATABASE_URL is required'); process.exit(1); }
 
-const PORT           = Number(process.env.PORT ?? 4000);
+const PORT            = Number(process.env.PORT ?? 4000);
 const ALLOWED_ORIGINS = resolveAllowedOrigins();
 const BOOTSTRAP_SECRET = process.env.BOOTSTRAP_SECRET ?? '';
 const trackingConfig   = loadTrackingConfig(process.env);
+const accessSecret     = requireAccessSecret(process.env);
 
-// Validate token secrets (throws with a clear message if missing/short)
-const accessSecret = requireAccessSecret(process.env);
-
-// ── MongoDB connection ────────────────────────────────────────────────────────
-const conn = mongoose.createConnection(MONGODB_URI, {
-  serverSelectionTimeoutMS: 10_000,
-  connectTimeoutMS: 10_000,
-  tls: process.env.NODE_ENV === 'production',
+const pgConn = buildPgConnection(process.env, DATABASE_URL);
+const pool = new pg.Pool({
+  connectionString: pgConn.connectionString,
+  ssl: pgConn.ssl,
+  max: 10,
+  idleTimeoutMillis: 30_000,
 });
-conn.on('error',        (err) => console.error('[mongodb] error', err.message));
-conn.on('connected',    ()    => console.info('[mongodb] connected'));
-conn.on('disconnected', ()    => console.warn('[mongodb] disconnected'));
 
-// ── Start-up ──────────────────────────────────────────────────────────────────
 async function main() {
-  await conn.asPromise();
+  await applyV1Schema(pool);
+  console.info('[postgres] v1 schema ready');
 
-  const models = createModels(conn);
-  await ensureIndexes(models);
-
-  // Stable emitter proxy — the real emitter is attached after Socket.IO starts
   let _emit: LiveEmitter['emitLocation'] = () => {};
   const emitterProxy: LiveEmitter = {
     emitLocation: (campusId, busId, payload) => _emit(campusId, busId, payload),
   };
 
+  const repos = createPostgresRepositories(pool);
   const services = createServices(
-    models,
+    repos,
     trackingConfig,
     emitterProxy,
-    undefined, // email — ConsoleEmailSender used by default
+    undefined,
     { env: process.env },
   );
 
-  // Campus repo (needed for the public /campuses routes added below)
   const campuses: CampusRepository = services.repos.campuses;
 
-  // ── Express app ─────────────────────────────────────────────────────────────
   const app = createApp({
     ingest:    services.ingest,
     trips:     services.trips,
@@ -83,7 +73,6 @@ async function main() {
     ...services.extraRepos,
   });
 
-  // ── Campus routes (public list + admin bootstrap) ────────────────────────────
   const campusBody = z.object({
     name:      z.string().min(2).max(120),
     shortCode: z.string().min(2).max(16),
@@ -98,7 +87,6 @@ async function main() {
     res.json(await campuses.list());
   });
 
-  // Bootstrap: creates the first campus (requires x-bootstrap-secret header)
   app.post('/api/v1/campuses', async (req, res) => {
     if (!BOOTSTRAP_SECRET || req.headers['x-bootstrap-secret'] !== BOOTSTRAP_SECRET) {
       res.status(403).json({ error: 'FORBIDDEN' }); return;
@@ -107,7 +95,6 @@ async function main() {
     res.status(201).json(await campuses.create(body));
   });
 
-  // ── HTTP server + Socket.IO ──────────────────────────────────────────────────
   const httpServer = http.createServer(app);
 
   const { emitter } = createGateway(httpServer, {
@@ -115,24 +102,21 @@ async function main() {
     live: services.live,
     allowedOrigins: ALLOWED_ORIGINS,
   });
-  // Wire the real emitter into our proxy (safe: no events can arrive until listen() completes)
   _emit = emitter.emitLocation.bind(emitter);
 
-  httpServer.listen(PORT, () => {
-    console.info(`[api] listening on :${PORT}`);
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.info(`[api] listening on 0.0.0.0:${PORT}`);
     console.info(`[api] allowed origins: ${ALLOWED_ORIGINS.join(', ')}`);
     console.info(`[api] simulation: ${trackingConfig.simulationEnabled ? 'ON' : 'off'}`);
   });
 
-  // ── Graceful shutdown ────────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     console.info(`[api] ${signal} — shutting down`);
     httpServer.close(async () => {
-      await conn.close();
+      await pool.end();
       console.info('[api] shutdown complete');
       process.exit(0);
     });
-    // Force-exit if clean shutdown stalls
     setTimeout(() => { console.error('[api] forced exit'); process.exit(1); }, 10_000).unref();
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
