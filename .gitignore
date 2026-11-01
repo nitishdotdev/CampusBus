@@ -19,6 +19,9 @@ coverage/
 id_rsa*
 *.secret
 
+# Local TLS fixtures for integration tests (never commit)
+.tls/
+
 # Database & Local Persistence Files
 .data/
 server/data/

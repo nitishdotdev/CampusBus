@@ -16,6 +16,9 @@ describe('production v1 wiring', () => {
     expect(renderYaml).toMatch(/name:\s*campusmove-api/);
     expect(renderYaml).toMatch(/key:\s*MONGODB_URI/);
     expect(renderYaml).toMatch(/npm run api:build/);
+    expect(renderYaml).toMatch(/healthCheckPath:\s*\/healthz/);
+    expect(renderYaml).not.toMatch(/campus-move-one\.vercel\.app/);
+    expect(renderYaml).toMatch(/key:\s*CORS_ORIGIN[\s\S]*sync:\s*false/);
     expect(vercelJson.env?.VITE_USE_V1_API).toBe('true');
     expect(vercelJson.env?.VITE_API_V1_URL).toBeUndefined();
   });

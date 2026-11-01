@@ -69,65 +69,25 @@ npm run lint
 
 ---
 
-## 📦 Production Deployment Architecture
+## Production Deployment Architecture
 
-CampusBus is architected for a split deployment:
+Production v1 is a split deploy. Details, env names, and smoke tests are in `docs/DEPLOYMENT.md`.
 
-* **Frontend**: [Vercel](https://vercel.com) (Static SPA with client-side routing)
-* **Backend**: [Render](https://render.com) (Express + Socket.IO Node.js Web Service)
-* **Database**: [Render PostgreSQL](https://render.com/docs/databases)
+* Frontend: Vercel (Vite SPA; `vercel.json`)
+* Backend: Render web service `campusmove-api` (`apps/api`, health check `/healthz`)
+* Database: MongoDB Atlas (`MONGODB_URI`)
 
-```
-                       ┌────────────────────────┐
-                       │  Vercel (Frontend SPA) │
-                       │    Vite React + Leaflet│
-                       └───────────┬────────────┘
-                                   │ HTTPS / WSS
-                       ┌───────────▼────────────┐
-                       │  Render (Backend Node) │
-                       │    Express + Socket.IO │
-                       └───────────┬────────────┘
-                                   │ PostgreSQL SSL
-                       ┌───────────▼────────────┐
-                       │   Render PostgreSQL    │
-                       │   Multi-tenant Schema  │
-                       └────────────────────────┘
-```
+Do not bake unverified Render or Vercel hostnames into git. Set `VITE_API_V1_URL` in the Vercel dashboard and `CORS_ORIGIN` in the Render dashboard.
 
-### 1. Render Backend Deployment
-
-1. Create a **PostgreSQL Database** on Render:
-   * **Name**: `campusmove-db`
-   * **Database**: `campusmove`
-   * **User**: `campus_admin`
-2. Create a **Web Service** on Render connected to this repository:
-   * **Environment**: `Node`
-   * **Build Command**: `npm install && npm run build && npm run db:migrate`
-   * **Start Command**: `npm run start`
-   * **Health Check Path**: `/api/health`
-3. Set the following **Environment Variables** in Render:
-   * `NODE_ENV`: `production`
-   * `DATABASE_URL`: Connection string from your Render PostgreSQL database
-   * `JWT_SECRET`: High-entropy 64-character secret string
-   * `CORS_ORIGIN`: Your Vercel frontend domain (e.g., `https://campusmove.vercel.app`)
-
-### 2. Vercel Frontend Deployment
-
-1. Import the repository into **Vercel**.
-2. Vercel automatically detects the root `vercel.json`:
-   * **Framework Preset**: `Vite`
-   * **Build Command**: `npm run build`
-   * **Output Directory**: `dist`
-3. Configure the following **Environment Variables** in Vercel:
-   * `VITE_API_URL`: Your Render backend URL (e.g., `https://campusmove-api.onrender.com`)
-   * `VITE_SOCKET_URL`: Your Render backend URL (e.g., `https://campusmove-api.onrender.com`)
+The legacy Express + PostgreSQL path (`server.ts`, `DATABASE_URL`, `/api/health`) remains in the repo for local/dev use. Production v1 traffic must go to Render `apps/api`, not to the Vercel origin.
 
 ---
 
-## 🔒 Security & Safe Migrations
+## Security & Safe Migrations
 
-* **Non-Destructive Migrations**: The schema migration script (`npm run db:migrate`) executes `server/db/schema.sql`, utilizing safe `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` constraints. Existing rows, tables, and partitions are preserved.
-* **Production Integrity**: In `NODE_ENV=production`, the application strictly enforces PostgreSQL connectivity and explicit `JWT_SECRET` presence. Silent in-memory or file-backed fallback is disabled to prevent accidental data loss.
+* Legacy PostgreSQL migrations (`npm run db:migrate`) use `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`.
+* Production v1 (`apps/api`) requires `MONGODB_URI`, `ACCESS_TOKEN_SECRET`, and `REFRESH_TOKEN_SECRET` at process start. `SIMULATION_MODE=on` is fatal in production. CORS wildcards, localhost, and non-HTTPS origins are rejected.
+* The legacy `server.ts` path refuses to start in production without `DATABASE_URL` and `JWT_SECRET` (no silent file-store fallback).
 
 ---
 
