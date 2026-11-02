@@ -30,7 +30,6 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'STUDENT' | 'DRIVER'>('STUDENT');
   const [campusId, setCampusId] = useState('');
   const [campuses, setCampuses] = useState<V1Campus[]>([]);
   const [campusLoading, setCampusLoading] = useState(false);
@@ -66,7 +65,7 @@ export const LoginPage: React.FC = () => {
       .finally(() => setCampusLoading(false));
   }, []);
 
-  const registerRole: 'STUDENT' | 'DRIVER' = intendedRole === 'DRIVER' ? 'DRIVER' : role;
+  const registerRole = 'STUDENT' as const;
 
   const handleV1 = async () => {
     if (!campusId) { setError('Please select your campus.'); return; }
@@ -88,7 +87,7 @@ export const LoginPage: React.FC = () => {
       return;
     }
     if (!canSelfRegister(registerRole)) {
-      setError('Admin accounts cannot be created from this page.');
+      setError('Only student accounts can be created from this page.');
       return;
     }
     if (!name.trim()) { setError('Name is required.'); return; }
@@ -238,20 +237,6 @@ export const LoginPage: React.FC = () => {
                       />
                     </div>
                   </div>
-                  {!canSelfRegister(intendedRole) && (
-                    <div>
-                      <label htmlFor="role" className="block text-xs font-bold text-slate-700 mb-1">Role</label>
-                      <select
-                        id="role"
-                        value={role}
-                        onChange={(e) => setRole(e.target.value as 'STUDENT' | 'DRIVER')}
-                        className="w-full min-h-11 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="STUDENT">Student</option>
-                        <option value="DRIVER">Driver</option>
-                      </select>
-                    </div>
-                  )}
                 </>
               )}
 
@@ -309,7 +294,7 @@ export const LoginPage: React.FC = () => {
           </div>
 
           <div className="text-center mt-4 space-y-2">
-            {intendedRole !== 'ADMIN' && (
+            {canSelfRegister(intendedRole) || intendedRole === null ? (
               <Link
                 to={switchHref}
                 className="block text-sm text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
@@ -317,9 +302,12 @@ export const LoginPage: React.FC = () => {
               >
                 {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
               </Link>
-            )}
-            {intendedRole === 'ADMIN' && (
-              <p className="text-xs text-slate-500">Admin accounts are provisioned by your campus. Public signup is not available.</p>
+            ) : (
+              <p className="text-xs text-slate-500">
+                {intendedRole === 'DRIVER'
+                  ? 'Driver accounts are provisioned by your campus admin. Public signup is not available.'
+                  : 'Admin accounts are provisioned by your campus. Public signup is not available.'}
+              </p>
             )}
             <Link to="/" className="block text-sm text-slate-500 hover:text-slate-700 cursor-pointer">
               Back to Home
