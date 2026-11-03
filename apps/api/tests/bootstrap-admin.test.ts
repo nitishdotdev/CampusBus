@@ -188,12 +188,11 @@ describe('public registration vs driver provisioning', () => {
     })).rejects.toMatchObject({ status: 400 });
   });
 
-  it('public DRIVER signup stays PENDING; admin-created drivers are ACTIVE', async () => {
+  it('rejects public DRIVER registration; admin-created drivers are ACTIVE', async () => {
     const { auth } = makeAuth();
-    const pending = await auth.register({
+    await expect(auth.register({
       campusId: CAMPUS, email: 'd@campus.edu', password: 'Password1!', name: 'Dee', role: 'DRIVER',
-    });
-    expect(pending.user).toMatchObject({ role: 'DRIVER', status: 'PENDING' });
+    })).rejects.toMatchObject({ status: 400 });
 
     const driver = await auth.createDriver(
       { userId: '4'.repeat(24), campusId: CAMPUS, role: 'ADMIN' } as Principal,

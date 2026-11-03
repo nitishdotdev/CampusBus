@@ -99,6 +99,13 @@ function unusedDeps() {
 }
 
 describe('login / refresh token contract (SPA)', () => {
+  it('unknown email returns 401 INVALID_CREDENTIALS instead of 500', async () => {
+    const { auth } = await makeAuth();
+    await expect(auth.login({
+      campusId: CAMPUS, email: 'nobody@apex.edu', password: 'Password1!',
+    })).rejects.toMatchObject({ status: 401, code: 'INVALID_CREDENTIALS' });
+  });
+
   it('login returns a raw refreshToken the SPA stores via data.refreshToken', async () => {
     const { auth } = await makeAuth();
     const result = await auth.login({

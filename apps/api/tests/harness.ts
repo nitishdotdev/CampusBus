@@ -79,6 +79,8 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
 
 async function seedData(m: Models): Promise<Seed> {
   const campusA = id(), campusB = id();
+  await m.Campus.create({ _id: campusA, name: 'Campus A', shortCode: 'CAMPA', city: 'A', lat: 1, lng: 2, zoom: 15, timezone: 'UTC' });
+  await m.Campus.create({ _id: campusB, name: 'Campus B', shortCode: 'CAMPB', city: 'B', lat: 3, lng: 4, zoom: 15, timezone: 'UTC' });
   const mk = (campusId: string, role: Role, n: string, extra: Record<string, unknown> = {}) =>
     m.User.create({ campusId, email: `${n}@example.test`, passwordHash: 'x', name: n, role, status: 'ACTIVE', ...extra }).then((u) => String(u._id));
   const route1 = String((await m.Route.create({ campusId: campusA, code: 'R1', name: 'Route 1', stops: [] }))._id);

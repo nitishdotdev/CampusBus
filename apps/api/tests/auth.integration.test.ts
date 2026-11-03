@@ -23,9 +23,14 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       expect(r.body.user).toMatchObject({ role: 'STUDENT', status: 'ACTIVE', email: 's1@t.test' });
       expect(r.body.user.passwordHash).toBeUndefined();
     });
-    it('driver gets status PENDING', async () => {
-      const r = await reg('d1@t.test', 'DRIVER'); expect(r.status).toBe(201);
-      expect(r.body.user.status).toBe('PENDING');
+    it('public DRIVER registration is rejected; admin-created drivers are ACTIVE', async () => {
+      expect((await reg('d1@t.test', 'DRIVER')).status).toBe(400);
+      const adminTok = h.token({ id: h.seed.adminA, campusId: campus(), role: 'ADMIN' });
+      const created = await api().post('/api/v1/users/drivers')
+        .set('Authorization', `Bearer ${adminTok}`)
+        .send({ email: 'd1@t.test', password: 'Password1!', name: 'Dee' });
+      expect(created.status).toBe(201);
+      expect(created.body.user).toMatchObject({ role: 'DRIVER', status: 'ACTIVE', email: 'd1@t.test' });
     });
     it('ADMIN role is not self-registerable', async () => {
       expect((await reg('a1@t.test', 'ADMIN')).status).toBe(400);
@@ -69,7 +74,11 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       expect(bad.body.error).toBe(unknown.body.error);
     });
     it('PENDING driver → 403', async () => {
-      await reg('pend@t.test', 'DRIVER');
+      const { hashPassword } = await import('../src/auth/passwords');
+      await h.models.User.create({
+        campusId: campus(), email: 'pend@t.test', passwordHash: await hashPassword('Password1!'),
+        name: 'Pending Driver', role: 'DRIVER', status: 'PENDING',
+      });
       expect((await login('pend@t.test')).status).toBe(403);
     });
     it('DISABLED account → 403', async () => {
@@ -177,6 +186,10 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
     it('creates first admin; second call refused', async () => {
       const mongoose = await import('mongoose');
       const freshCampus = new mongoose.Types.ObjectId().toString();
+      await h.models.Campus.create({
+        _id: freshCampus, name: 'Fresh Campus', shortCode: `F${freshCampus.slice(-6)}`,
+        city: 'X', lat: 1, lng: 2, zoom: 15, timezone: 'UTC',
+      });
       const first = await h.services.auth.bootstrapAdmin(freshCampus, 'admin@t.test', 'Password1!', 'Admin');
       expect(first).toMatchObject({ role: 'ADMIN', status: 'ACTIVE' });
       await expect(h.services.auth.bootstrapAdmin(freshCampus, 'other@t.test', 'Password1!', 'X')).rejects.toMatchObject({ code: 'ADMIN_ALREADY_EXISTS' });
@@ -210,11 +223,11 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       await h.services.repos.emailTokens.upsert({ userId, campusId: campus(), purpose: 'RESET_PASSWORD', tokenHash: crypto.createHash('sha256').update(otp).digest('hex'), expiresAt: new Date(Date.now() + 1_200_000) });
       expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'weak' })).status).toBe(400);
       expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'NewPass2!' })).status).toBe(204);
-      expect((await login('reset@t.test')).status).toBe(401);
-      expect((await login('reset@t.test', 'NewPass2!')).status).toBe(200);
-      expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'AnotherPass3!' })).status).toBe(400); // reuse
       const alive: any[] = await (h.models as any).RefreshToken.find({ userId, revokedAt: null }).lean();
       expect(alive).toHaveLength(0);
+      expect((await login('reset@t.test')).status).toBe(401);
+      expect((await login('reset@t.test', 'NewPass2!')).status).toBe(200);
+      expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'AnotherPass3!' })).status).toBe(400);
     });
     it('request-password-reset always returns 204 even for unknown email', async () => {
       expect((await api().post('/api/v1/auth/request-password-reset').send({ campusId: campus(), email: 'nobody@t.test' })).status).toBe(204);

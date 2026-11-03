@@ -31,14 +31,12 @@ export const DEFAULT_AUTH_CONFIG: AuthConfig = {
 const passwordSchema = z.string().min(8).max(72).regex(/[A-Za-z]/, 'must contain a letter').regex(/[0-9!@#$%^&*]/, 'must contain a number or symbol');
 const nameSchema = z.string().min(1).max(120).trim();
 const emailSchema = z.string().email().toLowerCase().max(254);
-const ALLOWED_SELF_REGISTER_ROLES: Role[] = ['STUDENT', 'DRIVER'];
-
 export const registerSchema = z.object({
   campusId: z.string().regex(/^[a-f0-9]{24}$/i),
   email: emailSchema,
   password: passwordSchema,
   name: nameSchema,
-  role: z.enum(['STUDENT', 'DRIVER'] as const),
+  role: z.literal('STUDENT'),
 }).strict();
 
 export const loginSchema = z.object({
@@ -116,8 +114,7 @@ export class AuthService {
     if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
     const { campusId, email, password, name, role } = parsed.data;
     const hash = await hashPassword(password);
-    const initialStatus = role === 'DRIVER' ? 'PENDING' : 'ACTIVE'; // drivers need admin approval
-    const user = await this.d.users.create({ campusId, email, passwordHash: hash, name, role, status: initialStatus });
+    const user = await this.d.users.create({ campusId, email, passwordHash: hash, name, role, status: 'ACTIVE' });
     if (d_requireVerify(this.d.config)) {
       await this.sendVerification(user.campusId, user.id, user.email, user.name);
     }

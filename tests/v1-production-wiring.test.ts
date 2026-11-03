@@ -38,6 +38,12 @@ describe('production v1 wiring', () => {
     expect(loginPage).toMatch(/listCampuses/);
   });
 
+  it('does not offer public DRIVER self-registration in the login UI', () => {
+    const loginPage = readFileSync(new URL('../src/pages/auth/LoginPage.tsx', import.meta.url), 'utf8');
+    expect(loginPage).not.toMatch(/<option value="DRIVER">/);
+    expect(loginPage).not.toMatch(/setRole\(e\.target\.value as 'STUDENT' \| 'DRIVER'\)/);
+  });
+
   it('v1 API requires DATABASE_URL, uses Postgres TLS policy, and does not fatal on MONGODB_URI', () => {
     expect(apiServer).toMatch(/DATABASE_URL/);
     expect(apiServer).toMatch(/FATAL: DATABASE_URL is required/);
