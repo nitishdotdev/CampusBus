@@ -310,6 +310,25 @@ async function runAllTests() {
     const fixedLocationId = 'loc_test_fixed_' + Date.now();
     const fixedTimestamp = '2026-09-20T05:00:00.000Z';
 
+    let gpsTripId = '';
+    const activeForGps = await fetch(`${BASE_URL}/api/trips/active`, {
+      headers: { Authorization: `Bearer ${driverToken}` },
+    });
+    const activeForGpsData = await activeForGps.json() as any;
+    gpsTripId = activeForGpsData.activeTrip?.id || '';
+    if (!gpsTripId) {
+      const gpsStartRes = await fetch(`${BASE_URL}/api/trips/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${driverToken}`,
+        },
+        body: JSON.stringify({ busId: 'bus_104', routeId: 'route_blue' }),
+      });
+      const gpsStartData = await gpsStartRes.json() as any;
+      gpsTripId = gpsStartData.trip?.id || '';
+    }
+
     // First transmission of GPS point
     const locRes1 = await fetch(`${BASE_URL}/api/driver/location`, {
       method: 'POST',
@@ -320,7 +339,7 @@ async function runAllTests() {
       body: JSON.stringify({
         id: fixedLocationId,
         busId: 'bus_104',
-        tripId: 'trip_active_marcus',
+        tripId: gpsTripId,
         lat: 34.0537,
         lng: -118.2570,
         speed: 7.5,
@@ -330,7 +349,7 @@ async function runAllTests() {
         isSimulated: false,
       }),
     });
-    assert('GPS & Deduplication', 'First location point saved successfully', locRes1.status === 200);
+    assert('GPS & Deduplication', 'First location point saved successfully', locRes1.status === 200, `status=${locRes1.status} tripId=${gpsTripId}`);
 
     // Second transmission of identical location point (same id & timestamp)
     const locRes2 = await fetch(`${BASE_URL}/api/driver/location`, {
@@ -342,7 +361,7 @@ async function runAllTests() {
       body: JSON.stringify({
         id: fixedLocationId,
         busId: 'bus_104',
-        tripId: 'trip_active_marcus',
+        tripId: gpsTripId,
         lat: 34.0537,
         lng: -118.2570,
         speed: 7.5,
@@ -352,7 +371,7 @@ async function runAllTests() {
         isSimulated: false,
       }),
     });
-    assert('GPS & Deduplication', 'Duplicate location accepted without 500 error', locRes2.status === 200);
+    assert('GPS & Deduplication', 'Duplicate location accepted without 500 error', locRes2.status === 200, `status=${locRes2.status}`);
 
     // Batch Offline Queue Sync (POST /api/driver/location/sync)
     const batchRes = await fetch(`${BASE_URL}/api/driver/location/sync`, {
@@ -365,7 +384,7 @@ async function runAllTests() {
         locations: [
           {
             id: 'loc_batch_1_' + Date.now(),
-            tripId: 'trip_active_marcus',
+            tripId: gpsTripId,
             busId: 'bus_104',
             lat: 34.0540,
             lng: -118.2575,
@@ -376,7 +395,7 @@ async function runAllTests() {
           },
           {
             id: 'loc_batch_2_' + Date.now(),
-            tripId: 'trip_active_marcus',
+            tripId: gpsTripId,
             busId: 'bus_104',
             lat: 34.0545,
             lng: -118.2580,
