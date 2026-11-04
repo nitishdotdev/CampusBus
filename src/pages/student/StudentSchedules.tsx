@@ -1,17 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, MapPin, AlertCircle, Loader } from 'lucide-react';
-import { apiClient } from '../../services/apiClient';
+import { schedulesV1 } from '../../services/v1/notifications';
+import { dayNameToIndex, v1ScheduleToUi, type UiSchedule } from '../../services/v1/adapters';
 
-interface Schedule {
-  id: string;
-  bus_id: string;
-  route_id: string;
-  departure_time: string;
-  arrival_time?: string;
-  operating_days: string[];
-  status: string;
-  notes?: string;
-}
+type Schedule = UiSchedule;
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -28,12 +20,9 @@ export function StudentSchedules() {
       try {
         setLoading(true);
         setError(null);
-        const params = new URLSearchParams();
-        if (selectedRoute) params.append('routeId', selectedRoute);
-        if (selectedDay) params.append('operatingDay', selectedDay);
-
-        const response = await apiClient.get<any[]>(`/api/schedules?${params.toString()}`);
-        setSchedules(response || []);
+        const day = selectedDay ? dayNameToIndex(selectedDay) : -1;
+        const page = await schedulesV1.list(selectedRoute || undefined, day >= 0 ? day : undefined, true, 1);
+        setSchedules(page.items.map(v1ScheduleToUi));
       } catch (err: any) {
         setError(err?.message || 'Failed to load schedules');
       } finally {

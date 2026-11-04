@@ -214,6 +214,10 @@ export const AdminDirectory: React.FC = () => {
 
     setIsSubmittingReset(true);
     try {
+      if (USE_V1) {
+        setResetError('Password reset is not available from this screen. Ask the user to use Forgot password.');
+        return;
+      }
       await apiClient.post(`/api/users/${resetUserId}/reset-password`, { newPassword });
       setSuccessNotice(`Password reset successfully for ${resetUserName}.`);
       setTimeout(() => setSuccessNotice(null), 4000);

@@ -215,25 +215,36 @@ export const DriverDashboard: React.FC = () => {
     tripService.updateOccupancy(delta, false);
   };
 
-  const handleSendEmergency = () => {
+  const handleSendEmergency = async () => {
     if (!assignedBus || !assignedRoute) return;
 
-    adminService.triggerEmergencyAlert({
-      collegeId: currentUser?.collegeId || 'college_apex',
-      tripId: activeTrip?.id || 'manual_' + Date.now(),
-      busId: assignedBus.id,
-      busNumber: assignedBus.busNumber,
-      driverId: currentUser?.id || 'driver_marcus',
-      driverName: currentUser?.name || 'Marcus Vance',
-      routeId: assignedRoute.id,
-      routeName: assignedRoute.name,
-      location: locationState.lastLocation
-        ? { lat: locationState.lastLocation.lat, lng: locationState.lastLocation.lng }
-        : assignedBus.lastLocation
-          ? { lat: assignedBus.lastLocation.lat, lng: assignedBus.lastLocation.lng }
-          : { lat: 0, lng: 0 },
-      reason: emergencyReason,
-    });
+    const location = locationState.lastLocation
+      ? { lat: locationState.lastLocation.lat, lng: locationState.lastLocation.lng }
+      : assignedBus.lastLocation
+        ? { lat: assignedBus.lastLocation.lat, lng: assignedBus.lastLocation.lng }
+        : { lat: 0, lng: 0 };
+
+    if (USE_V1) {
+      await alertsV1.raise({
+        busId: assignedBus.id,
+        tripId: activeTrip?.id,
+        message: emergencyReason,
+        location,
+      });
+    } else {
+      await adminService.triggerEmergencyAlert({
+        collegeId: currentUser?.collegeId || 'college_apex',
+        tripId: activeTrip?.id || 'manual_' + Date.now(),
+        busId: assignedBus.id,
+        busNumber: assignedBus.busNumber,
+        driverId: currentUser?.id || 'driver_marcus',
+        driverName: currentUser?.name || 'Marcus Vance',
+        routeId: assignedRoute.id,
+        routeName: assignedRoute.name,
+        location,
+        reason: emergencyReason,
+      });
+    }
 
     setEmergencySent(true);
     setShowEmergencyModal(false);

@@ -4,10 +4,10 @@ import { useApp } from '../../store/AppContext';
 import { MapView } from '../../components/map/MapView';
 import { BusStatusBadge, OccupancyIndicator, ETAIndicator } from '../../components/common/StatusBadges';
 import { NotificationCard } from '../../components/common/Cards';
-import { apiClient } from '../../services/apiClient';
 import { notificationService } from '../../services/notificationService';
-import { socketService } from '../../services/socketService';
 import { socketV1, type BusLocationPayload } from '../../services/v1/socket';
+import { schedulesV1 } from '../../services/v1/notifications';
+import { v1ScheduleToUi, type UiSchedule } from '../../services/v1/adapters';
 import { Bus, Route } from '../../types';
 import {
   Navigation,
@@ -26,16 +26,7 @@ import {
 
 const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 
-interface Schedule {
-  id: string;
-  bus_id: string;
-  route_id: string;
-  departure_time: string;
-  arrival_time?: string;
-  operating_days: string[];
-  status: string;
-  notes?: string;
-}
+type Schedule = UiSchedule;
 
 export const StudentDashboard: React.FC = () => {
   const { currentUser, currentCollege, buses, routes, notifications, isLoadingData } = useApp();
@@ -66,11 +57,10 @@ export const StudentDashboard: React.FC = () => {
     const fetchSchedules = async () => {
       try {
         setLoadingSchedules(true);
-        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const today = days[new Date().getDay()];
-        const res = await apiClient.get<Schedule[]>(`/api/schedules?operatingDay=${today}`);
-        if (isMounted && Array.isArray(res)) {
-          setUpcomingSchedules(res.filter((s) => s.status === 'ACTIVE').slice(0, 4));
+        const today = new Date().getDay();
+        const page = await schedulesV1.list(undefined, today, true, 1);
+        if (isMounted) {
+          setUpcomingSchedules(page.items.map(v1ScheduleToUi).filter((s) => s.status === 'ACTIVE').slice(0, 4));
         }
       } catch (err) {
         console.warn('Could not load schedules for student dashboard:', err);

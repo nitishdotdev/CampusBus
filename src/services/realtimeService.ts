@@ -1,6 +1,12 @@
 import { Bus, EmergencyAlert, CampusNotification } from '../types';
 import { apiClient } from './apiClient';
 import { socketService } from './socketService';
+import { busesV1 } from './v1/buses';
+import { v1BusToUi } from './v1/adapters';
+
+import { isV1Api } from './v1/flag';
+
+const USE_V1 = isV1Api();
 
 type BusUpdateListener = (buses: Bus[]) => void;
 type EmergencyListener = (alert: EmergencyAlert) => void;
@@ -47,7 +53,7 @@ class RealtimeService {
 
     socketService.on('connection:status', ({ isConnected }: { isConnected: boolean }) => {
       this.isConnectedToBackend = isConnected;
-      if (isConnected) {
+      if (isConnected && !USE_V1) {
         this.fetchBusesFromApi();
       }
     });
@@ -55,6 +61,12 @@ class RealtimeService {
 
   public async fetchBusesFromApi(): Promise<Bus[]> {
     try {
+      if (USE_V1) {
+        const page = await busesV1.list(1, 100);
+        this.buses = page.items.map((b) => v1BusToUi(b));
+        this.notifyBusListeners();
+        return this.buses;
+      }
       const data = await apiClient.get<Bus[]>('/api/buses');
       if (Array.isArray(data)) {
         this.buses = data;

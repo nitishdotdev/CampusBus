@@ -7,11 +7,13 @@ import { DomainError } from '../domain/errors';
 import type { LiveService } from '../domain/live';
 import type { TelemetryIngestService } from '../domain/telemetry/ingest';
 import type { TripService } from '../domain/trips';
-import type { BusRepository, Principal, Role, RouteRepository, TripRepository, UserRepository } from '../domain/types';
+import type { BusRepository, CampusRepository, Principal, Role, RouteRepository, TripRepository, UserRepository } from '../domain/types';
 
 export interface AppDeps {
   ingest: TelemetryIngestService; trips: TripService; live: LiveService; auth: AuthService;
   users: UserRepository; buses: BusRepository; routes: RouteRepository; tripRepo: TripRepository;
+  campuses?: CampusRepository;
+  bootstrapSecret?: string;
   verifyToken: (token: string) => Principal | null; allowedOrigins: string[];
   bootstrapSecret?: string;
 }
@@ -52,6 +54,30 @@ export function createApp(deps: AppDeps) {
   };
   const wrap = (fn: (req: AuthedRequest, res: Response) => Promise<void>): RequestHandler =>
     (req, res, next) => { fn(req as AuthedRequest, res).catch(next); };
+
+  // ─── Campuses (public list; create is bootstrap-secret only) ───────────────
+  const campusBody = z.object({
+    name:      z.string().min(2).max(120),
+    shortCode: z.string().min(2).max(16),
+    city:      z.string().max(120).default(''),
+    lat:       z.number().min(-90).max(90),
+    lng:       z.number().min(-180).max(180),
+    zoom:      z.number().int().min(1).max(20).default(15),
+    timezone:  z.string().max(50).default('UTC'),
+  }).strict();
+  app.get('/api/v1/campuses', wrap(async (_req, res) => {
+    if (!deps.campuses) { res.status(500).json({ error: 'INTERNAL_ERROR' }); return; }
+    res.json(await deps.campuses.list());
+  }));
+  app.post('/api/v1/campuses', wrap(async (req, res) => {
+    const secret = deps.bootstrapSecret ?? '';
+    if (!secret || req.headers['x-bootstrap-secret'] !== secret) {
+      res.status(403).json({ error: 'FORBIDDEN' }); return;
+    }
+    if (!deps.campuses) { res.status(500).json({ error: 'INTERNAL_ERROR' }); return; }
+    const body = campusBody.parse(req.body);
+    res.status(201).json(await deps.campuses.create(body));
+  }));
 
   // ─── Auth routes ─────────────────────────────────────────────────────────
   const ar = express.Router();

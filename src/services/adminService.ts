@@ -5,13 +5,20 @@ import { realtimeService } from './realtimeService';
 import { busService } from './busService';
 import { routeService } from './routeService';
 import { notificationService } from './notificationService';
+import { adminV1 } from './v1/admin';
+import { alertsV1 } from './v1/notifications';
+import { v1AlertToUi } from './v1/adapters';
+
+import { isV1Api } from './v1/flag';
+
+const USE_V1 = isV1Api();
 
 class AdminService {
   private alerts: EmergencyAlert[] = [];
   private alertListeners: ((alerts: EmergencyAlert[]) => void)[] = [];
 
   constructor() {
-    this.fetchAlertsFromApi();
+    if (!USE_V1) this.fetchAlertsFromApi();
 
     socketService.on('emergency:alert', (alert: EmergencyAlert) => {
       this.alerts.unshift(alert);
@@ -31,6 +38,12 @@ class AdminService {
 
   public async fetchAlertsFromApi(): Promise<EmergencyAlert[]> {
     try {
+      if (USE_V1) {
+        const page = await alertsV1.list(undefined, 1);
+        this.alerts = page.items.map(v1AlertToUi);
+        this.notifyAlerts();
+        return this.alerts;
+      }
       const data = await apiClient.get<EmergencyAlert[]>('/api/alerts');
       if (Array.isArray(data)) {
         this.alerts = data;
@@ -67,43 +80,37 @@ class AdminService {
     location: { lat: number; lng: number; accuracy?: number };
     reason?: string;
   }): Promise<EmergencyAlert> {
-    try {
-      const res = await apiClient.post<{ success: boolean; alert: EmergencyAlert }>('/api/driver/emergency', {
-        tripId: params.tripId,
+    if (USE_V1) {
+      const created = v1AlertToUi(await alertsV1.raise({
         busId: params.busId,
-        reason: params.reason || 'General Transit Emergency Protocol Triggered',
-        lat: params.location.lat,
-        lng: params.location.lng,
-      });
-
-      if (res.alert) {
-        this.alerts.unshift(res.alert);
-        this.notifyAlerts();
-        return res.alert;
-      }
-    } catch (err) {
-      console.warn('Backend emergency alert error:', err);
+        tripId: params.tripId,
+        message: params.reason || 'General Transit Emergency Protocol Triggered',
+        location: { lat: params.location.lat, lng: params.location.lng },
+      }));
+      this.alerts.unshift(created);
+      this.notifyAlerts();
+      return created;
     }
+    const res = await apiClient.post<{ success: boolean; alert: EmergencyAlert }>('/api/driver/emergency', {
+      tripId: params.tripId,
+      busId: params.busId,
+      reason: params.reason || 'General Transit Emergency Protocol Triggered',
+      lat: params.location.lat,
+      lng: params.location.lng,
+    });
 
-    const fallbackAlert: EmergencyAlert = {
-      id: 'alert_' + Date.now().toString(),
-      collegeId: params.collegeId || 'college_apex',
-      ...params,
-      timestamp: new Date().toISOString(),
-      status: 'ACTIVE',
-      severity: 'CRITICAL',
-    };
-
-    this.alerts.unshift(fallbackAlert);
-    this.notifyAlerts();
-    realtimeService.broadcastEmergency(fallbackAlert);
-
-    return fallbackAlert;
+    if (res.alert) {
+      this.alerts.unshift(res.alert);
+      this.notifyAlerts();
+      return res.alert;
+    }
+    throw new Error('Emergency alert was not created');
   }
 
   public async acknowledgeAlert(id: string, adminName: string): Promise<void> {
     try {
-      await apiClient.put(`/api/alerts/${id}/acknowledge`, {
+      if (USE_V1) await alertsV1.acknowledge(id);
+      else await apiClient.put(`/api/alerts/${id}/acknowledge`, {
         notes: `Acknowledged by ${adminName} at Dispatch Desk`,
       });
     } catch (err) {
@@ -118,7 +125,8 @@ class AdminService {
 
   public async resolveAlert(id: string, notes?: string): Promise<void> {
     try {
-      await apiClient.put(`/api/alerts/${id}/resolve`, {
+      if (USE_V1) await alertsV1.resolve(id);
+      else await apiClient.put(`/api/alerts/${id}/resolve`, {
         notes: notes || 'Incident resolved.',
       });
     } catch (err) {
@@ -199,6 +207,20 @@ class AdminService {
 
   public async getDrivers(): Promise<Driver[]> {
     try {
+      if (USE_V1) {
+        const page = await adminV1.users.list({ role: 'DRIVER', pageSize: 100 });
+        return page.items.map((u) => ({
+          id: u.id,
+          collegeId: u.campusId,
+          name: u.name,
+          employeeId: u.id,
+          phone: u.phone ?? '',
+          licenseNumber: '',
+          assignedBusId: u.assignedBusId ?? undefined,
+          assignedRouteId: u.assignedRouteId ?? undefined,
+          status: u.status === 'ACTIVE' ? 'AVAILABLE' : 'OFF_DUTY',
+        }));
+      }
       const data = await apiClient.get<Driver[]>('/api/admin/drivers');
       if (Array.isArray(data)) return data;
     } catch {
@@ -209,6 +231,19 @@ class AdminService {
 
   public async getStudents(): Promise<Student[]> {
     try {
+      if (USE_V1) {
+        const page = await adminV1.users.list({ role: 'STUDENT', pageSize: 100 });
+        return page.items.map((u) => ({
+          id: u.id,
+          collegeId: u.campusId,
+          name: u.name,
+          studentId: u.id,
+          email: u.email,
+          department: '',
+          year: '',
+          favoriteRouteIds: [],
+        }));
+      }
       const data = await apiClient.get<Student[]>('/api/admin/students');
       if (Array.isArray(data)) return data;
     } catch {

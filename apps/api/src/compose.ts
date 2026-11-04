@@ -41,6 +41,7 @@ export function createServices(
     now,
   });
   const extraRepos = {
+    campuses: repos.campuses,
     schedules: repos.schedules,
     notifications: repos.notifications,
     alerts: repos.alerts,

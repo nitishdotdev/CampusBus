@@ -20,7 +20,8 @@ describe('Leaflet OSM map and live GPS path', () => {
 
   it('driver GPS posts telemetryV1 when VITE_USE_V1_API is on and a trip is active', () => {
     expect(locationService).toMatch(/telemetryV1/);
-    expect(locationService).toMatch(/USE_V1 && this\.currentTripId/);
+    expect(locationService).toMatch(/if \(USE_V1\)/);
+    expect(locationService).toMatch(/if \(!this\.currentTripId\) return/);
     expect(telemetry).toMatch(/\/api\/v1\/telemetry/);
   });
 

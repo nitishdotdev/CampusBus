@@ -17,6 +17,7 @@ Do not guess hostnames. Use the actual Vercel production origin for `CORS_ORIGIN
 1. Create a Neon project and database.
 2. Copy the pooled or direct connection string into Render as `DATABASE_URL`.
 3. The API applies `apps/api/src/infra/postgres/schema.sql` on startup.
+4. Optional: set `DATABASE_SSL_MODE=verify` on Render if you pin a CA.
 
 ### 2. Render (Backend API)
 1. Create a **Web Service** connected to this repository.
@@ -31,7 +32,22 @@ Do not guess hostnames. Use the actual Vercel production origin for `CORS_ORIGIN
 5. Confirm `GET /api/v1/campuses` returns JSON (an empty array is valid before bootstrap).
 
 ### 3. Bootstrap the first campus
-Run once after the Render service is live. Do not commit the secret.
+Preferred: trusted one-time CLI against the same `DATABASE_URL` (idempotent on short code). Do not commit the secret.
+
+```bash
+DATABASE_URL='postgresql://...' npm run api:bootstrap -- \
+  --name="Apex State University" \
+  --short-code=ASU \
+  --city="Los Angeles" \
+  --lat=34.0537 \
+  --lng=-118.2570 \
+  --timezone=America/Los_Angeles \
+  --admin-email=admin@yourcampus.edu \
+  --admin-password='<unique-admin-password>' \
+  --admin-name="Campus Admin"
+```
+
+HTTP alternative after the Render service is live:
 
 ```bash
 curl -X POST "$RENDER_API_ORIGIN/api/v1/campuses" \
@@ -48,10 +64,10 @@ curl -X POST "$RENDER_API_ORIGIN/api/v1/campuses" \
   }'
 ```
 
-Copy the `id` from the response. Signup cannot succeed until at least one campus exists.
+POST `/api/v1/campuses` is not public. It requires `x-bootstrap-secret` matching `BOOTSTRAP_SECRET`. Copy the `id` from the response. Signup cannot succeed until at least one campus exists. GET `/api/v1/campuses` is public and returns `[]` only when no campuses exist.
 
 ### 4. Provision the first administrator
-Do not register an admin through the public signup form. Use the one-time bootstrap route, then remove `BOOTSTRAP_SECRET`.
+Do not register an admin through the public signup form. Use the CLI above, the one-time bootstrap route, then remove `BOOTSTRAP_SECRET`.
 
 ```bash
 curl -X POST "$RENDER_API_ORIGIN/api/v1/auth/bootstrap-admin" \
@@ -85,7 +101,7 @@ Do not seed shared demo credentials. Legacy sample accounts are not V1 accounts.
 
 ### 6. Vercel (Frontend)
 1. Import the repository into Vercel.
-2. Set env vars in the Vercel dashboard:
+2. Set env vars in the Vercel dashboard (not only `vercel.json`):
    - `VITE_USE_V1_API` = `true` (also present in `vercel.json`)
    - `VITE_API_V1_URL` = Render origin with **no** `/api/v1` suffix
 3. Production builds fail if `VITE_API_V1_URL` is missing or invalid.

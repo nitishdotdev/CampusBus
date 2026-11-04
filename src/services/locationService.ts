@@ -4,7 +4,9 @@ import { realtimeService } from './realtimeService';
 import { offlineQueueService } from './offlineQueue';
 import { telemetryV1 } from './v1/telemetry';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
+import { isV1Api } from './v1/flag';
+
+const USE_V1 = isV1Api();
 
 export interface LocationServiceState {
   gpsStatus: GPSStatus;
@@ -191,7 +193,8 @@ class LocationService {
     // Attempt direct real-time broadcast to backend API
     try {
       if (this.currentBusId) {
-        if (USE_V1 && this.currentTripId) {
+        if (USE_V1) {
+          if (!this.currentTripId) return;
           await telemetryV1.send(this.currentTripId, {
             eventId: pointId,
             lat: loc.lat,

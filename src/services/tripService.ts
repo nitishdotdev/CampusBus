@@ -4,7 +4,9 @@ import { locationService } from './locationService';
 import { realtimeService } from './realtimeService';
 import { socketService } from './socketService';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
+import { isV1Api } from './v1/flag';
+
+const USE_V1 = isV1Api();
 
 const ACTIVE_TRIP_KEY = 'smart_campus_bus_active_trip';
 
@@ -45,6 +47,7 @@ class TripService {
   }
 
   public async refreshActiveTripFromApi(): Promise<Trip | null> {
+    if (USE_V1) return this.activeTrip;
     try {
       const res = await apiClient.get<{ activeTrip: Trip | null }>('/api/trips/active');
       this.activeTrip = res.activeTrip; this.persistActiveTrip(); this.notify();
@@ -53,6 +56,7 @@ class TripService {
   }
 
   public async fetchTripHistory(): Promise<Trip[]> {
+    if (USE_V1) return this.trips;
     try {
       const res = await apiClient.get<Trip[]>('/api/trips');
       if (Array.isArray(res)) { this.trips = res; this.notify(); }
@@ -90,6 +94,9 @@ class TripService {
   }
 
   public async startTrip(busId: string, driverId: string, routeId: string, collegeId = 'college_apex', useSimulation = false): Promise<Trip> {
+    if (USE_V1) {
+      throw new Error('Use tripsV1.start for v1 trips');
+    }
     try {
       const res = await apiClient.post<{ success: boolean; trip: any; bus: any }>('/api/trips/start', { busId, routeId, collegeId });
       const st = res.trip;
@@ -119,6 +126,14 @@ class TripService {
 
   public async updateOccupancy(deltaOrAbsolute: number, isAbsolute = false): Promise<number> {
     if (!this.activeTrip) return 0;
+    if (USE_V1) {
+      const bus = realtimeService.getBusById(this.activeTrip.busId);
+      const cap = bus?.capacity || 45;
+      let nc = isAbsolute ? deltaOrAbsolute : this.activeTrip.currentOccupancy + deltaOrAbsolute;
+      nc = Math.max(0, Math.min(cap, nc));
+      this.activeTrip.currentOccupancy = nc; this.persistActiveTrip(); this.notify();
+      return nc;
+    }
     try {
       const res = await apiClient.post<{ currentOccupancy: number; capacity: number }>('/api/trips/occupancy',
         { delta: isAbsolute ? undefined : deltaOrAbsolute, absoluteCount: isAbsolute ? deltaOrAbsolute : undefined });
@@ -136,7 +151,9 @@ class TripService {
 
   public async endTrip(): Promise<boolean> {
     if (!this.activeTrip) return false;
-    try { await apiClient.post('/api/trips/end', { tripId: this.activeTrip.id }); } catch { /* offline */ }
+    if (!USE_V1) {
+      try { await apiClient.post('/api/trips/end', { tripId: this.activeTrip.id }); } catch { /* offline */ }
+    }
     locationService.stopTracking();
     const et = { ...this.activeTrip, status: 'COMPLETED' as const, endTime: new Date().toISOString() };
     this.trips = this.trips.map((t) => (t.id === et.id ? et : t));

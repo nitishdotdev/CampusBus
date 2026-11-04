@@ -19,7 +19,9 @@ import { notificationService } from '../services/notificationService';
 import { adminService } from '../services/adminService';
 
 // ── v1 API integration (enabled via VITE_USE_V1_API=true) ────────────────────
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
+import { isV1Api } from '../services/v1/flag';
+
+const USE_V1 = isV1Api();
 import { loginV1, logoutV1, getMeV1, listCampuses, type V1Campus, type V1SessionUser } from '../services/v1/auth';
 import { busesV1 } from '../services/v1/buses';
 import { routesV1 } from '../services/v1/routes';
@@ -127,16 +129,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (!currentUser) return;
 
-    const unsubBuses = realtimeService.subscribeBuses(setBuses);
     const unsubTrips = tripService.subscribeActiveTrip((trip) => {
       setActiveTrip(trip);
       setTrips(tripService.getTripHistory());
     });
     const unsubLoc = locationService.subscribe(setLocationState);
+
+    if (USE_V1) {
+      loadAllData();
+      return () => {
+        unsubTrips();
+        unsubLoc();
+      };
+    }
+
+    const unsubBuses = realtimeService.subscribeBuses(setBuses);
     const unsubNotif = notificationService.subscribe(setNotifications);
     const unsubAlerts = adminService.subscribeAlerts(setEmergencyAlerts);
 
-    // Load data
     loadAllData();
 
     return () => {
@@ -282,8 +292,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshData = async () => {
     await loadAllData();
-    setBuses(realtimeService.getBuses());
-    setTrips(tripService.getTripHistory());
+    if (!USE_V1) {
+      setBuses(realtimeService.getBuses());
+      setTrips(tripService.getTripHistory());
+    }
   };
 
   const unreadCount = useMemo(

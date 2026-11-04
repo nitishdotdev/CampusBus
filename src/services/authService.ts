@@ -3,9 +3,9 @@ import { apiClient, setStoredToken, getStoredToken } from './apiClient';
 import { socketService } from './socketService';
 
 // Lazy import to avoid circular dependency — only loaded when v1 is active
-const USE_V1 = typeof window !== 'undefined' &&
-  (window as any).__VITE_USE_V1_API__ ||
-  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_USE_V1_API === 'true');
+import { isV1Api } from './v1/flag';
+
+const USE_V1 = isV1Api();
 
 const AUTH_STORAGE_KEY = 'smart_campus_bus_auth_user';
 
@@ -117,6 +117,9 @@ class AuthService {
   }
 
   public async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+    if (USE_V1) {
+      return { success: false, error: 'Password changes are not available on this API. Use password reset from sign-in.' };
+    }
     try {
       await apiClient.post('/api/auth/change-password', { currentPassword, newPassword });
       return { success: true };
@@ -139,7 +142,7 @@ class AuthService {
     if (USE_V1 && getStoredToken() === 'v1') {
       try {
         // Dynamically import to avoid circular deps at module load time
-        const { getMeV1, loginV1 } = await import('./v1/auth');
+        const { getMeV1 } = await import('./v1/auth');
         const { v1Token } = await import('./v1/client');
         const { socketV1 } = await import('./v1/socket');
 
@@ -159,6 +162,8 @@ class AuthService {
       }
       return;
     }
+
+    if (USE_V1) return;
 
     // Legacy path
     try {

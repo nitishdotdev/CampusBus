@@ -9,12 +9,11 @@
 import 'dotenv/config';
 import http from 'http';
 import pg from 'pg';
-import { z } from 'zod';
 import { loadTrackingConfig } from './config/env';
 import { requireAccessSecret } from './auth/tokens';
 import { verifyAccessToken } from './auth/tokens';
 import { createServices } from './compose';
-import type { CampusRepository, LiveEmitter } from './domain/types';
+import type { LiveEmitter } from './domain/types';
 import { createApp } from './http/app';
 import { applyV1Schema } from './infra/postgres/pool';
 import { createPostgresRepositories } from './infra/postgres/repositories';
@@ -57,8 +56,6 @@ async function main() {
     { env: process.env },
   );
 
-  const campuses: CampusRepository = services.repos.campuses;
-
   const app = createApp({
     ingest:    services.ingest,
     trips:     services.trips,
@@ -72,28 +69,6 @@ async function main() {
     allowedOrigins: ALLOWED_ORIGINS,
     bootstrapSecret: BOOTSTRAP_SECRET,
     ...services.extraRepos,
-  });
-
-  const campusBody = z.object({
-    name:      z.string().min(2).max(120),
-    shortCode: z.string().min(2).max(16),
-    city:      z.string().max(120).default(''),
-    lat:       z.number().min(-90).max(90),
-    lng:       z.number().min(-180).max(180),
-    zoom:      z.number().int().min(1).max(20).default(15),
-    timezone:  z.string().max(50).default('UTC'),
-  }).strict();
-
-  app.get('/api/v1/campuses', async (_req, res) => {
-    res.json(await campuses.list());
-  });
-
-  app.post('/api/v1/campuses', async (req, res) => {
-    if (!BOOTSTRAP_SECRET || req.headers['x-bootstrap-secret'] !== BOOTSTRAP_SECRET) {
-      res.status(403).json({ error: 'FORBIDDEN' }); return;
-    }
-    const body = campusBody.parse(req.body);
-    res.status(201).json(await campuses.create(body));
   });
 
   const httpServer = http.createServer(app);
