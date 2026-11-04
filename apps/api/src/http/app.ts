@@ -15,7 +15,6 @@ export interface AppDeps {
   campuses?: CampusRepository;
   bootstrapSecret?: string;
   verifyToken: (token: string) => Principal | null; allowedOrigins: string[];
-  bootstrapSecret?: string;
 }
 type AuthedRequest = Request & { principal: Principal };
 
