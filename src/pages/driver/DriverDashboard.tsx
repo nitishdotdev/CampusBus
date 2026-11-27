@@ -204,7 +204,7 @@ export const DriverDashboard: React.FC = () => {
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Assigned: <strong className="text-slate-800">{assignedBus.busNumber}</strong> ({assignedBus.model.split(' ')[0]}) • Route{' '}
+                Assigned: <strong className="text-slate-800">{assignedBus.busNumber}</strong> · Route{' '}
                 <strong className="text-slate-800">{assignedRoute.code}</strong>
               </p>
             </div>
@@ -214,52 +214,14 @@ export const DriverDashboard: React.FC = () => {
             <span
               className={`text-xs font-bold px-2.5 py-1 rounded-full ${
                 activeTrip
-                  ? 'bg-blue-600 text-white animate-pulse'
+                  ? 'bg-blue-700 text-white'
                   : 'bg-slate-100 text-slate-600'
               }`}
             >
-              {activeTrip ? 'TRIP ACTIVE' : 'TERMINAL READY'}
+              {activeTrip ? 'Trip active' : assignedBus.operationalStatus === 'ACTIVE' ? 'Ready for service' : 'Vehicle unavailable'}
             </span>
           </div>
         </div>
-      </div>
-
-      {/* Driver Assigned Route & Live Bus Map */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Navigation className="w-4 h-4 text-blue-600" />
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              {activeTrip ? 'Active Trip Live Telemetry Map' : 'Assigned Route & Stops'}
-            </h3>
-          </div>
-          <span className="text-[11px] font-semibold text-slate-500">
-            {assignedRoute.stops?.length || 0} stops
-          </span>
-        </div>
-        <MapView center={[currentCollege.centerLocation.lat, currentCollege.centerLocation.lng]} zoom={currentCollege.defaultZoom}
-          buses={[{
-            ...assignedBus,
-            lastLocation: locationState.lastLocation || assignedBus.lastLocation,
-            status: activeTrip ? 'ACTIVE' : 'IDLE',
-            currentStopId: activeTrip?.currentStopId || assignedBus.currentStopId,
-            nextStopId: activeTrip?.nextStopId || assignedBus.nextStopId,
-            completedStopIds: activeTrip?.completedStopIds || assignedBus.completedStopIds || [],
-          }]}
-          routes={[assignedRoute]}
-          selectedRouteId={assignedRoute.id}
-          driverLocation={
-            locationState.lastLocation
-              ? {
-                  lat: locationState.lastLocation.lat,
-                  lng: locationState.lastLocation.lng,
-                  heading: locationState.lastLocation.heading ?? undefined,
-                  accuracy: locationState.lastLocation.accuracy ?? undefined,
-                }
-              : undefined
-          }
-          heightClass="h-[260px] sm:h-[300px]"
-        />
       </div>
 
       {/* Primary Trip Action Card */}
@@ -283,7 +245,7 @@ export const DriverDashboard: React.FC = () => {
               className="w-full sm:w-80 py-4 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer"
             >
               <Play className="w-5 h-5 fill-current" />
-              <span>START CAMPUS TRIP</span>
+              <span>Start trip</span>
             </button>
           </div>
         ) : (
@@ -291,7 +253,7 @@ export const DriverDashboard: React.FC = () => {
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" /> Live Trip In Progress
+                  Trip in progress
                 </span>
                 <h3 className="text-lg font-black text-slate-900 mt-0.5">
                   {assignedRoute.code}: {assignedRoute.name}
@@ -305,17 +267,25 @@ export const DriverDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* End Trip Button */}
+            <button
+              id="end-trip-button" disabled={tripBusy}
+              onClick={() => setShowEndTripConfirm(true)}
+              className="w-full min-h-[52px] py-3.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-bold text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+            >
+              <Square className="w-4 h-4 fill-current text-rose-400" />
+              <span>End trip</span>
+            </button>
             {/* Active Next Stop Target & Progression Card */}
             {(() => {
               const stops = [...(assignedRoute.stops || [])].sort((a, b) => a.sequence - b.sequence);
               const completedIds = new Set(activeTrip?.completedStopIds || []);
-              const nextStop = stops.find((s) => s.id === (activeTrip?.nextStopId))
-                || stops.find((s) => !completedIds.has(s.id));
+              const nextStop = stops.find(stop => stop.id === activeTrip?.nextStopId);
 
               let distanceText = '';
               let isApproaching = false;
               let isWithinGeofence = false;
-              if (nextStop && locationState.lastLocation) {
+              if (nextStop && locationState.lastLocation && locationState.gpsStatus === 'GPS_ACTIVE') {
                 const lat1 = (locationState.lastLocation.lat * Math.PI) / 180;
                 const lat2 = (nextStop.lat * Math.PI) / 180;
                 const dLat = ((nextStop.lat - locationState.lastLocation.lat) * Math.PI) / 180;
@@ -351,7 +321,7 @@ export const DriverDashboard: React.FC = () => {
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Next Eligible Stop</div>
                         <div className="text-sm font-black text-slate-900">
-                          {nextStop ? nextStop.name : (completedCount === totalCount && totalCount > 0 ? 'All Stops Completed' : 'End of Line')}
+                          {nextStop ? nextStop.name : (completedCount === totalCount && totalCount > 0 ? 'All Stops Completed' : 'Next stop unavailable')}
                         </div>
                       </div>
                     </div>
@@ -460,17 +430,46 @@ export const DriverDashboard: React.FC = () => {
               </div>
             )}
 
-            {/* End Trip Button */}
-            <button
-              id="end-trip-button" disabled={tripBusy}
-              onClick={() => setShowEndTripConfirm(true)}
-              className="w-full min-h-[52px] py-3.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-bold text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
-            >
-              <Square className="w-4 h-4 fill-current text-rose-400" />
-              <span>END TRIP & RETURN TO TERMINAL</span>
-            </button>
           </div>
         )}
+      </div>
+
+      {/* Driver Assigned Route & Live Bus Map */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Navigation className="w-4 h-4 text-blue-600" />
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              {activeTrip ? 'Trip route and device position' : 'Assigned Route & Stops'}
+            </h3>
+          </div>
+          <span className="text-[11px] font-semibold text-slate-500">
+            {assignedRoute.stops?.length || 0} stops
+          </span>
+        </div>
+        <MapView center={[currentCollege.centerLocation.lat, currentCollege.centerLocation.lng]} zoom={currentCollege.defaultZoom}
+          buses={[{
+            ...assignedBus,
+            lastLocation: locationState.lastLocation || assignedBus.lastLocation,
+            status: activeTrip ? 'ACTIVE' : 'IDLE',
+            currentStopId: activeTrip?.currentStopId || assignedBus.currentStopId,
+            nextStopId: activeTrip?.nextStopId || assignedBus.nextStopId,
+            completedStopIds: activeTrip?.completedStopIds || assignedBus.completedStopIds || [],
+          }]}
+          routes={[assignedRoute]}
+          selectedRouteId={assignedRoute.id}
+          driverLocation={
+            locationState.lastLocation
+              ? {
+                  lat: locationState.lastLocation.lat,
+                  lng: locationState.lastLocation.lng,
+                  heading: locationState.lastLocation.heading ?? undefined,
+                  accuracy: locationState.lastLocation.accuracy ?? undefined,
+                }
+              : undefined
+          }
+          heightClass={activeTrip ? "h-[260px] sm:h-[300px]" : "h-[200px] sm:h-[240px]"}
+        />
       </div>
 
       {/* Tactile Passenger Occupancy Control */}
