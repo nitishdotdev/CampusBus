@@ -1,8 +1,8 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHarness, MONGO_URI, type Harness } from './harness';
+import { createHarness, PG_TEST_URL, type Harness } from './harness';
 
-describe.skipIf(!MONGO_URI)('CRUD APIs (buses, routes, schedules, notifications, alerts)', () => {
+describe.skipIf(!PG_TEST_URL)('CRUD APIs (buses, routes, schedules, notifications, alerts)', () => {
   let h: Harness;
   beforeAll(async () => { h = await createHarness(); });
   afterAll(async () => { await h.close(); });

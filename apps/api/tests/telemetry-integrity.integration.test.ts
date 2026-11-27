@@ -1,9 +1,9 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHarness, ev, freshTrip, MONGO_URI, type Harness } from './harness';
+import { createHarness, ev, freshTrip, PG_TEST_URL, type Harness } from './harness';
 
 const MIN = 60_000;
-describe.skipIf(!MONGO_URI)('GPS ingestion: data integrity', () => {
+describe.skipIf(!PG_TEST_URL)('GPS ingestion: data integrity', () => {
   let h: Harness;
   beforeAll(async () => { h = await createHarness(); });
   afterAll(async () => { await h.close(); });
@@ -11,8 +11,8 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: data integrity', () => {
   const tok = () => h.token({ id: h.seed.driver1, campusId: h.seed.campusA, role: 'DRIVER' });
   const send = (tripId: string, events: unknown[]) =>
     request(h.app).post('/api/v1/telemetry').set('Authorization', `Bearer ${tok()}`).send({ tripId, events });
-  const live = () => h.models.VehicleLocation.findOne({ busId: h.seed.bus1 }).lean();
-  const history = (tripId: string) => h.models.Telemetry.find({ tripId }).sort({ capturedAt: 1 }).lean();
+  const live = () => h.services.repos.live.getByBus(h.seed.campusA, h.seed.bus1);
+  const history = async (tripId: string) => (await h.services.repos.telemetry.listByTrip(tripId, { pageSize: 100 })).items;
 
   describe('timestamps are untrusted', () => {
     it('rejects future, ancient and pre-trip capture times; accepts small clock skew', async () => {
@@ -90,7 +90,7 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: data integrity', () => {
       expect((await send(trip.id, [newer])).body.results[0].appliedToLive).toBe(true);
       const late = await send(trip.id, [older]);
       expect(late.body.results[0]).toMatchObject({ status: 'accepted', appliedToLive: false });
-      expect((await live())!.location.coordinates).toEqual([77.0270, 28.4600]);
+      expect((await live())!.location).toEqual({ lat: 28.4600, lng: 77.0270 });
       expect(await history(trip.id)).toHaveLength(2);
       expect(h.emitted).toHaveLength(1);
     });
@@ -99,7 +99,7 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: data integrity', () => {
       const e1 = ev(h, -6_000, 28.4590, 77.0260), e2 = ev(h, -3_000, 28.4592, 77.0262), e3 = ev(h, -1_000, 28.4594, 77.0264);
       const res = await send(trip.id, [e3, e1, e2]);
       expect(res.body.results.map((r: any) => r.status)).toEqual(['accepted', 'accepted', 'accepted']);
-      expect((await live())!.location.coordinates).toEqual([77.0264, 28.4594]);
+      expect((await live())!.location).toEqual({ lat: 28.4594, lng: 77.0264 });
       expect((await history(trip.id)).map((r) => r.eventId)).toEqual([e1.eventId, e2.eventId, e3.eventId]);
     });
   });
@@ -118,7 +118,7 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: data integrity', () => {
       expect(fresh.body.results[0].appliedToLive).toBe(true);
       const again = await send(trip.id, queued); // retry of the same queue after a lost response
       expect(again.body.results.map((r: any) => r.status)).toEqual(['duplicate', 'duplicate', 'duplicate']);
-      expect((await live())!.location.coordinates).toEqual([77.0300, 28.4700]);
+      expect((await live())!.location).toEqual({ lat: 28.4700, lng: 77.0300 });
       expect(await history(trip.id)).toHaveLength(4);
     });
     it('low-accuracy fixes are kept as history but not shown live', async () => {
@@ -168,7 +168,7 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: data integrity', () => {
       const p = { userId: h.seed.driver1, campusId: h.seed.campusA, role: 'DRIVER' as const };
       await h.services.trips.end(p, trip.id);
       await expect(h.services.trips.end(p, trip.id)).rejects.toMatchObject({ status: 409, code: 'TRIP_NOT_ACTIVE' });
-      expect((await h.models.Trip.findById(trip.id).lean())!.status).toBe('COMPLETED');
+      expect((await h.services.repos.trips.findById(h.seed.campusA, trip.id))!.status).toBe('COMPLETED');
     });
   });
 
@@ -201,7 +201,7 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: data integrity', () => {
   });
 });
 
-describe.skipIf(!MONGO_URI)('GPS ingestion: rate limiting', () => {
+describe.skipIf(!PG_TEST_URL)('GPS ingestion: rate limiting', () => {
   let h: Harness;
   beforeAll(async () => { h = await createHarness({ rateLimitEvents: 5, rateLimitWindowMs: 60_000 }); });
   afterAll(async () => { await h.close(); });

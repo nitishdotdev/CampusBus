@@ -1,10 +1,10 @@
 import { io as connect, type Socket } from 'socket.io-client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHarness, ev, freshTrip, id, MONGO_URI, type Harness } from './harness';
+import { createHarness, ev, freshTrip, id, PG_TEST_URL, type Harness } from './harness';
 
 const MIN = 60_000;
-describe.skipIf(!MONGO_URI)('Live snapshot access control and freshness (REST)', () => {
+describe.skipIf(!PG_TEST_URL)('Live snapshot access control and freshness (REST)', () => {
   let h: Harness;
   beforeAll(async () => { h = await createHarness(); });
   afterAll(async () => { await h.close(); });
@@ -40,9 +40,9 @@ describe.skipIf(!MONGO_URI)('Live snapshot access control and freshness (REST)',
 
   it('a pending or disabled student loses access immediately', async () => {
     await freshTrip(h);
-    await h.models.User.updateOne({ _id: h.seed.studentR1 }, { status: 'DISABLED' });
+    await h.services.repos.users.updateStatus(h.seed.campusA, h.seed.studentR1, 'DISABLED');
     expect((await get(as(h.seed.studentR1, 'STUDENT'), h.seed.bus1)).status).toBe(403);
-    await h.models.User.updateOne({ _id: h.seed.studentR1 }, { status: 'ACTIVE' });
+    await h.services.repos.users.updateStatus(h.seed.campusA, h.seed.studentR1, 'ACTIVE');
   });
 
   it('reports UNAVAILABLE, LIVE, STALE, DRIVER_OFFLINE and TRIP_ENDED from server-side times', async () => {
@@ -81,7 +81,7 @@ describe.skipIf(!MONGO_URI)('Live snapshot access control and freshness (REST)',
   });
 });
 
-describe.skipIf(!MONGO_URI)('Socket.IO: authentication, subscriptions and delivery', () => {
+describe.skipIf(!PG_TEST_URL)('Socket.IO: authentication, subscriptions and delivery', () => {
   let h: Harness;
   const sockets: Socket[] = [];
   beforeAll(async () => { h = await createHarness(); });
