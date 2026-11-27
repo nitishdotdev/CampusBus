@@ -16,13 +16,12 @@ describe('production v1 wiring', () => {
     expect(apiServer).not.toMatch(/CORS_ORIGIN \?\? 'http:\/\/localhost:5173'/);
   });
 
-  it('keeps production on campusmove-api + Neon Postgres and Vercel v1 flag without baking an API URL', () => {
+  it('keeps production on campusmove-api + Neon Postgres and Vercel without baking an API URL', () => {
     expect(renderYaml).toMatch(/name:\s*campusmove-api/);
     expect(renderYaml).toMatch(/key:\s*DATABASE_URL/);
     expect(renderYaml).not.toMatch(/key:\s*MONGODB_URI/);
     expect(renderYaml).toMatch(/npm run api:build/);
     expect(renderYaml).toMatch(/npm run api:start/);
-    expect(vercelJson.env?.VITE_USE_V1_API).toBe('true');
     expect(vercelJson.env?.VITE_API_V1_URL).toBeUndefined();
   });
 
@@ -82,56 +81,5 @@ describe('production v1 wiring', () => {
     ]) {
       expect(pgSchema, `missing v1.${table}`).toMatch(new RegExp(`v1\\.${table}\\b`));
     }
-  });
-});
-
-const appContext = readFileSync(new URL('../src/store/AppContext.tsx', import.meta.url), 'utf8');
-const busServiceSrc = readFileSync(new URL('../src/services/busService.ts', import.meta.url), 'utf8');
-const adminServiceSrc = readFileSync(new URL('../src/services/adminService.ts', import.meta.url), 'utf8');
-const routeServiceSrc = readFileSync(new URL('../src/services/routeService.ts', import.meta.url), 'utf8');
-const notificationServiceSrc = readFileSync(new URL('../src/services/notificationService.ts', import.meta.url), 'utf8');
-const driverDashboard = readFileSync(new URL('../src/pages/driver/DriverDashboard.tsx', import.meta.url), 'utf8');
-
-describe('production V1 frontend does not use leftover HTTP stores or fake records', () => {
-  it('gates leftover AppContext store subscriptions so V1 mode never subscribes them', () => {
-    const start = appContext.indexOf('Data subscriptions');
-    const end = appContext.indexOf('Trip Recovery');
-    expect(start).toBeGreaterThan(-1);
-    expect(end).toBeGreaterThan(start);
-    const block = appContext.slice(start, end);
-    expect(block).toMatch(/if\s*\(\s*USE_V1\s*\)/);
-    const v1Return = block.indexOf('if (USE_V1)');
-    const leftoverSub = block.indexOf('realtimeService.subscribeBuses');
-    expect(v1Return).toBeGreaterThan(-1);
-    expect(leftoverSub).toBeGreaterThan(v1Return);
-  });
-
-  it('does not invent a client fallback bus when V1 create fails', () => {
-    expect(busServiceSrc).not.toMatch(/using client fallback/);
-    expect(busServiceSrc).not.toMatch(/id:\s*'bus_' \+ Date\.now/);
-  });
-
-  it('rethrows V1 bus update and delete errors instead of mutating local store', () => {
-    const updateFn = busServiceSrc.slice(busServiceSrc.indexOf('public async updateBus'));
-    const deleteFn = busServiceSrc.slice(busServiceSrc.indexOf('public async deleteBus'));
-    expect(updateFn).toMatch(/if \(USE_V1\) throw/);
-    expect(deleteFn).toMatch(/if \(USE_V1\) throw/);
-  });
-
-  it('does not invent a fallback emergency alert when V1 raise fails', () => {
-    expect(adminServiceSrc).not.toMatch(/fallbackAlert/);
-    expect(adminServiceSrc).not.toMatch(/id:\s*'alert_' \+ Date\.now/);
-  });
-
-  it('does not invent a fake route or notification when V1 create fails', () => {
-    expect(routeServiceSrc).not.toMatch(/id:\s*'route_' \+ Date\.now/);
-    expect(notificationServiceSrc).not.toMatch(/id:\s*'notif_' \+ Date\.now/);
-  });
-
-  it('driver emergency in V1 raises via alertsV1 and does not swallow API errors as fake success', () => {
-    expect(driverDashboard).toMatch(/alertsV1\.raise/);
-    const sos = driverDashboard.slice(driverDashboard.indexOf('handleSendEmergency'));
-    expect(sos).toMatch(/if\s*\(\s*USE_V1\s*\)/);
-    expect(sos).toMatch(/alertsV1\.raise/);
   });
 });

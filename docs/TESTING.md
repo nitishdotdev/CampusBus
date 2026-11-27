@@ -1,23 +1,23 @@
-# Testing
+# Testing CampusBus
 
-| Command | What it covers | Needs |
-|---|---|---|
-| `npm run lint` | `tsc` for the app and strict `tsc -p apps/api` | nothing |
-| `npm test` | Vitest: policy, tokens, CORS, TLS config, analytics, JWT secret (always); integration suites below when their variables are set (otherwise skipped) | nothing for the base set |
-| `npm run build` | production frontend and server bundle | nothing |
-| `npm run test:verify` | legacy HTTP/Socket suite (53 checks) against a running dev server using the file-backed store | `NODE_ENV=development PORT=3000 npx tsx server.ts` running |
-| `npx tsx scripts/test-prod-hardening.ts` | production refuses to start without DB/secrets | nothing |
+Run `npm ci`, `npm run lint`, and `npm test`. Unit tests run without services. The API integration suites exercise Express, Socket.IO and the shipping repositories on PostgreSQL, including account and refresh lifecycle, assignment integrity, trip transitions, GPS, schedule validation and complaints.
 
-## Integration suites (variables; never point them at production)
-| Variable | Enables |
-|---|---|
-| `MONGODB_TEST_URI` (e.g. `mongodb://127.0.0.1:27017`) | `apps/api/tests/*.integration.test.ts`: GPS authorization, integrity, live access, sockets, models, persistence across reconnects. Each file creates and drops its own database |
-| `PG_TEST_URL` | `tests/pg-schema.integration.test.ts` (legacy PostgreSQL schema, schedules/complaints) |
-| `PG_TLS_TEST_URL`, `PG_TLS_TEST_CA_FILE`, optional `PG_TLS_TEST_WRONG_DNS_URL` | `tests/pg-tls.integration.test.ts` against a TLS-enabled Postgres with a private CA |
-| `CI_REQUIRE_INTEGRATION=1` | makes the run fail if any of the above is missing |
+| Test variable | Purpose |
+| --- | --- |
+| `PG_TEST_URL` | Disposable loopback PostgreSQL database with a name ending in `_test`. The user needs permission to create disposable child databases. |
+| `PG_TLS_TEST_URL` | Separate PostgreSQL instance with TLS enabled. Its hostname must match the certificate SAN. |
+| `PG_TLS_TEST_CA_FILE` | Test CA used to verify the TLS server. |
+| `PG_TLS_TEST_WRONG_DNS_URL` | Resolvable alias with a hostname absent from the server certificate. |
+| `CI_REQUIRE_INTEGRATION=1` | Fails CI if any test prerequisite is absent. |
 
-## Results recorded so far
-See `IMPLEMENTATION_STATUS.md`. Mongo-dependent results come from FerretDB 1.24, not MongoDB; CI uses `mongo:7` but has not run.
+The CI workflow provisions PostgreSQL 16 and a TLS-enabled PostgreSQL instance with a private test CA. It runs both builds and the npm vulnerability audit. The PostgreSQL v1 suite includes idempotent migration checks. The retained historical SQL tests are useful for assessing old database imports.
 
-## Mutation checks
-Security-critical rules were verified by deliberately breaking each one and confirming a test fails (driver ownership, role check, assignment check, timestamp bounds, live eligibility, ordering, duplicate detection, access policy, rate limit, socket authorization, token algorithm/issuer, TLS parameter stripping, retention purge, pagination clamp, single-active-trip keys). One mutant initially survived and exposed a freshness-rule inconsistency, now fixed.
+For a browser run, create a disposable campus, one account per role, at least one stop sequence and a bus assignment, then use the frontend production build against the local API. Exercise both deep links and reloads after logging in. Wait for the route's own rendered content, capture console and HTTP errors, and test at 360, 390, 768, 1024, and 1440 CSS pixels. Capture empty and active states when possible. Use a separate device for physical GPS and Chrome 109 validation.
+
+Current commands for build and dependency checks:
+
+```sh
+VITE_API_V1_URL=https://api.example.edu npm run build
+npm run api:build
+npm audit --audit-level=high
+```

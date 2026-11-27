@@ -5,6 +5,7 @@ node_modules/
 
 # Build outputs & artifacts
 dist/
+dist-api/
 build/
 coverage/
 *.tsbuildinfo

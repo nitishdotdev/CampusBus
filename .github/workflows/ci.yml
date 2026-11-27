@@ -50,21 +50,15 @@ jobs:
           for i in $(seq 1 30); do docker exec pgtls pg_isready -U postgres && break || sleep 1; done
           echo "127.0.0.1 db-wrong.test" | sudo tee -a /etc/hosts
 
-      - name: Type-check (web/server and strict apps/api)
+      - name: Type-check frontend and API
         run: npm run lint
       - name: Unit + integration tests (Vitest; fails if integration suites are skipped)
         run: npm test
       - name: Production build
         env:
-          VITE_USE_V1_API: 'true'
           VITE_API_V1_URL: https://campusmove-api.example.com
         run: npm run build
-      - name: Legacy integration suite (dev server, file-backed store)
-        run: |
-          NODE_ENV=development PORT=3000 npx tsx server.ts > server.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break || sleep 1; done
-          npm run test:verify
-      - name: Production-hardening checks
-        run: npx tsx scripts/test-prod-hardening.ts
+      - name: API build
+        run: npm run api:build
       - name: Dependency audit
         run: npm audit --audit-level=high

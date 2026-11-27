@@ -1,54 +1,20 @@
 # Architecture
 
-Status key: **Implemented** (verified in code), **Proposed** (not built).
+| Layer | Current implementation |
+| --- | --- |
+| Browser | React and Vite. Browser history routes run through the authenticated shell and restore the tab session before mounting role-specific views. |
+| API | `apps/api/src/server.ts` serves the v1 Express endpoints and the Socket.IO gateway. Development runs the same entry point with tsx. Render runs its compiled bundle. |
+| Persistence | `apps/api/src/infra/postgres` implements the repository ports. SQL queries scope campus resources to the authenticated campus. |
+| Domain | `apps/api/src/domain` handles access, trip ownership, GPS plausibility, and freshness. |
 
-## 1. Current system (Implemented, verified 2026-10-10)
-- Single npm package. `server.ts` runs Express and Socket.IO on one process; in development it mounts Vite as middleware, in production it serves `dist/`.
-- Frontend: React 19, TypeScript, Vite 8, Tailwind 4, React Router 7, Leaflet, Socket.IO client, global state in `src/store/AppContext.tsx`. No TanStack Query.
-- Backend: Express 4 routes in `server/routes/*` (auth, colleges, buses, routes, trips, driver, notifications, alerts, analytics, schedules, complaints).
-- Persistence: `server/db/index.ts` (~1,900 lines) with two modes: PostgreSQL via `pg`, or a JSON file in `.data/` (development only; production refuses to start without `DATABASE_URL`).
-- Auth: JWT (HS256, 7 days) in a Bearer header, token kept in `localStorage`, bcryptjs hashes.
-- Tenancy: every record carries `college_id`; routes filter by `req.user.collegeId`; sockets join `college:<id>` rooms.
-- Offline GPS: IndexedDB queue in `src/services/offlineQueue.ts`.
-- Deploy files: `render.yaml` (web service plus Render Postgres), `vercel.json` plus `api/index.ts` (serverless entry, cannot host Socket.IO).
+Vite proxies HTTP and WebSocket requests during local development. Production uses the configured API origin. Vercel builds only the frontend and the API is built separately into `dist-api`.
 
-## 2. Known gaps in the current GPS path (Implemented behavior, verified in `server/routes/driver.ts`)
-- `POST /api/driver/location` checks that the bus is in the caller's college, not that the caller is the assigned driver or has an active trip; `ADMIN` may also post.
-- `trip_id` falls back to `'no_trip'`; client `timestamp` and `id` are trusted without bounds.
-- Missing speed is replaced with a constant 22 km/h before ETA calculation.
-- `isSimulated` is accepted from the client in any environment.
-- Out-of-order points still overwrite the bus's live position; there is no staleness cut-off on write.
-- The room is `college:<id>`; there is no per-route or per-student subscription check.
-These are Stage 4 work items and are covered by planned tests (see `IMPLEMENTATION_STATUS.md`).
+The bus row holds the authoritative driver and route assignment. Driver directory fields derive from that relationship. Student transport preferences remain on the user row. PostgreSQL serializes assignment and trip start on the bus row, and unique indexes enforce a single active trip per bus and driver. A route is live when it has a real active trip with a fresh fix. An active trip with limited tracking has a separate status. Vehicle availability is independently controlled by dispatch.
 
-## 2b. apps/api (Implemented, tested, not connected to anything yet)
-New strict-TypeScript package-in-progress under `apps/api`, using the root `node_modules` until the workspace split:
-`domain/` (business rules, depend only on ports in `domain/types.ts`), `infra/mongo/` (connection-bound Mongoose models and repositories), `http/` (Express app factory), `realtime/` (Socket.IO gateway), `auth/` (access tokens), `compose.ts` (wiring). Business logic never imports Mongoose. See `GPS_TRACKING.md` and `DATABASE.md`. The legacy `server/` code is untouched and remains the running backend.
+Trip start snapshots the ordered stop list. Accepted, fresh positions can confirm the next stop under the trip lock. Stale fixes and low-accuracy fixes cannot advance that stop. The next stop and completed stops are read from the same persisted trip state. The browser only renders an approximate ETA when an authorized, fresh position and measured or derived movement speed are available.
 
-## 3. Target system (Proposed)
-```
-apps/web  (React + Vite + TS + Tailwind + TanStack Query + Leaflet)  --> Vercel
-apps/api  (Express + TS + Mongoose + Socket.IO + Zod)                --> Render (persistent Node service)
-MongoDB Atlas                                                         --> primary database
-```
-- Persistent Node service for REST and Socket.IO; Vercel serves only static assets and rewrites SPA routes. The serverless `api/index.ts` is removed once the Render service is the API.
-- Auth: short-lived access token plus rotating refresh token in an `HttpOnly; Secure; SameSite=None` cookie (cross-site Vercel to Render), CSRF token on refresh/logout, Argon2id hashing, email verification and reset.
-- Telemetry: driver device, Geolocation API, Zod validation, authenticated ingest, `Telemetry` insert (idempotent on `eventId`), conditional update of `VehicleLocation` only when the event is newer than the stored one, then Socket.IO emit to `route:<id>` rooms the client is authorised for.
-- Live vs history are separate collections: `vehicleLocations` (one doc per bus) and `telemetry` (append-only, TTL index).
+Complaint states progress from open to in progress or resolved, then closed. PostgreSQL conditions the update on the previous state. Students see their own records and administrators see only records in their campus. Response, resolution and closure timestamps have separate meanings.
 
-## 4. Migration strategy (Proposed, incremental)
-Each step ends with lint, build, `npm test` and `npm run test:verify` green before the next starts.
-1. Done: baseline fixes, security fixes, Vitest, CI.
-2. Introduce a repository interface over the current `db` object and move routes to it, with no behavior change.
-3. Add Mongoose models and a Mongo repository implementation behind the same interface; run the integration suite against both a disposable MongoDB and the current store.
-4. Replace auth (Argon2id, refresh tokens, verification, reset).
-5. Rebuild the GPS ingest and Socket.IO authorization with the gaps in section 2 closed.
-6. Extract `apps/api` and `apps/web` (workspace move only, no logic changes).
-7. Playwright journeys, then deployment configs.
+GPS fixes queue by authenticated driver and original trip. IndexedDB survives a page reload. The API retains eligible late history without moving a live position backwards. Access tokens stay in memory. Rotating refresh tokens use browser session storage to support reloads across split origins. That storage is accessible to same-origin script. Moving refresh tokens to HttpOnly cookies requires an agreed same-site or reverse-proxy deployment.
 
-### Compatibility risks
-- Tokens in `localStorage` to cookies changes the frontend `apiClient` and the socket handshake.
-- Cross-site cookies need HTTPS on both origins; must be tested in real browsers.
-- `client ids` generated on the device (`loc_...`) vs server ObjectIds: keep client-supplied `eventId` as a separate idempotency key.
-- Vite 8 and TypeScript 7 are very new; pin versions in the lockfile and keep CI as the guard.
-- `render.yaml` provisions Postgres; it must be changed only when migration is authorised.
+The historical `server/` implementation and its schema fixtures remain available to inspect pre-v1 data and validate migration assumptions. It is outside the default web build, development workflow and Vercel deployment.

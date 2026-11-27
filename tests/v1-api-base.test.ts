@@ -18,37 +18,35 @@ describe('resolveV1ApiBase', () => {
   });
 
   it('throws in production v1 mode when the URL is missing or empty', () => {
-    expect(() => resolveV1ApiBase({ VITE_USE_V1_API: 'true', PROD: true })).toThrow(
+    expect(() => resolveV1ApiBase({ PROD: true })).toThrow(
       /VITE_API_V1_URL/,
     );
     expect(() =>
-      resolveV1ApiBase({ VITE_USE_V1_API: 'true', NODE_ENV: 'production', VITE_API_V1_URL: '' }),
+      resolveV1ApiBase({ NODE_ENV: 'production', VITE_API_V1_URL: '' }),
     ).toThrow(/VITE_API_V1_URL/);
   });
 
   it('throws in production v1 mode when the URL is not an absolute http(s) origin', () => {
     expect(() =>
-      resolveV1ApiBase({ VITE_USE_V1_API: 'true', PROD: true, VITE_API_V1_URL: '/api' }),
+      resolveV1ApiBase({ PROD: true, VITE_API_V1_URL: '/api' }),
     ).toThrow(/VITE_API_V1_URL/);
     expect(() =>
       resolveV1ApiBase({
-        VITE_USE_V1_API: 'true',
         MODE: 'production',
         VITE_API_V1_URL: 'not-a-url',
       }),
     ).toThrow(/VITE_API_V1_URL/);
   });
 
-  it('returns empty when v1 is disabled and no URL is set', () => {
+  it('uses the same-origin development proxy when no URL is set', () => {
     expect(resolveV1ApiBase({})).toBe('');
-    expect(resolveV1ApiBase({ VITE_USE_V1_API: 'false' })).toBe('');
   });
 });
 
 describe('assertProductionV1Env', () => {
   it('fails a production build when VITE_API_V1_URL is not a valid absolute URL', () => {
     expect(() =>
-      assertProductionV1Env({ VITE_USE_V1_API: 'true', NODE_ENV: 'production' }),
+      assertProductionV1Env({ NODE_ENV: 'production' }),
     ).toThrow(/VITE_API_V1_URL/);
     expect(() => assertProductionV1Env({ NODE_ENV: 'production' })).toThrow(/VITE_USE_V1_API|VITE_API_V1_URL/);
   });
@@ -56,16 +54,15 @@ describe('assertProductionV1Env', () => {
   it('allows production v1 builds when the URL is an absolute origin without requiring a trailing path', () => {
     expect(() =>
       assertProductionV1Env({
-        VITE_USE_V1_API: 'true',
         NODE_ENV: 'production',
         VITE_API_V1_URL: 'https://campusbus-api.example.com',
       }),
     ).not.toThrow();
   });
 
-  it('does not allow production to silently skip V1', () => {
-    expect(() =>
-      assertProductionV1Env({ VITE_USE_V1_API: 'false', NODE_ENV: 'production', VITE_API_V1_URL: 'https://api.example.edu' }),
-    ).toThrow(/VITE_USE_V1_API/);
+  it('rejects credentials, unexpected paths, queries, and fragments in the production origin', () => {
+    for (const url of ['https://user@example.edu', 'https://api.example.edu/path', 'https://api.example.edu/?q=x', 'https://api.example.edu/#part']) {
+      expect(() => assertProductionV1Env({ PROD: true, VITE_API_V1_URL: url })).toThrow(/VITE_API_V1_URL/);
+    }
   });
 });

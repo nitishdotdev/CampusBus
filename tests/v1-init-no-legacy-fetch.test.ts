@@ -22,7 +22,6 @@ describe('V1 initialization never hits leftover HTTP', () => {
 
   beforeEach(() => {
     urls = [];
-    vi.stubEnv('VITE_USE_V1_API', 'true');
     vi.stubEnv('VITE_API_V1_URL', 'https://campusmove-nahp.onrender.com');
     vi.stubGlobal(
       'fetch',
@@ -40,21 +39,16 @@ describe('V1 initialization never hits leftover HTTP', () => {
     vi.restoreAllMocks();
   });
 
-  it('importing frontend singletons with VITE_USE_V1_API=true does not fetch leftover /api/*', async () => {
-    await import('../src/services/routeService');
-    await import('../src/services/notificationService');
-    await import('../src/services/adminService');
+  it('importing frontend singletons does not fetch leftover /api/*', async () => {
     await import('../src/services/authService');
     await import('../src/services/tripService');
-    await import('../src/services/realtimeService');
-    await import('../src/services/socketService');
     await import('../src/services/locationService');
     await import('../src/store/AppContext');
     await new Promise((r) => setTimeout(r, 30));
     expect(urls.filter(isLegacyUrl)).toEqual([]);
   });
 
-  it('mounts App with VITE_USE_V1_API=true and does not fetch leftover /api/*', async () => {
+  it('mounts App and does not fetch leftover /api/*', async () => {
     const { default: App } = await import('../src/App');
     const rootEl = document.createElement('div');
     document.body.appendChild(rootEl);
@@ -70,6 +64,7 @@ describe('V1 initialization never hits leftover HTTP', () => {
     const { authService } = await import('../src/services/authService');
     const result = await authService.changePassword('old-pass-1', 'NewPass2!');
     expect(urls.filter(isLegacyUrl)).toEqual([]);
-    expect(result.success).toBe(false);
+    expect(urls.map(url => new URL(url, 'http://localhost').pathname)).toContain('/api/v1/auth/change-password');
+    expect(result.success).toBe(true);
   });
 });
