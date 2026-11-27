@@ -1,6 +1,6 @@
 import type { Bus, CampusNotification, EmergencyAlert, Route, RouteStatus, Trip } from '../../types';
 import type { V1Bus } from './buses';
-import type { V1Notification, V1Alert, V1Schedule } from './notifications';
+import type { V1Notification, V1Alert, V1Schedule, ScheduleDirection } from './notifications';
 import type { V1Route } from './routes';
 import type { V1Trip } from './trips';
 
@@ -122,6 +122,7 @@ export interface UiSchedule {
   route_id: string;
   departure_time: string;
   arrival_time?: string;
+  direction: ScheduleDirection;
   operating_days: string[];
   status: string;
   notes?: string;
@@ -133,6 +134,7 @@ export function v1ScheduleToUi(s: V1Schedule): UiSchedule {
     bus_id: s.busId,
     route_id: s.routeId,
     departure_time: s.departTime,
+    arrival_time: s.arriveTime ?? undefined, direction: s.direction,
     operating_days: s.daysOfWeek.map((d) => DAY_NAMES[d]).filter(Boolean),
     status: s.active ? 'ACTIVE' : 'INACTIVE',
     notes: s.direction === 'FROM_CAMPUS' ? 'From campus' : 'To campus',

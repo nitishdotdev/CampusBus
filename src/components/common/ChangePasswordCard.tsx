@@ -70,18 +70,18 @@ export const ChangePasswordCard: React.FC = () => {
 
       {success && (
         <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-800">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <CheckCircle2 className="w-4 h-4 text-emerald-800 shrink-0" />
           <span>{success}</span>
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
         <div>
-          <label className="block font-bold text-slate-700 mb-1">Current Password</label>
+          <label htmlFor="change-password-current" className="block font-bold text-slate-700 mb-1">Current Password</label>
           <div className="relative">
             <input
               type={showPassword ? 'text' : 'password'}
-              value={currentPassword}
+              id="change-password-current" autoComplete="current-password" value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="Enter your current password"
               className="w-full p-2.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
@@ -89,7 +89,7 @@ export const ChangePasswordCard: React.FC = () => {
             />
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
+              onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -99,10 +99,10 @@ export const ChangePasswordCard: React.FC = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block font-bold text-slate-700 mb-1">New Password</label>
+            <label htmlFor="change-password-new" className="block font-bold text-slate-700 mb-1">New Password</label>
             <input
               type={showPassword ? 'text' : 'password'}
-              value={newPassword}
+              id="change-password-new" autoComplete="new-password" value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Min 8 characters"
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
@@ -110,10 +110,10 @@ export const ChangePasswordCard: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Confirm New Password</label>
+            <label htmlFor="change-password-confirm" className="block font-bold text-slate-700 mb-1">Confirm New Password</label>
             <input
               type={showPassword ? 'text' : 'password'}
-              value={confirmPassword}
+              id="change-password-confirm" autoComplete="new-password" value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-type new password"
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"

@@ -89,7 +89,7 @@ export const AdminDashboard: React.FC = () => {
             <span className="p-2 rounded-lg bg-blue-50 text-blue-600"><BusIcon className="w-4 h-4" /></span>
           </div>
           <div className="text-2xl sm:text-3xl font-black text-blue-600 mt-2 font-mono">
-            {available.length}<span className="text-sm font-semibold text-slate-400">/{buses.length}</span>
+            {available.length}<span className="text-sm font-semibold text-slate-600">/{buses.length}</span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
             {buses.length === 0 ? 'No buses configured' : `${buses.filter(bus => bus.operationalStatus === 'MAINTENANCE').length} in maintenance`}
@@ -102,7 +102,7 @@ export const AdminDashboard: React.FC = () => {
             <span className="p-2 rounded-lg bg-emerald-50 text-emerald-600"><Users className="w-4 h-4" /></span>
           </div>
           <div className="text-2xl sm:text-3xl font-black text-emerald-600 mt-2 font-mono">
-            {live.length}<span className="text-sm font-semibold text-slate-400">/{activeBuses.length}</span>
+            {live.length}<span className="text-sm font-semibold text-slate-600">/{activeBuses.length}</span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
             {activeBuses.length ? `${activeBuses.length - live.length} with limited tracking` : 'No active trips'}
@@ -145,7 +145,7 @@ export const AdminDashboard: React.FC = () => {
             <EmptyState title="No buses configured" description="Add buses to the fleet to start tracking them." icon={BusIcon} actionLabel="Add Bus" onAction={() => {}} />
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" role="region" tabIndex={0} aria-label="Fleet status table">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
@@ -167,7 +167,7 @@ export const AdminDashboard: React.FC = () => {
                           <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs">{bus.busNumber.split('-')[1] || bus.busNumber}</div>
                           <div>
                             <div>{bus.busNumber}</div>
-                            <div className="text-[10px] text-slate-400">{bus.model}</div>
+                            <div className="text-[10px] text-slate-600">{bus.model}</div>
                           </div>
                         </div>
                       </td>
@@ -178,7 +178,7 @@ export const AdminDashboard: React.FC = () => {
                             <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: route.color }} />
                             <span>{route.code}</span>
                           </div>
-                        ) : <span className="text-slate-400">Unassigned</span>}
+                        ) : <span className="text-slate-600">Unassigned</span>}
                       </td>
                       <td className="py-3.5 px-4 font-mono">{bus.hasOccupancy ? `${bus.currentOccupancy}/${bus.capacity}` : 'Unavailable'}</td>
                       <td className="py-3.5 px-4">

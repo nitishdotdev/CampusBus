@@ -94,11 +94,11 @@ export const AdminAlerts: React.FC = () => {
 
           <form onSubmit={handleBroadcast} className="space-y-3.5">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Advisory Title *</label>
+              <label htmlFor="advisory-title" className="block text-xs font-bold text-slate-700 mb-1">Advisory Title *</label>
               <input
                 type="text"
                 required
-                value={title}
+                id="advisory-title" value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. 15-Minute Heavy Traffic Delay on South Connector"
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
@@ -107,9 +107,9 @@ export const AdminAlerts: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
+                <label htmlFor="advisory-category" className="block text-xs font-bold text-slate-700 mb-1">Category</label>
                 <select
-                  value={category}
+                  id="advisory-category" value={category}
                   onChange={(e) => setCategory(e.target.value as NotificationCategory)}
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
                 >
@@ -121,9 +121,9 @@ export const AdminAlerts: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Priority Level</label>
+                <label htmlFor="advisory-priority" className="block text-xs font-bold text-slate-700 mb-1">Priority Level</label>
                 <select
-                  value={priority}
+                  id="advisory-priority" value={priority}
                   onChange={(e) => setPriority(e.target.value as NotificationPriority)}
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold"
                 >
@@ -139,7 +139,7 @@ export const AdminAlerts: React.FC = () => {
                 Affects Specific Line (Optional)
               </label>
               <select
-                value={selectedRouteId}
+                aria-label="Target route" value={selectedRouteId}
                 onChange={(e) => setSelectedRouteId(e.target.value)}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
               >
@@ -153,11 +153,11 @@ export const AdminAlerts: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Advisory Message *</label>
+              <label htmlFor="advisory-message" className="block text-xs font-bold text-slate-700 mb-1">Advisory Message *</label>
               <textarea
                 rows={3}
                 required
-                value={message}
+                id="advisory-message" value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder="Provide details, detour instructions, or estimated resolution times..."
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"

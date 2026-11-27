@@ -37,7 +37,7 @@ export const DriverProfile: React.FC = () => {
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
             <div className="text-slate-500 text-[11px] font-semibold uppercase">Duty Authorization</div>
             <div className="font-bold text-slate-900 mt-0.5">Campus Shuttle Operations</div>
-            <div className="text-emerald-600 text-[11px] font-medium mt-1 flex items-center gap-1">
+            <div className="text-emerald-800 text-[11px] font-medium mt-1 flex items-center gap-1">
               <CheckCircle2 className="w-3.5 h-3.5" /> Active Status
             </div>
           </div>

@@ -248,3 +248,6 @@ ALTER TABLE v1.buses ADD COLUMN IF NOT EXISTS plate_number VARCHAR(32);
 
 ALTER TABLE v1.campuses ADD COLUMN IF NOT EXISTS dispatch_phone VARCHAR(32);
 ALTER TABLE v1.campuses ADD COLUMN IF NOT EXISTS gps_interval_seconds INTEGER NOT NULL DEFAULT 3 CHECK (gps_interval_seconds BETWEEN 2 AND 10);
+
+ALTER TABLE v1.schedules ADD COLUMN IF NOT EXISTS arrive_time VARCHAR(5)
+  CHECK (arrive_time IS NULL OR arrive_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$');

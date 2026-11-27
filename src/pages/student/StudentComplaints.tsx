@@ -119,7 +119,7 @@ export function StudentComplaints() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="complaint-category" className="block text-sm font-semibold text-gray-700 mb-2">
                   Category
                 </label>
                 <select
@@ -138,7 +138,7 @@ export function StudentComplaints() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="complaint-priority" className="block text-sm font-semibold text-gray-700 mb-2">
                   Priority
                 </label>
                 <select

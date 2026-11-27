@@ -20,7 +20,7 @@ export interface V1Alert {
 export type ScheduleDirection = 'TO_CAMPUS' | 'FROM_CAMPUS';
 export interface V1Schedule {
   id: string; campusId: string; routeId: string; busId: string;
-  direction: ScheduleDirection; daysOfWeek: number[]; departTime: string; active: boolean;
+  direction: ScheduleDirection; daysOfWeek: number[]; departTime: string; arriveTime?: string | null; active: boolean;
 }
 
 interface Page<T> { items: T[]; total: number; page: number; pageSize: number }
@@ -61,9 +61,9 @@ export const schedulesV1 = {
   },
   create: (body: {
     routeId: string; busId: string; direction: ScheduleDirection;
-    daysOfWeek: number[]; departTime: string; active?: boolean;
+    daysOfWeek: number[]; departTime: string; arriveTime?: string | null; active?: boolean;
   }) => v1Client.post<V1Schedule>('/api/v1/schedules', body),
-  update: (id: string, patch: Partial<{ direction: ScheduleDirection; daysOfWeek: number[]; departTime: string; active: boolean }>) =>
+  update: (id: string, patch: Partial<{ routeId: string; busId: string; direction: ScheduleDirection; daysOfWeek: number[]; departTime: string; arriveTime?: string | null; active: boolean }>) =>
     v1Client.patch<V1Schedule>(`/api/v1/schedules/${id}`, patch),
   delete: (id: string) => v1Client.delete<void>(`/api/v1/schedules/${id}`),
 };

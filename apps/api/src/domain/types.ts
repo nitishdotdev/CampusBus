@@ -143,7 +143,7 @@ export interface LiveEmitter { emitLocation(campusId: string, busId: string, pay
 export type ScheduleDirection = 'TO_CAMPUS' | 'FROM_CAMPUS';
 export interface ScheduleDTO {
   id: string; campusId: string; routeId: string; busId: string;
-  direction: ScheduleDirection; daysOfWeek: number[]; departTime: string; active: boolean;
+  direction: ScheduleDirection; daysOfWeek: number[]; departTime: string; arriveTime?: string | null; active: boolean;
 }
 export type NotificationKind = 'ANNOUNCEMENT' | 'DELAY' | 'ROUTE_CHANGE' | 'EMERGENCY';
 export type NotificationPriority = 'NORMAL' | 'HIGH' | 'URGENT';

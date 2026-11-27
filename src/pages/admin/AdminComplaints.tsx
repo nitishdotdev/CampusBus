@@ -85,10 +85,10 @@ export function AdminComplaints() {
   };
 
   const stats = [
-    { label: 'Total', value: complaints.length, color: 'bg-gray-500' },
-    { label: 'Open', value: complaints.filter((c) => c.status === 'OPEN').length, color: 'bg-yellow-500' },
-    { label: 'In Progress', value: complaints.filter((c) => c.status === 'IN_PROGRESS').length, color: 'bg-blue-500' },
-    { label: 'Resolved', value: complaints.filter((c) => c.status === 'RESOLVED').length, color: 'bg-green-500' },
+    { label: 'Total', value: complaints.length, color: 'bg-slate-700' },
+    { label: 'Open', value: complaints.filter((c) => c.status === 'OPEN').length, color: 'bg-amber-800' },
+    { label: 'In Progress', value: complaints.filter((c) => c.status === 'IN_PROGRESS').length, color: 'bg-blue-700' },
+    { label: 'Resolved', value: complaints.filter((c) => c.status === 'RESOLVED').length, color: 'bg-emerald-800' },
   ];
 
   const visible = filter === 'ALL' ? complaints : complaints.filter(item => item.status === filter);
@@ -108,7 +108,7 @@ export function AdminComplaints() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {stats.map((stat) => (
             <div key={stat.label} className={`${stat.color} text-white rounded-lg p-4`}>
-              <p className="text-sm opacity-90">{stat.label}</p>
+              <p className="text-sm">{stat.label}</p>
               <p className="text-3xl font-bold">{stat.value}</p>
             </div>
           ))}

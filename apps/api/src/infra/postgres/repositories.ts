@@ -624,7 +624,7 @@ export class PgTelemetryRepository implements TelemetryRepository {
 
 const toSched = (d: any): ScheduleDTO => ({
   id: d.id, campusId: d.campus_id, routeId: d.route_id, busId: d.bus_id,
-  direction: d.direction, daysOfWeek: d.days_of_week, departTime: d.depart_time, active: d.active ?? true,
+  direction: d.direction, daysOfWeek: d.days_of_week, departTime: d.depart_time, arriveTime: d.arrive_time ?? null, active: d.active ?? true,
 });
 
 export class PgScheduleRepository implements ScheduleRepository {
@@ -649,9 +649,9 @@ export class PgScheduleRepository implements ScheduleRepository {
   }
   async create(s: Omit<ScheduleDTO, 'id'>) {
     const r = await this.p.query(
-      `INSERT INTO v1.schedules (id, campus_id, route_id, bus_id, direction, days_of_week, depart_time, active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [newId(), s.campusId, s.routeId, s.busId, s.direction, s.daysOfWeek, s.departTime, s.active],
+      `INSERT INTO v1.schedules (id, campus_id, route_id, bus_id, direction, days_of_week, depart_time, active, arrive_time)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [newId(), s.campusId, s.routeId, s.busId, s.direction, s.daysOfWeek, s.departTime, s.active, s.arriveTime ?? null],
     );
     return toSched(r.rows[0]);
   }
@@ -665,6 +665,7 @@ export class PgScheduleRepository implements ScheduleRepository {
     if (patch.direction !== undefined) add('direction', patch.direction);
     if (patch.daysOfWeek !== undefined) add('days_of_week', patch.daysOfWeek);
     if (patch.departTime !== undefined) add('depart_time', patch.departTime);
+    if (patch.arriveTime !== undefined) add('arrive_time', patch.arriveTime);
     if (patch.active !== undefined) add('active', patch.active);
     vals.push(id, campusId);
     const r = await this.p.query(

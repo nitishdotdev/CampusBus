@@ -317,7 +317,7 @@ export const AdminDirectory: React.FC = () => {
                           </div>
                           <div>
                             <div>{driver.name}</div>
-                            <div className="text-[10px] text-slate-400 font-normal">{driver.email}</div>
+                            <div className="text-[10px] text-slate-600 font-normal">{driver.email}</div>
                           </div>
                         </div>
                       </td>
@@ -350,18 +350,18 @@ export const AdminDirectory: React.FC = () => {
                             )}
                           </div>
                         ) : (
-                          <span className="text-slate-400 italic">Unassigned</span>
+                          <span className="text-slate-600 italic">Unassigned</span>
                         )}
                       </td>
 
                       <td className="py-3.5 px-4 text-slate-600">
                         {driver.phone ? (
                           <div className="flex items-center gap-1">
-                            <Phone className="w-3.5 h-3.5 text-slate-400" />
+                            <Phone className="w-3.5 h-3.5 text-slate-600" />
                             <span>{driver.phone}</span>
                           </div>
                         ) : (
-                          <span className="text-slate-400">—</span>
+                          <span className="text-slate-600">—</span>
                         )}
                       </td>
 
@@ -432,13 +432,13 @@ export const AdminDirectory: React.FC = () => {
                         </div>
                         <div>
                           <div>{student.name}</div>
-                          <div className="text-[10px] text-slate-400 font-normal">{student.email}</div>
+                          <div className="text-[10px] text-slate-600 font-normal">{student.email}</div>
                         </div>
                       </div>
                     </td>
 
                     <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
-                      {student.studentId || <span className="text-slate-400 italic">Unassigned</span>}
+                      {student.studentId || <span className="text-slate-600 italic">Unassigned</span>}
                     </td>
 
                     <td className="py-3.5 px-4">

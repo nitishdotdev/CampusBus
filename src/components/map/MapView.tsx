@@ -223,10 +223,11 @@ export const MapView: React.FC<MapViewProps> = ({
         iconAnchor,
       });
 
-      const marker = L.marker([stop.lat, stop.lng], { icon: stopIcon }).addTo(map);
+      const marker = L.marker([stop.lat, stop.lng], { icon: stopIcon, title: stop.name, alt: stop.name, keyboard: Boolean(onSelectStop) }).addTo(map);
       const label = document.createElement('div');
       label.className = 'text-xs font-semibold text-slate-900';
       label.textContent = stop.name + (isNext ? ' (Next stop)' : isCompleted ? ' (Arrived)' : '');
+      marker.getElement()?.setAttribute('aria-label', stop.name);
       marker.bindTooltip(label, { direction: 'top', offset: [0, -8] });
 
       marker.on('click', () => {
@@ -323,7 +324,7 @@ export const MapView: React.FC<MapViewProps> = ({
       if (busMarkersRef.current[bus.id]) {
         busMarkersRef.current[bus.id].setLatLng([lat, lng]).setIcon(customIcon);
       } else {
-        const marker = L.marker([lat, lng], { icon: customIcon, zIndexOffset: 200 }).addTo(map);
+        const marker = L.marker([lat, lng], { icon: customIcon, title: bus.busNumber, alt: bus.busNumber, zIndexOffset: 200, keyboard: Boolean(onSelectBus) }).addTo(map);
         marker.on('click', () => {
           if (onSelectBus) onSelectBus(bus);
         });
@@ -335,6 +336,7 @@ export const MapView: React.FC<MapViewProps> = ({
       const speed = bus.speedKmh != null ? ` · ${bus.speedKmh} km/h` : '';
       const tracking = bus.isSimulated ? 'Simulated' : bus.trackingStatus === 'LIVE' ? 'Live' : 'Last reported';
       label.textContent = `${bus.busNumber} · ${tracking}${speed}`;
+      busMarkersRef.current[bus.id].getElement()?.setAttribute('aria-label', bus.busNumber);
       busMarkersRef.current[bus.id].bindTooltip(label, { direction: 'top', offset: [0, -20] });
     });
   }, [buses, routes, selectedBusId, onSelectBus]);

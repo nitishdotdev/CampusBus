@@ -15,10 +15,11 @@ const routeFields = { code: text(16), name: text(120), color, stops };
 export const routeCreate = z.strictObject({ ...routeFields, color: color.default('#2563eb'), stops: stops.default([]) });
 export const routePatch = z.strictObject(routeFields).partial().refine(nonempty, 'Provide at least one field');
 
+const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const scheduleFields = {
   routeId: idParam, busId: idParam, direction: z.enum(['TO_CAMPUS', 'FROM_CAMPUS']),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1).max(7).refine(days => new Set(days).size === days.length, 'Select each day once'),
-  departTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), active: z.boolean(),
+  departTime: time, arriveTime: time.nullable().optional(), active: z.boolean(),
 };
 export const scheduleCreate = z.strictObject({ ...scheduleFields, active: z.boolean().default(true) });
 export const schedulePatch = z.strictObject(scheduleFields).partial().refine(nonempty, 'Provide at least one field');

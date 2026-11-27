@@ -2,7 +2,7 @@
 
 ## Observed and declared configuration
 
-The repository's `render.yaml` declares an Express web service named `campusmove-api`. Public health and campus directory requests responded at `https://campusmove-nahp.onrender.com`. The unsuffixed Render hostname returned a Render routing 404. `https://campus-move-one.vercel.app` returned `DEPLOYMENT_NOT_FOUND`. The alternate `campusmove.vercel.app` served an older Supabase frontend. The actual Render service settings, database inventory, and intended Vercel project require dashboard confirmation.
+The repository's `render.yaml` declares an Express web service named `campusmove-api`. Public health and campus directory requests responded at `https://campusmove-nahp.onrender.com`. The unsuffixed Render hostname returned a Render routing 404. `https://campus-move-one.vercel.app` returned `DEPLOYMENT_NOT_FOUND`. The alternate `campusmove.vercel.app` served an older Supabase frontend. The GitHub preview integration points at the Vercel project `campus-bus`. Its public domain `campus-bus.vercel.app` served a Flutter build, and the pull request preview failed. The actual Render service settings, database inventory, and intended Vercel project configuration require dashboard confirmation.
 
 ## Render settings for the reviewed release
 
@@ -28,7 +28,7 @@ Set framework to Vite, use `npm run build`, and publish `dist` on the verified f
 
 ## Initial provisioning
 
-The provisioning CLI can set up an empty database. Supply valid campus coordinates, an IANA time zone and a unique short code. Provide the admin credential through an ignored configuration file or secret-managed runner. Use the documented `--admin-email`, `--admin-name` and `--admin-password` options where trusted local execution is appropriate. Avoid storing a real password in shell history, examples or deployment logs.
+The provisioning CLI can set up an empty database. Supply valid campus coordinates, an IANA time zone and a unique short code. Provide `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, and `BOOTSTRAP_ADMIN_PASSWORD` through an ignored environment file or a secret-managed runner.
 
 ```sh
 npm run api:bootstrap -- --name="Campus name" --short-code=ABC \

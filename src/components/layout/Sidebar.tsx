@@ -3,12 +3,13 @@ import { NavLink } from 'react-router-dom';
 import { useApp } from '../../store/AppContext';
 import { Bus, MapPin, Route as RouteIcon, Bell, User, LayoutDashboard, Navigation, History, ShieldAlert, BarChart3, Users, Settings, Radio, Calendar, MessageSquare, Link2 } from 'lucide-react';
 
+import type { UserRole } from '../../types';
+
 interface SidebarNavItem {
   to: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number; badgeColor?: string;
 }
 
-export const Sidebar: React.FC = () => {
-  const { role, unreadCount, activeEmergencyCount, currentCollege } = useApp();
+export function workspaceLinks(role: UserRole, unreadCount: number, activeEmergencyCount: number): SidebarNavItem[] {
 
   const studentLinks: SidebarNavItem[] = [
     { to: '/student', label: 'Dashboard', icon: LayoutDashboard },
@@ -42,8 +43,12 @@ export const Sidebar: React.FC = () => {
     { to: '/admin/settings', label: 'Settings', icon: Settings },
   ];
 
-  const links = role === 'ADMIN' ? adminLinks : role === 'DRIVER' ? driverLinks : studentLinks;
+  return role === 'ADMIN' ? adminLinks : role === 'DRIVER' ? driverLinks : studentLinks;
+}
 
+export const Sidebar: React.FC = () => {
+  const { role, unreadCount, activeEmergencyCount, currentCollege } = useApp();
+  const links = workspaceLinks(role, unreadCount, activeEmergencyCount);
   return (
     <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-white border-r border-slate-800 shrink-0">
       <div className="p-5 border-b border-slate-800/80 flex items-center gap-3">
@@ -53,7 +58,6 @@ export const Sidebar: React.FC = () => {
         <div>
           <h1 className="font-bold text-sm tracking-tight text-white">CampusBus</h1>
           <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="truncate max-w-[130px]">{currentCollege.shortCode}</span>
           </div>
         </div>
@@ -67,7 +71,7 @@ export const Sidebar: React.FC = () => {
         </div>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+      <nav aria-label="Workspace" className="flex-1 p-3 space-y-1 overflow-y-auto">
         {links.map((item) => {
           const Icon = item.icon;
           return (

@@ -48,7 +48,7 @@ export const AdminLiveFleet: React.FC = () => {
           <p className="text-xs text-slate-500">Live GPS fleet tracking</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+          <select aria-label="Filter vehicles by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700">
             <option value="ALL">All Statuses</option>
             <option value="ACTIVE">Active</option>
@@ -56,7 +56,7 @@ export const AdminLiveFleet: React.FC = () => {
             <option value="MAINTENANCE">Maintenance</option>
             <option value="OFFLINE">Offline</option>
           </select>
-          <select value={routeFilter} onChange={(e) => setRouteFilter(e.target.value)}
+          <select aria-label="Filter vehicles by route" value={routeFilter} onChange={(e) => setRouteFilter(e.target.value)}
             className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700">
             <option value="ALL">All Routes</option>
             {routes.map((r) => (<option key={r.id} value={r.id}>{r.code} - {r.name}</option>))}

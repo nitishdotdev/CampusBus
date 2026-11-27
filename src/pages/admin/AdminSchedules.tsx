@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Plus, Trash2, Edit2, Loader, AlertCircle } from 'lucide-react';
 import { busesV1 } from '../../services/v1/buses';
 import { routesV1 } from '../../services/v1/routes';
-import { schedulesV1 } from '../../services/v1/notifications';
+import { allPages } from '../../services/v1/pages';
+import { schedulesV1, type ScheduleDirection } from '../../services/v1/notifications';
 import { dayNameToIndex, v1ScheduleToUi, type UiSchedule } from '../../services/v1/adapters';
 
 type Schedule = UiSchedule;
@@ -24,6 +25,7 @@ export function AdminSchedules() {
   const [buses, setBuses] = useState<Bus[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -31,6 +33,7 @@ export function AdminSchedules() {
     routeId: '',
     departureTime: '',
     arrivalTime: '',
+    direction: 'TO_CAMPUS' as ScheduleDirection,
     operatingDays: [] as string[],
   });
 
@@ -40,15 +43,15 @@ export function AdminSchedules() {
       try {
         setLoading(true);
         setError(null);
-        const [schedulePage, busPage, routePage] = await Promise.all([
-          schedulesV1.list(undefined, undefined, undefined, 1),
-          busesV1.list(1, 100),
-          routesV1.list(1, 100),
+        const [loadedSchedules, loadedBuses, loadedRoutes] = await Promise.all([
+          allPages(page => schedulesV1.list(undefined, undefined, undefined, page)),
+          allPages(page => busesV1.list(page, 100)),
+          allPages(page => routesV1.list(page, 100)),
         ]);
 
-        setSchedules(schedulePage.items.map(v1ScheduleToUi));
-        setBuses(busPage.items.map((b) => ({ id: b.id, bus_number: b.number })));
-        setRoutes(routePage.items.map((r) => ({ id: r.id, name: r.name })));
+        setSchedules(loadedSchedules.map(v1ScheduleToUi));
+        setBuses(loadedBuses.map((b) => ({ id: b.id, bus_number: b.number })));
+        setRoutes(loadedRoutes.map((r) => ({ id: r.id, name: r.name })));
       } catch (err: any) {
         setError(err?.message || 'Failed to load data');
       } finally {
@@ -70,40 +73,34 @@ export function AdminSchedules() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setError(null);
 
     if (!formData.busId || !formData.routeId || !formData.departureTime || formData.operatingDays.length === 0) {
-      alert('Please fill in all required fields');
+      setError('Select a bus, route, departure time and at least one operating day.');
       return;
     }
 
+    setSaving(true);
     try {
-      const daysOfWeek = formData.operatingDays
-        .map(dayNameToIndex)
-        .filter((d) => d >= 0);
+      const body = {
+        busId: formData.busId, routeId: formData.routeId, direction: formData.direction,
+        daysOfWeek: formData.operatingDays.map(dayNameToIndex),
+        departTime: formData.departureTime, arriveTime: formData.arrivalTime || null,
+      };
       if (editingId) {
-        await schedulesV1.update(editingId, {
-          daysOfWeek,
-          departTime: formData.departureTime,
-        });
+        const record = v1ScheduleToUi(await schedulesV1.update(editingId, body));
+        setSchedules(previous => previous.map(item => item.id === editingId ? record : item));
       } else {
-        await schedulesV1.create({
-          busId: formData.busId,
-          routeId: formData.routeId,
-          direction: 'TO_CAMPUS',
-          daysOfWeek,
-          departTime: formData.departureTime,
-          active: true,
-        });
+        const record = v1ScheduleToUi(await schedulesV1.create({ ...body, active: true }));
+        setSchedules(previous => [...previous, record]);
       }
-
-      const page = await schedulesV1.list(undefined, undefined, undefined, 1);
-      setSchedules(page.items.map(v1ScheduleToUi));
-
-      // Reset form
-      setFormData({ busId: '', routeId: '', departureTime: '', arrivalTime: '', operatingDays: [] });
+      setFormData({ busId: '', routeId: '', departureTime: '', arrivalTime: '', direction: 'TO_CAMPUS', operatingDays: [] });
       setEditingId(null);
-    } catch (err: any) {
-      alert(err?.message || 'Failed to save schedule');
+    } catch {
+      setError('Could not save the schedule. Check the fields and try again.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -113,6 +110,7 @@ export function AdminSchedules() {
       routeId: schedule.route_id,
       departureTime: schedule.departure_time,
       arrivalTime: schedule.arrival_time || '',
+      direction: schedule.direction,
       operatingDays: schedule.operating_days,
     });
     setEditingId(schedule.id);
@@ -155,9 +153,9 @@ export function AdminSchedules() {
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Bus *</label>
+                  <label htmlFor="schedule-bus" className="block text-sm font-semibold text-gray-700 mb-2">Bus *</label>
                   <select
-                    value={formData.busId}
+                    id="schedule-bus" value={formData.busId}
                     onChange={(e) => setFormData((prev) => ({ ...prev, busId: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     disabled={editingId ? true : false}
@@ -172,9 +170,9 @@ export function AdminSchedules() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Route *</label>
+                  <label htmlFor="schedule-route" className="block text-sm font-semibold text-gray-700 mb-2">Route *</label>
                   <select
-                    value={formData.routeId}
+                    id="schedule-route" value={formData.routeId}
                     onChange={(e) => setFormData((prev) => ({ ...prev, routeId: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     disabled={editingId ? true : false}
@@ -189,24 +187,33 @@ export function AdminSchedules() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Departure Time *</label>
+                  <label htmlFor="schedule-departure" className="block text-sm font-semibold text-gray-700 mb-2">Departure Time *</label>
                   <input
                     type="time"
-                    value={formData.departureTime}
+                    id="schedule-departure" value={formData.departureTime}
                     onChange={(e) => setFormData((prev) => ({ ...prev, departureTime: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Arrival Time</label>
+                  <label htmlFor="schedule-arrival" className="block text-sm font-semibold text-gray-700 mb-2">Arrival Time</label>
                   <input
                     type="time"
-                    value={formData.arrivalTime}
+                    id="schedule-arrival" value={formData.arrivalTime}
                     onChange={(e) => setFormData((prev) => ({ ...prev, arrivalTime: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+
+                <label className="block text-sm font-semibold text-gray-700">
+                  Direction
+                  <select value={formData.direction} onChange={event => setFormData(previous => ({ ...previous, direction: event.target.value as ScheduleDirection }))}
+                    className="mt-2 block w-full rounded-lg border border-gray-300 px-3 py-2">
+                    <option value="TO_CAMPUS">To campus</option>
+                    <option value="FROM_CAMPUS">From campus</option>
+                  </select>
+                </label>
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Operating Days *</label>
@@ -226,7 +233,7 @@ export function AdminSchedules() {
                 </div>
 
                 <button
-                  type="submit"
+                  type="submit" disabled={saving}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg flex items-center justify-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
@@ -238,7 +245,7 @@ export function AdminSchedules() {
                     type="button"
                     onClick={() => {
                       setEditingId(null);
-                      setFormData({ busId: '', routeId: '', departureTime: '', arrivalTime: '', operatingDays: [] });
+                      setFormData({ busId: '', routeId: '', departureTime: '', arrivalTime: '', direction: 'TO_CAMPUS', operatingDays: [] });
                     }}
                     className="w-full bg-gray-400 hover:bg-gray-500 text-white font-semibold py-2 rounded-lg"
                   >
@@ -269,7 +276,7 @@ export function AdminSchedules() {
                       <div className="flex justify-between items-start mb-3">
                         <div>
                           <h3 className="text-lg font-semibold text-gray-800">
-                            Route: {schedule.route_id}
+                            Route: {routes.find(route => route.id === schedule.route_id)?.name ?? 'Unavailable'}
                           </h3>
                           <p className="text-sm text-gray-600">
                             Bus: {buses.find((b) => b.id === schedule.bus_id)?.bus_number}
@@ -277,14 +284,14 @@ export function AdminSchedules() {
                         </div>
                         <div className="flex gap-2">
                           <button
-                            onClick={() => handleEdit(schedule)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                            onClick={() => handleEdit(schedule)} aria-label="Edit schedule"
+                            className="min-h-11 min-w-11 p-2 text-blue-700 hover:bg-blue-50 rounded"
                           >
                             <Edit2 className="w-5 h-5" />
                           </button>
                           <button
-                            onClick={() => handleDelete(schedule.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded"
+                            onClick={() => handleDelete(schedule.id)} aria-label="Delete schedule"
+                            className="min-h-11 min-w-11 p-2 text-red-700 hover:bg-red-50 rounded"
                           >
                             <Trash2 className="w-5 h-5" />
                           </button>

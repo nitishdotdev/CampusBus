@@ -58,7 +58,7 @@ export function StudentSchedules() {
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Select Day
               </label>
-              <select
+              <select aria-label="Day of week"
                 value={selectedDay}
                 onChange={(e) => setSelectedDay(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -75,7 +75,7 @@ export function StudentSchedules() {
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Filter by Route (Optional)
               </label>
-              <select
+              <select aria-label="Route"
                 value={selectedRoute}
                 onChange={(e) => setSelectedRoute(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"

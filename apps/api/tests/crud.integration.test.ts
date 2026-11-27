@@ -116,9 +116,9 @@ describe.skipIf(!PG_TEST_URL)('CRUD APIs (buses, routes, schedules, notification
   describe('schedules', () => {
     let schedId: string;
     it('admin creates a schedule', async () => {
-      const r = await post('/api/v1/schedules', { routeId: h.seed.route1, busId: h.seed.bus1, direction: 'TO_CAMPUS', daysOfWeek: [1, 2, 3, 4, 5], departTime: '08:00' }, admin());
+      const r = await post('/api/v1/schedules', { routeId: h.seed.route1, busId: h.seed.bus1, direction: 'TO_CAMPUS', daysOfWeek: [1, 2, 3, 4, 5], departTime: '08:00', arriveTime: '08:25' }, admin());
       expect(r.status).toBe(201);
-      expect(r.body.departTime).toBe('08:00');
+      expect(r.body).toMatchObject({ departTime: '08:00', arriveTime: '08:25' });
       schedId = r.body.id;
     });
     it('lists schedules filtered by day', async () => {
@@ -133,7 +133,8 @@ describe.skipIf(!PG_TEST_URL)('CRUD APIs (buses, routes, schedules, notification
       expect(r.status).toBe(400);
     });
     it('admin updates and deletes schedule', async () => {
-      expect((await patch(`/api/v1/schedules/${schedId}`, { active: false }, admin())).body.active).toBe(false);
+      const updated = await patch(`/api/v1/schedules/${schedId}`, { active: false, arriveTime: null, direction: 'FROM_CAMPUS' }, admin());
+      expect(updated.body).toMatchObject({ active: false, arriveTime: null, direction: 'FROM_CAMPUS' });
       expect((await del(`/api/v1/schedules/${schedId}`, admin())).status).toBe(204);
     });
     it('student cannot create/delete schedules', async () => {

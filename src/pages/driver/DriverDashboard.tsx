@@ -142,7 +142,9 @@ export const DriverDashboard: React.FC = () => {
       });
       setEmergencySent(true);
     } catch {
-      setTripError('Could not send the emergency alert. Contact campus dispatch by phone if you need immediate help.');
+      setTripError(currentCollege.dispatchPhone
+        ? `Could not send the alert. Call campus dispatch at ${currentCollege.dispatchPhone} if you need immediate help.`
+        : 'Could not send the alert. Contact campus dispatch by phone if you need immediate help.');
     } finally {
       setShowEmergencyModal(false);
       setTripBusy(false);
@@ -278,7 +280,7 @@ export const DriverDashboard: React.FC = () => {
             <button
               id="start-trip-button" disabled={tripBusy || assignedBus.operationalStatus !== 'ACTIVE'}
               onClick={() => setShowStartTripModal(true)}
-              className="w-full sm:w-80 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer"
+              className="w-full sm:w-80 py-4 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer"
             >
               <Play className="w-5 h-5 fill-current" />
               <span>START CAMPUS TRIP</span>
@@ -611,7 +613,7 @@ export const DriverDashboard: React.FC = () => {
             <button
               id="confirm-start-trip-btn"
               onClick={handleStartTrip}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer shadow-xs"
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg cursor-pointer shadow-xs"
             >
               Start Tracking Now
             </button>

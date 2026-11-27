@@ -151,7 +151,7 @@ export const DriverRoute: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] text-slate-400 font-mono">
+                    <div className="text-[10px] text-slate-600 font-mono">
                       Lat: {stop.lat.toFixed(5)}, Lng: {stop.lng.toFixed(5)}
                     </div>
                   </div>
@@ -161,7 +161,7 @@ export const DriverRoute: React.FC = () => {
             );
           })}
           {sortedStops.length === 0 && (
-            <div className="py-6 text-center text-xs text-slate-400 italic">
+            <div className="py-6 text-center text-xs text-slate-600 italic">
               No stop waypoints registered for this route.
             </div>
           )}

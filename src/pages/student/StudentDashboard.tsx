@@ -137,10 +137,10 @@ export const StudentDashboard: React.FC = () => {
 
           {/* Route Selector Dropdown */}
           <div className="bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/20 shrink-0">
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-blue-200 mb-1">
+            <label htmlFor="student-dashboard-route" className="block text-[11px] font-bold uppercase tracking-wider text-blue-200 mb-1">
               Filter by Line
             </label>
-            <select
+            <select id="student-dashboard-route"
               value={selectedRouteId}
               onChange={(e) => {
                 const newId = e.target.value;
@@ -192,14 +192,14 @@ export const StudentDashboard: React.FC = () => {
           {scheduleError ? (
             <p role="alert" className="text-sm text-amber-900">Could not load the schedule. <button onClick={() => setScheduleReload(n => n + 1)} className="min-h-11 underline">Retry</button></p>
           ) : loadingSchedules ? (
-            <div className="py-8 text-center text-xs text-slate-400">Loading schedules...</div>
+            <div className="py-8 text-center text-xs text-slate-600">Loading schedules...</div>
           ) : upcomingSchedules.length > 0 ? (
             <div className="divide-y divide-slate-100">
               {upcomingSchedules.map((s) => (
                 <div key={s.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div>
                     <span className="font-bold text-slate-900">Route {routeNameById.get(s.route_id) ?? 'Unknown route'}</span>
-                    <span className="text-slate-400 ml-2">Vehicle {busNumberById.get(s.bus_id) ?? 'Unknown vehicle'}</span>
+                    <span className="text-slate-600 ml-2">Vehicle {busNumberById.get(s.bus_id) ?? 'Unknown vehicle'}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Clock className="w-3.5 h-3.5 text-blue-600" />
@@ -209,7 +209,7 @@ export const StudentDashboard: React.FC = () => {
               ))}
             </div>
           ) : (
-            <div className="py-6 text-center text-xs text-slate-400 italic">
+            <div className="py-6 text-center text-xs text-slate-600 italic">
               No departures scheduled.
             </div>
           )}
@@ -242,7 +242,7 @@ export const StudentDashboard: React.FC = () => {
               ))}
             </div>
           ) : (
-            <div className="py-6 text-center text-xs text-slate-400 italic">
+            <div className="py-6 text-center text-xs text-slate-600 italic">
               No new transit notices at this time.
             </div>
           )}
@@ -326,7 +326,7 @@ export const StudentDashboard: React.FC = () => {
 
               {selectedBusRoute ? (
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
                     Operating Route
                   </div>
                   <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
@@ -340,7 +340,7 @@ export const StudentDashboard: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <div className="text-xs text-slate-400 italic">No assigned route</div>
+                <div className="text-xs text-slate-600 italic">No assigned route</div>
               )}
 
               {/* Next Stop & ETA */}
@@ -417,13 +417,13 @@ export const StudentDashboard: React.FC = () => {
               <div className="text-xs space-y-1.5 pt-1 border-t border-slate-100 text-slate-600">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <Compass className="w-3.5 h-3.5 text-slate-400" /> Speed:
+                    <Compass className="w-3.5 h-3.5 text-slate-600" /> Speed:
                   </span>
                   <span className="font-bold text-slate-800">{selectedBus.speedKmh || 0} km/h</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400" /> Coordinates:
+                    <MapPin className="w-3.5 h-3.5 text-slate-600" /> Coordinates:
                   </span>
                   <span className="font-mono text-[11px] text-slate-700">
                     {typeof selectedBus.lastLocation?.lat === 'number' && typeof selectedBus.lastLocation?.lng === 'number'
@@ -435,7 +435,7 @@ export const StudentDashboard: React.FC = () => {
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center space-y-2">
-              <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+              <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
                 <BusIcon className="w-6 h-6" />
               </div>
               <h4 className="font-bold text-sm text-slate-800">No Bus Selected</h4>
