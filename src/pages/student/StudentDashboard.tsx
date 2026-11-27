@@ -4,11 +4,11 @@ import { useApp } from '../../store/AppContext';
 import { MapView } from '../../components/map/MapView';
 import { BusStatusBadge, OccupancyIndicator, ETAIndicator } from '../../components/common/StatusBadges';
 import { NotificationCard } from '../../components/common/Cards';
-import { notificationService } from '../../services/notificationService';
-import { socketV1, type BusLocationPayload } from '../../services/v1/socket';
+import { useLiveBuses } from '../../hooks/useLiveBuses';
+import { estimateArrivalSeconds } from '../../services/arrivalEstimate';
+import { allPages } from '../../services/v1/pages';
 import { schedulesV1 } from '../../services/v1/notifications';
 import { v1ScheduleToUi, type UiSchedule } from '../../services/v1/adapters';
-import { Bus, Route } from '../../types';
 import {
   Navigation,
   Bus as BusIcon,
@@ -24,80 +24,56 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
-
 type Schedule = UiSchedule;
 
 export const StudentDashboard: React.FC = () => {
-  const { currentUser, currentCollege, buses, routes, notifications, isLoadingData } = useApp();
+  const { currentUser, currentCollege, buses, routes, notifications, markNotificationsRead, isLoadingData } = useApp();
   const routeNameById = new Map(routes.map((r) => [r.id, r.name]));
   const busNumberById = new Map(buses.map((b) => [b.id, b.busNumber]));
 
   const [selectedRouteId, setSelectedRouteId] = useState<string>('ALL');
   const [selectedBusId, setSelectedBusId] = useState<string | undefined>(undefined);
-  const [livePositions, setLivePositions] = useState<Map<string, BusLocationPayload>>(new Map());
-  const [upcomingSchedules, setUpcomingSchedules] = useState<Schedule[]>([]);
-  const [loadingSchedules, setLoadingSchedules] = useState<boolean>(true);
+  const [scheduleRecords, setScheduleRecords] = useState<Schedule[]>([]);
+  const [loadingSchedules, setLoadingSchedules] = useState(true);
+  const [scheduleError, setScheduleError] = useState(false);
+  const [scheduleReload, setScheduleReload] = useState(0);
+  const [clock, setClock] = useState(Date.now);
 
-  // Subscribe to socket telemetry
   useEffect(() => {
-    if (!USE_V1) return;
-    const tracked = buses.filter((b) => b.status === 'ACTIVE' || b.status === 'IDLE');
-    if (tracked.length === 0) return;
+    let mounted = true;
+    setLoadingSchedules(true);
+    setScheduleError(false);
+    void allPages(page => schedulesV1.list(undefined, undefined, true, page))
+      .then(rows => { if (mounted) setScheduleRecords(rows.map(v1ScheduleToUi)); })
+      .catch(() => { if (mounted) setScheduleError(true); })
+      .finally(() => { if (mounted) setLoadingSchedules(false); });
+    return () => { mounted = false; };
+  }, [scheduleReload]);
 
-    const unsubs = tracked.map((b) =>
-      socketV1.subscribeTobus(b.id, (payload) => {
-        setLivePositions((prev) => new Map(prev).set(b.id, payload));
-      })
-    );
-    return () => unsubs.forEach((fn) => fn());
-  }, [buses]);
-
-  // Fetch real upcoming schedules from backend API
   useEffect(() => {
-    let isMounted = true;
-    const fetchSchedules = async () => {
-      try {
-        setLoadingSchedules(true);
-        const today = new Date().getDay();
-        const page = await schedulesV1.list(undefined, today, true, 1);
-        if (isMounted) {
-          setUpcomingSchedules(page.items.map(v1ScheduleToUi).filter((s) => s.status === 'ACTIVE').slice(0, 4));
-        }
-      } catch (err) {
-        console.warn('Could not load schedules for student dashboard:', err);
-      } finally {
-        if (isMounted) setLoadingSchedules(false);
-      }
-    };
-    fetchSchedules();
-    return () => {
-      isMounted = false;
-    };
+    const timer = window.setInterval(() => setClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
   }, []);
 
-  // Filter active buses based on selected route
-  const activeBuses = buses.filter((b) => b.status === 'ACTIVE');
-
-  // Enriched active buses with live telemetry if available
-  const enrichedActiveBuses = activeBuses.map((b) => {
-    const l = livePositions.get(b.id);
-    if (!l) return b;
-    const stale = l.freshness === 'STALE' || l.freshness === 'UNAVAILABLE';
-    return {
-      ...b,
-      lastLocation: {
-        lat: l.location.lat,
-        lng: l.location.lng,
-        timestamp: l.receivedAt,
-        accuracy: l.accuracyM ?? undefined,
-      },
-      heading: l.headingDeg ?? b.heading,
-      speedKmh: l.speedMps != null ? Math.round(l.speedMps * 3.6) : b.speedKmh,
-      gpsStatus: stale ? ('LOCATION_STALE' as const) : ('GPS_ACTIVE' as const),
-      lastSyncTimestamp: l.receivedAt,
-    };
-  });
+  const local = new Intl.DateTimeFormat('en-GB', {
+    timeZone: currentCollege.timezone, weekday: 'long', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(clock);
+  const part = (type: Intl.DateTimeFormatPartTypes) => local.find(item => item.type === type)?.value;
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const today = days.indexOf(part('weekday') ?? '');
+  const nowTime = `${part('hour')}:${part('minute')}`;
+  const upcomingSchedules = scheduleRecords.flatMap(schedule => {
+    if (selectedRouteId !== 'ALL' && schedule.route_id !== selectedRouteId) return [];
+    for (let offset = 0; offset <= 7; offset++) {
+      const day = days[(today + offset) % 7];
+      if (schedule.operating_days.includes(day) && (offset > 0 || schedule.departure_time >= nowTime)) {
+        return [{ ...schedule, day, offset }];
+      }
+    }
+    return [];
+  }).sort((a, b) => a.offset - b.offset || a.departure_time.localeCompare(b.departure_time)).slice(0, 4);
+  const enrichedActiveBuses = useLiveBuses(buses).filter(bus => bus.activeTripId);
+  const activeBuses = enrichedActiveBuses;
 
   // Display active operating buses with live telemetry on the map
   const displayedBuses = enrichedActiveBuses.filter((b) =>
@@ -106,13 +82,14 @@ export const StudentDashboard: React.FC = () => {
 
   const selectedBus =
     displayedBuses.find((b) => b.id === selectedBusId) ||
-    displayedBuses[0] ||
-    (selectedRouteId !== 'ALL' ? buses.find((b) => b.currentRouteId === selectedRouteId) : undefined);
+    displayedBuses[0];
 
   const selectedRoute = routes.find((r) => r.id === selectedRouteId);
   const selectedBusRoute = routes.find((r) => r.id === selectedBus?.currentRouteId);
 
   // Time since GPS update helper
+  const estimate = estimateArrivalSeconds(selectedBus, selectedBusRoute);
+
   const getGpsUpdateAge = (timestamp?: string) => {
     if (!timestamp) return { text: 'No telemetry', isStale: true };
     const diffSec = Math.max(0, Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000));
@@ -127,7 +104,7 @@ export const StudentDashboard: React.FC = () => {
   const recentNotifications = notifications.slice(0, 3);
 
   const handleMarkNotificationRead = (id: string) => {
-    notificationService.markAsRead(id);
+    markNotificationsRead([id]);
   };
 
   if (isLoadingData) {
@@ -142,11 +119,10 @@ export const StudentDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Banner & Route Selector */}
-      <div className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 text-white rounded-2xl p-5 shadow-xs">
+      <div className="bg-blue-900 text-white rounded-2xl p-5 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-blue-700/60 border border-blue-500/40 text-[11px] font-semibold text-blue-100 mb-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>Campus Transit • {currentCollege.campusName}</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black tracking-tight">
@@ -154,8 +130,8 @@ export const StudentDashboard: React.FC = () => {
             </h2>
             <p className="text-xs text-blue-100 mt-1">
               {activeBuses.length > 0
-                ? `${activeBuses.length} campus shuttle${activeBuses.length !== 1 ? 's' : ''} currently operating with real-time GPS telemetry.`
-                : 'No buses are currently running active trips. Stored route paths and scheduled stops are displayed below.'}
+                ? `${activeBuses.length} campus shuttle${activeBuses.length !== 1 ? 's' : ''} currently running.`
+                : 'No buses are currently running. Check the next scheduled departure.'}
             </p>
           </div>
 
@@ -182,7 +158,7 @@ export const StudentDashboard: React.FC = () => {
                 const count = activeBuses.filter((b) => b.currentRouteId === r.id).length;
                 return (
                   <option key={r.id} value={r.id}>
-                    {r.code} — {r.name} {count > 0 ? `(${count} active)` : '(Offline)'}
+                    {r.code} — {r.name} {count > 0 ? `(${count} active)` : ''}
                   </option>
                 );
               })}
@@ -191,6 +167,87 @@ export const StudentDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Dashboard Summaries: Upcoming Schedules & Recent Notifications */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Upcoming Schedules */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Next scheduled departures</h3>
+                <p className="text-xs text-slate-500">Campus local time</p>
+              </div>
+            </div>
+            <Link
+              to="/student/schedules"
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+            >
+              Full schedule <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {scheduleError ? (
+            <p role="alert" className="text-sm text-amber-900">Could not load the schedule. <button onClick={() => setScheduleReload(n => n + 1)} className="min-h-11 underline">Retry</button></p>
+          ) : loadingSchedules ? (
+            <div className="py-8 text-center text-xs text-slate-400">Loading schedules...</div>
+          ) : upcomingSchedules.length > 0 ? (
+            <div className="divide-y divide-slate-100">
+              {upcomingSchedules.map((s) => (
+                <div key={s.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div>
+                    <span className="font-bold text-slate-900">Route {routeNameById.get(s.route_id) ?? 'Unknown route'}</span>
+                    <span className="text-slate-400 ml-2">Vehicle {busNumberById.get(s.bus_id) ?? 'Unknown vehicle'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-blue-600" />
+                    <span className="font-bold text-slate-800 font-mono">{s.offset === 0 ? 'Today' : s.offset === 1 ? 'Tomorrow' : s.day} {s.departure_time}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-6 text-center text-xs text-slate-400 italic">
+              No departures scheduled.
+            </div>
+          )}
+        </div>
+
+        {/* Recent Transport Notices */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <Bell className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Transit Announcements</h3>
+                <p className="text-xs text-slate-500">Safety alerts and service updates</p>
+              </div>
+            </div>
+            <Link
+              to="/student/notifications"
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+            >
+              View all <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {recentNotifications.length > 0 ? (
+            <div className="space-y-2.5">
+              {recentNotifications.map((n) => (
+                <NotificationCard key={n.id} notification={n} onMarkRead={handleMarkNotificationRead} />
+              ))}
+            </div>
+          ) : (
+            <div className="py-6 text-center text-xs text-slate-400 italic">
+              No new transit notices at this time.
+            </div>
+          )}
+        </div>
+      </div>
       {/* Primary Feature: Interactive Map with Bus Details Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Real Interactive Map */}
@@ -202,7 +259,7 @@ export const StudentDashboard: React.FC = () => {
               selectedBusId={selectedBus?.id}
               selectedRouteId={selectedRouteId !== 'ALL' ? selectedRouteId : undefined}
               onSelectBus={(b) => setSelectedBusId(b.id)}
-              heightClass="h-[460px] sm:h-[540px]"
+              heightClass={displayedBuses.length ? "h-[380px] sm:h-[480px]" : "h-[180px] sm:h-[225px]"}
             />
 
             {/* Quick Bus Selector Overlay at bottom of Map */}
@@ -226,7 +283,7 @@ export const StudentDashboard: React.FC = () => {
                         style={{ backgroundColor: r?.color || '#2563EB' }}
                       />
                       <span>Bus {bus.busNumber}</span>
-                      <span className={`w-1.5 h-1.5 rounded-full ${bus.status === 'ACTIVE' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
+                      <span className={`w-1.5 h-1.5 rounded-full ${bus.canTrack && bus.lastLocation && bus.trackingStatus === 'LIVE' && !bus.isSimulated ? 'bg-emerald-500' : 'bg-amber-400'}`} />
                     </button>
                   );
                 })}
@@ -312,7 +369,7 @@ export const StudentDashboard: React.FC = () => {
                       ) {
                         return 'All Stops Completed';
                       }
-                      return selectedBusRoute?.stops?.[0]?.name ?? 'Terminal';
+                      return 'Unavailable';
                     })()}
                   </div>
                 </div>
@@ -335,7 +392,7 @@ export const StudentDashboard: React.FC = () => {
 
               {/* Occupancy Indicator */}
               <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-100">
-                <OccupancyIndicator current={selectedBus.currentOccupancy} capacity={selectedBus.capacity} />
+                {selectedBus.hasOccupancy ? <OccupancyIndicator current={selectedBus.currentOccupancy} capacity={selectedBus.capacity} /> : <p className="text-xs text-slate-600">Passenger count unavailable</p>}
               </div>
 
               {/* GPS Freshness Indicator */}
@@ -392,122 +449,9 @@ export const StudentDashboard: React.FC = () => {
             </div>
           )}
 
-          {/* Quick Links Card */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2">
-            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Transit Shortcuts</h4>
-            <div className="grid grid-cols-2 gap-2">
-              <Link
-                to="/student/schedules"
-                className="p-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 text-xs font-semibold flex items-center gap-2 transition-colors"
-              >
-                <Calendar className="w-4 h-4 text-blue-600" />
-                <span>Schedules</span>
-              </Link>
-              <Link
-                to="/student/routes"
-                className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-800 text-xs font-semibold flex items-center gap-2 transition-colors"
-              >
-                <MapPin className="w-4 h-4 text-slate-600" />
-                <span>All Routes</span>
-              </Link>
-              <Link
-                to="/student/complaints"
-                className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-800 text-xs font-semibold flex items-center gap-2 transition-colors"
-              >
-                <MessageSquare className="w-4 h-4 text-slate-600" />
-                <span>Feedback</span>
-              </Link>
-              <Link
-                to="/student/profile"
-                className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-800 text-xs font-semibold flex items-center gap-2 transition-colors"
-              >
-                <CheckCircle2 className="w-4 h-4 text-slate-600" />
-                <span>Account</span>
-              </Link>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Dashboard Summaries: Upcoming Schedules & Recent Notifications */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Upcoming Schedules */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Calendar className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Today&apos;s Departure Schedules</h3>
-                <p className="text-xs text-slate-500">Planned campus service timetable</p>
-              </div>
-            </div>
-            <Link
-              to="/student/schedules"
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
-            >
-              Full schedule <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          {loadingSchedules ? (
-            <div className="py-8 text-center text-xs text-slate-400">Loading schedules...</div>
-          ) : upcomingSchedules.length > 0 ? (
-            <div className="divide-y divide-slate-100">
-              {upcomingSchedules.map((s) => (
-                <div key={s.id} className="py-2.5 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-bold text-slate-900">Route {routeNameById.get(s.route_id) ?? 'Unknown route'}</span>
-                    <span className="text-slate-400 ml-2">Vehicle {busNumberById.get(s.bus_id) ?? 'Unknown vehicle'}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-3.5 h-3.5 text-blue-600" />
-                    <span className="font-bold text-slate-800 font-mono">{s.departure_time}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="py-6 text-center text-xs text-slate-400 italic">
-              No planned departures remaining for today.
-            </div>
-          )}
-        </div>
-
-        {/* Recent Transport Notices */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                <Bell className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Transit Announcements</h3>
-                <p className="text-xs text-slate-500">Safety alerts and service updates</p>
-              </div>
-            </div>
-            <Link
-              to="/student/notifications"
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
-            >
-              View all <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          {recentNotifications.length > 0 ? (
-            <div className="space-y-2.5">
-              {recentNotifications.map((n) => (
-                <NotificationCard key={n.id} notification={n} onMarkRead={handleMarkNotificationRead} />
-              ))}
-            </div>
-          ) : (
-            <div className="py-6 text-center text-xs text-slate-400 italic">
-              No new transit notices at this time.
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 };

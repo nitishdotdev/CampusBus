@@ -1,13 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
-import { Bus, BusStatus } from '../../types';
 import { BusStatusBadge } from '../../components/common/StatusBadges';
 import { SearchInput, FilterBar } from '../../components/common/Inputs';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
-import { adminService } from '../../services/adminService';
-import { busesV1 } from '../../services/v1/buses';
+import { busesV1, type V1Bus } from '../../services/v1/buses';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 import {
   Bus as BusIcon,
   Plus,
@@ -20,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export const AdminBuses: React.FC = () => {
-  const { buses, routes } = useApp();
+  const { buses, routes, refreshData } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -28,11 +25,12 @@ export const AdminBuses: React.FC = () => {
 
   // New Bus form state
   const [busNumber, setBusNumber] = useState('');
-  const [model, setModel] = useState('Gillig Low Floor 40ft');
+  const [model, setModel] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
   const [capacity, setCapacity] = useState(45);
   const [assignedRouteId, setAssignedRouteId] = useState('');
-  const [driverName, setDriverName] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
 
   const filteredBuses = buses.filter((b) => {
     if (statusFilter !== 'ALL' && b.status !== statusFilter) return false;
@@ -47,57 +45,40 @@ export const AdminBuses: React.FC = () => {
     return true;
   });
 
-  const handleAddBus = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!busNumber.trim()) return;
-    if (USE_V1) {
-      await busesV1.create({
-        number: busNumber.trim(),
-        capacity: Number(capacity) || 45,
-        status: 'ACTIVE',
-      });
-    } else {
-      adminService.addBus({
-        collegeId: 'college_apex',
-        busNumber: busNumber.trim(),
-        model,
-        plateNumber: plateNumber.trim() || `CAMPUS-${Math.floor(1000 + Math.random() * 9000)}`,
-        capacity: Number(capacity) || 45,
-        status: 'IDLE',
-        currentOccupancy: 0,
-        currentRouteId: assignedRouteId || undefined,
-        driverName: driverName.trim() || undefined,
-        heading: 0,
-        speedKmh: 0,
-        gpsStatus: 'GPS_ACTIVE',
-        networkStatus: 'NETWORK_ONLINE',
-        etaConfidence: 'SCHEDULED',
-      });
-    }
-    setIsAddModalOpen(false);
-    setBusNumber('');
-    setPlateNumber('');
-    setDriverName('');
-  };
-
-  const handleStatusChange = async (busId: string, status: BusStatus) => {
-    if (USE_V1) {
-      const v1Status = status === 'IDLE' ? 'OFFLINE' : status === 'ACTIVE' ? 'ACTIVE' : 'MAINTENANCE';
-      await busesV1.update(busId, { status: v1Status });
-    } else {
-      adminService.updateBusStatus(busId, status);
+  const mutate = async (operation: () => Promise<unknown>, after: () => void = () => {}) => {
+    if (pending) return;
+    setPending(true);
+    setError('');
+    try {
+      await operation();
+      after();
+      await refreshData();
+    } catch {
+      setError('Could not save the vehicle change. Check the vehicle status and try again.');
+    } finally {
+      setPending(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!deletingBusId) return;
-    if (USE_V1) {
-      await busesV1.delete(deletingBusId);
-    } else {
-      adminService.deleteBus(deletingBusId);
-    }
-    setDeletingBusId(null);
+  const handleAddBus = (event: React.FormEvent) => {
+    event.preventDefault();
+    void mutate(() => busesV1.create({
+      number: busNumber.trim(), capacity, status: 'ACTIVE',
+      model: model.trim() || undefined, plateNumber: plateNumber.trim() || undefined, routeId: assignedRouteId || undefined,
+    }), () => {
+      setIsAddModalOpen(false);
+      setBusNumber('');
+      setModel('');
+      setPlateNumber('');
+      setAssignedRouteId('');
+    });
   };
+
+  const handleStatusChange = (id: string, status: V1Bus['status']) =>
+    mutate(() => busesV1.update(id, { status }));
+
+  const handleDelete = () =>
+    deletingBusId ? mutate(() => busesV1.delete(deletingBusId), () => setDeletingBusId(null)) : undefined;
 
   const filterOptions = [
     { id: 'ALL', label: 'All Fleet', count: buses.length },
@@ -113,6 +94,7 @@ export const AdminBuses: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Campus Bus Fleet Management</h2>
@@ -182,14 +164,14 @@ export const AdminBuses: React.FC = () => {
 
                     <td className="py-3.5 px-4">
                       <select
-                        value={bus.status}
-                        onChange={(e) => handleStatusChange(bus.id, e.target.value as BusStatus)}
+                        value={bus.operationalStatus ?? 'ACTIVE'}
+                        aria-label={`Operational status for ${bus.busNumber}`} disabled={pending || Boolean(bus.activeTripId)}
+                        onChange={(e) => handleStatusChange(bus.id, e.target.value as V1Bus['status'])}
                         className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold cursor-pointer"
                       >
-                        <option value="ACTIVE">ACTIVE</option>
-                        <option value="IDLE">IDLE</option>
-                        <option value="MAINTENANCE">MAINTENANCE</option>
-                        <option value="OFFLINE">OFFLINE</option>
+                        <option value="ACTIVE">{bus.activeTripId ? 'In service' : 'Idle · available'}</option>
+                        <option value="MAINTENANCE">Maintenance</option>
+                        <option value="OFFLINE">Out of service</option>
                       </select>
                     </td>
 
@@ -218,7 +200,7 @@ export const AdminBuses: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4 font-mono font-semibold">
-                      {bus.currentOccupancy} / {bus.capacity} seats
+                      {bus.hasOccupancy ? `${bus.currentOccupancy} / ${bus.capacity} seats` : `${bus.capacity} seats`}
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
@@ -245,6 +227,7 @@ export const AdminBuses: React.FC = () => {
         title="Add Campus Shuttle Vehicle"
       >
         <form onSubmit={handleAddBus} className="space-y-4">
+          {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Bus Number / Asset Tag *
@@ -261,15 +244,9 @@ export const AdminBuses: React.FC = () => {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">Vehicle Model</label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-            >
-              <option value="Gillig Low Floor 40ft">Gillig Low Floor 40ft (Diesel-Electric)</option>
-              <option value="Proterra ZX5 Electric">Proterra ZX5 Electric (Zero Emission)</option>
-              <option value="Ford E-450 Campus Shuttle">Ford E-450 Cutaway (Short Campus Van)</option>
-            </select>
+            <input aria-label="Vehicle model" value={model} onChange={e => setModel(e.target.value)} maxLength={80}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -287,8 +264,8 @@ export const AdminBuses: React.FC = () => {
               <label className="block text-xs font-bold text-slate-700 mb-1">Passenger Capacity</label>
               <input
                 type="number"
-                min="10"
-                max="90"
+                min="1"
+                max="200" required
                 value={capacity}
                 onChange={(e) => setCapacity(Number(e.target.value))}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
@@ -312,17 +289,6 @@ export const AdminBuses: React.FC = () => {
             </select>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Driver Name</label>
-            <input
-              type="text"
-              value={driverName}
-              onChange={(e) => setDriverName(e.target.value)}
-              placeholder="e.g. John Doe (Optional)"
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-            />
-          </div>
-
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
             <button
               type="button"
@@ -332,7 +298,7 @@ export const AdminBuses: React.FC = () => {
               Cancel
             </button>
             <button
-              type="submit"
+              type="submit" disabled={pending}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs cursor-pointer"
             >
               Add Vehicle to Fleet

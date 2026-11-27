@@ -97,7 +97,12 @@ export interface Bus {
   model: string;
   capacity: number;
   currentOccupancy: number;
+  hasOccupancy?: boolean;
   status: BusStatus;
+  operationalStatus?: 'ACTIVE' | 'MAINTENANCE' | 'OFFLINE';
+  activeTripId?: string;
+  canTrack?: boolean;
+  trackingStatus?: 'LIVE' | 'STALE' | 'DRIVER_OFFLINE' | 'TRIP_ENDED' | 'UNAVAILABLE';
   currentRouteId?: string;
   currentDriverId?: string;
   lastLocation?: LocationPoint;
@@ -155,6 +160,7 @@ export interface Trip {
   endTime?: string;
   status: 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   currentOccupancy: number;
+  hasOccupancy?: boolean;
   initialOccupancy: number;
   totalLocationsLogged: number;
   syncedLocationsCount: number;

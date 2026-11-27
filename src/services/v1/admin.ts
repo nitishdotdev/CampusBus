@@ -21,6 +21,8 @@ export const adminV1 = {
     },
     setStatus: (id: string, status: V1Status) =>
       v1Client.patch<void>(`/api/v1/users/${id}/status`, { status }),
+    resetPassword: (id: string, newPassword: string) =>
+      v1Client.post<void>(`/api/v1/users/${id}/reset-password`, { newPassword }),
     assignTransport: (id: string, busId: string | null, routeId: string | null) =>
       v1Client.post<void>(`/api/v1/users/${id}/assign-transport`, { busId, routeId }),
     createDriver: (body: { email: string; password: string; name: string; phone?: string }) =>

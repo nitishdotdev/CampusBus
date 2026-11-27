@@ -3,11 +3,10 @@ import { useApp } from '../../store/AppContext';
 import { NotificationCard } from '../../components/common/Cards';
 import { FilterBar } from '../../components/common/Inputs';
 import { EmptyState } from '../../components/common/States';
-import { notificationService } from '../../services/notificationService';
 import { Bell, CheckCheck, ShieldAlert } from 'lucide-react';
 
 export const DriverNotifications: React.FC = () => {
-  const { notifications, unreadCount } = useApp();
+  const { notifications, markNotificationsRead, unreadCount } = useApp();
   const [activeCategory, setActiveCategory] = useState<string>('ALL');
 
   const filtered = notifications.filter((n) => {
@@ -26,11 +25,11 @@ export const DriverNotifications: React.FC = () => {
   ];
 
   const handleMarkAllRead = () => {
-    notificationService.markAllAsRead();
+    markNotificationsRead(notifications.map(item => item.id));
   };
 
   const handleMarkRead = (id: string) => {
-    notificationService.markAsRead(id);
+    markNotificationsRead([id]);
   };
 
   return (

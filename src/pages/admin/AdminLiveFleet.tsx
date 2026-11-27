@@ -1,46 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
 import { MapView } from '../../components/map/MapView';
 import { BusStatusBadge } from '../../components/common/StatusBadges';
 import { EmptyState } from '../../components/common/States';
-import { adminService } from '../../services/adminService';
+import { busesV1, type V1Bus } from '../../services/v1/buses';
 import { Bus as BusIcon, Navigation, Clock, Compass, Users, MapPin, CheckCircle2 } from 'lucide-react';
-import { socketV1, type BusLocationPayload } from '../../services/v1/socket';
-import type { Bus } from '../../types';
-
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
+import { useLiveBuses } from '../../hooks/useLiveBuses';
 
 export const AdminLiveFleet: React.FC = () => {
-  const { buses, routes } = useApp();
-  const [selectedBusId, setSelectedBusId] = useState<string | undefined>(undefined);
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [routeFilter, setRouteFilter] = useState<string>('ALL');
-  const [livePositions, setLivePositions] = useState<Map<string, BusLocationPayload>>(new Map());
-
-  useEffect(() => {
-    if (!USE_V1) return;
-    const unsubs = buses.map((b) =>
-      socketV1.subscribeTobus(b.id, (payload) => {
-        setLivePositions((prev) => new Map(prev).set(b.id, payload));
-      })
-    );
-    return () => unsubs.forEach((fn) => fn());
-  }, [buses]);
-
-  const overlayBuses: Bus[] = buses.map((b) => {
-    const l = livePositions.get(b.id);
-    if (!l) return b;
-    const stale = l.freshness === 'STALE' || l.freshness === 'UNAVAILABLE';
-    return {
-      ...b,
-      lastLocation: { lat: l.location.lat, lng: l.location.lng, timestamp: l.receivedAt, accuracy: l.accuracyM ?? undefined },
-      heading: l.headingDeg ?? b.heading,
-      speedKmh: l.speedMps != null ? Number((l.speedMps * 3.6).toFixed(1)) : b.speedKmh,
-      gpsStatus: stale ? 'LOCATION_STALE' : 'GPS_ACTIVE',
-      lastSyncTimestamp: l.receivedAt,
-      status: l.freshness === 'LIVE' ? 'ACTIVE' : b.status,
-    };
-  });
+  const { buses, routes, currentCollege, refreshData } = useApp();
+  const [selectedBusId, setSelectedBusId] = useState<string>();
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [routeFilter, setRouteFilter] = useState('ALL');
+  const [error, setError] = useState('');
+  const [pending, setPending] = useState(false);
+  const overlayBuses = useLiveBuses(buses);
 
   const filteredBuses = overlayBuses.filter((b) => {
     if (statusFilter !== 'ALL' && b.status !== statusFilter) return false;
@@ -51,13 +25,23 @@ export const AdminLiveFleet: React.FC = () => {
   const selectedBus = overlayBuses.find((b) => b.id === selectedBusId) || filteredBuses[0];
   const selectedBusRoute = routes.find((r) => r.id === selectedBus?.currentRouteId);
 
-  const handleStatusChange = (newStatus: string) => {
-    if (!selectedBus) return;
-    adminService.updateBusStatus(selectedBus.id, newStatus as any);
+  const handleStatusChange = async (status: V1Bus['status']) => {
+    if (!selectedBus || pending) return;
+    setPending(true);
+    setError('');
+    try {
+      await busesV1.update(selectedBus.id, { status });
+      await refreshData();
+    } catch {
+      setError('Could not update the vehicle status.');
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
     <div className="space-y-4">
+      {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900">Fleet Operations Map</h2>
@@ -97,7 +81,7 @@ export const AdminLiveFleet: React.FC = () => {
                     <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center"><BusIcon className="w-5 h-5" /></div>
                     <div>
                       <h3 className="font-bold text-base text-slate-900">{selectedBus.busNumber}</h3>
-                      <p className="text-xs text-slate-500">{selectedBus.model} • {selectedBus.plateNumber}</p>
+                      <p className="text-xs text-slate-500">{[selectedBus.model, selectedBus.plateNumber].filter(Boolean).join(' · ')}</p>
                     </div>
                   </div>
                   <BusStatusBadge status={selectedBus.status} />
@@ -119,15 +103,15 @@ export const AdminLiveFleet: React.FC = () => {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-slate-500"><Navigation className="w-4 h-4" />Speed:</span>
-                    <span className="font-mono font-bold">{selectedBus.speedKmh || 0} km/h</span>
+                    <span className="font-mono font-bold">{selectedBus.speedKmh == null ? 'Unavailable' : `${selectedBus.speedKmh} km/h`}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-slate-500"><Clock className="w-4 h-4" />Updated:</span>
-                    <span className="font-semibold">{new Date(selectedBus.lastSyncTimestamp).toLocaleTimeString()}</span>
+                    <span className="font-semibold">{selectedBus.lastSyncTimestamp ? new Date(selectedBus.lastSyncTimestamp).toLocaleTimeString() : 'No GPS'}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-slate-500"><Users className="w-4 h-4" />Load:</span>
-                    <span className="font-bold">{selectedBus.currentOccupancy} / {selectedBus.capacity}</span>
+                    <span className="font-bold">{selectedBus.hasOccupancy ? `${selectedBus.currentOccupancy} / ${selectedBus.capacity}` : 'Unavailable'}</span>
                   </div>
                   <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
                     <span className="flex items-center gap-1.5 text-slate-500"><MapPin className="w-4 h-4 text-blue-600" />Next Stop:</span>
@@ -157,13 +141,13 @@ export const AdminLiveFleet: React.FC = () => {
                 <div className="pt-2 border-t border-slate-100">
                   <div className="text-[11px] font-bold text-slate-400 uppercase mb-2">Actions</div>
                   <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => handleStatusChange(selectedBus.status === 'ACTIVE' ? 'IDLE' : 'ACTIVE')}
-                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors cursor-pointer">
-                      {selectedBus.status === 'ACTIVE' ? 'Set Idle' : 'Activate'}
+                    <button type="button" disabled={pending || Boolean(selectedBus.activeTripId)} onClick={() => void handleStatusChange('ACTIVE')}
+                      className="min-h-11 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl">
+                      Mark available
                     </button>
-                    <button onClick={() => handleStatusChange(selectedBus.status === 'MAINTENANCE' ? 'IDLE' : 'MAINTENANCE')}
-                      className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-xl transition-colors cursor-pointer">
-                      {selectedBus.status === 'MAINTENANCE' ? 'Clear' : 'Maintenance'}
+                    <button type="button" disabled={pending || Boolean(selectedBus.activeTripId)} onClick={() => void handleStatusChange('MAINTENANCE')}
+                      className="min-h-11 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-xl">
+                      Maintenance
                     </button>
                   </div>
                 </div>

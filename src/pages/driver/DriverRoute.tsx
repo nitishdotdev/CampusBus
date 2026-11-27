@@ -1,55 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useApp } from '../../store/AppContext';
-import { apiClient } from '../../services/apiClient';
+import { RouteStatusBadge } from '../../components/common/StatusBadges';
 import { MapView } from '../../components/map/MapView';
 import { EmptyState } from '../../components/common/States';
 import { Route as RouteIcon, MapPin, Bus, Clock, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
-
 export const DriverRoute: React.FC = () => {
-  const { currentUser, routes, buses, activeTrip } = useApp();
-  const [assignment, setAssignment] = useState<any>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const { currentUser, routes, buses, activeTrip, isLoadingData } = useApp();
+  const assignedBus = buses.find(bus => bus.id === activeTrip?.busId) ??
+    buses.find(bus => bus.currentDriverId === currentUser?.id);
+  const assignedRoute = routes.find(route => route.id === (activeTrip?.routeId ?? assignedBus?.currentRouteId));
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchAssignment = async () => {
-      try {
-        if (USE_V1) {
-          const assigned = buses.find((b) => b.currentDriverId === currentUser?.id);
-          if (isMounted) {
-            setAssignment(assigned
-              ? { busId: assigned.id, routeId: assigned.currentRouteId }
-              : null);
-          }
-        } else {
-          const res = await apiClient.get<any>('/api/driver/assignments');
-          if (isMounted && res?.assignment) {
-            setAssignment(res.assignment);
-          }
-        }
-      } catch (err) {
-        console.warn('Could not load driver assignment:', err);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-    fetchAssignment();
-    return () => {
-      isMounted = false;
-    };
-  }, [buses, currentUser?.id]);
-
-  const assignedBus =
-    buses.find((b) => b.id === activeTrip?.busId) ||
-    (assignment?.busId ? buses.find((b) => b.id === assignment.busId) : null) ||
-    buses.find((b) => b.currentDriverId === currentUser?.id);
-
-  const assignedRoute =
-    routes.find((r) => r.id === (activeTrip?.routeId || assignment?.routeId || assignedBus?.currentRouteId));
-
-  if (loading) {
+  if (isLoadingData) {
     return (
       <div className="max-w-4xl mx-auto space-y-4">
         <div className="animate-pulse bg-white rounded-2xl border border-slate-200 p-6 h-48" />
@@ -71,9 +33,9 @@ export const DriverRoute: React.FC = () => {
 
   const sortedStops = [...(assignedRoute.stops || [])].sort((a, b) => a.sequence - b.sequence);
   const completedStopIds = new Set(
-    activeTrip?.completedStopIds || assignment?.completedStopIds || assignedBus.completedStopIds || []
+    activeTrip?.completedStopIds || assignedBus.completedStopIds || []
   );
-  const nextStopId = activeTrip?.nextStopId || assignment?.nextStopId || assignedBus.nextStopId;
+  const nextStopId = activeTrip?.nextStopId || assignedBus.nextStopId;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -90,9 +52,7 @@ export const DriverRoute: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-black text-slate-900">{assignedRoute.name}</h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                  {assignedRoute.status || 'ACTIVE'}
-                </span>
+                <RouteStatusBadge status={assignedRoute.status} />
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Assigned Bus: <strong className="text-slate-800">{assignedBus.busNumber}</strong> ({assignedBus.model}) • Capacity: {assignedBus.capacity} seats
@@ -124,7 +84,7 @@ export const DriverRoute: React.FC = () => {
         <MapView
           buses={assignedBus ? [{
             ...assignedBus,
-            currentStopId: activeTrip?.currentStopId || assignment?.currentStopId || assignedBus.currentStopId,
+            currentStopId: activeTrip?.currentStopId || assignedBus.currentStopId,
             nextStopId,
             completedStopIds: Array.from(completedStopIds) as string[],
           }] : []}

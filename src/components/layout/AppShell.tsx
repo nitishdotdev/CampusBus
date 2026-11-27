@@ -8,7 +8,7 @@ import { ShieldAlert, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const AppShell: React.FC = () => {
-  const { emergencyAlerts, role, currentUser, isRestoringSession } = useApp();
+  const { emergencyAlerts, role, currentUser, isRestoringSession, dataError, refreshData } = useApp();
   const location = useLocation();
   const activeAlert = emergencyAlerts.find((a) => a.status === 'ACTIVE');
 
@@ -51,6 +51,10 @@ export const AppShell: React.FC = () => {
         {/* Scrollable Page Body */}
         <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-20 md:pb-8">
           <div className="max-w-7xl mx-auto">
+            {dataError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-950">
+              <span>{dataError}</span>
+              <button type="button" onClick={() => void refreshData()} className="min-h-11 font-semibold underline">Retry</button>
+            </div>}
             <Outlet />
           </div>
         </main>

@@ -1,9 +1,14 @@
+import type { TrackingFreshness } from './socket';
 import { v1Client } from './client';
 
 export interface V1Bus {
   id: string; campusId: string; number: string; capacity: number;
   status: 'ACTIVE' | 'MAINTENANCE' | 'OFFLINE';
   driverId?: string | null; routeId?: string | null;
+  model?: string | null; plateNumber?: string | null; driverName?: string | null;
+  canTrack?: boolean;
+  currentOccupancy?: number | null;
+  activeTrip?: { id: string; routeId: string; mode: 'REAL' | 'SIMULATED'; freshness: TrackingFreshness; nextStopId?: string; completedStopIds?: string[] } | null;
 }
 interface Page<T> { items: T[]; total: number; page: number; pageSize: number }
 
@@ -13,7 +18,7 @@ export const busesV1 = {
 
   get: (id: string) => v1Client.get<V1Bus>(`/api/v1/buses/${id}`),
 
-  create: (body: { number: string; capacity: number; status?: string }) =>
+  create: (body: { number: string; capacity: number; status?: V1Bus['status']; model?: string; plateNumber?: string; routeId?: string }) =>
     v1Client.post<V1Bus>('/api/v1/buses', body),
 
   update: (id: string, patch: Partial<{ number: string; capacity: number; status: string }>) =>
@@ -26,6 +31,9 @@ export const busesV1 = {
 
   assignRoute: (id: string, routeId: string | null) =>
     v1Client.post<V1Bus>(`/api/v1/buses/${id}/assign-route`, { routeId }),
+
+  assign: (id: string, driverId: string | null, routeId: string | null) =>
+    v1Client.patch<V1Bus>(`/api/v1/buses/${id}/assignment`, { driverId, routeId }),
 
   livePosition: (id: string) =>
     v1Client.get<unknown>(`/api/v1/buses/${id}/live`),

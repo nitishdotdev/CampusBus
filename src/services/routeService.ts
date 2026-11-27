@@ -19,7 +19,7 @@ class RouteService {
     try {
       if (USE_V1) {
         const page = await routesV1.list(1, 100);
-        this.routes = page.items.map(v1RouteToUi);
+        this.routes = page.items.map(route => v1RouteToUi(route));
         this.stops = this.routes.flatMap((r) => r.stops);
         return this.routes;
       }

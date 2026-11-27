@@ -13,10 +13,10 @@ export const routesV1 = {
 
   get: (id: string) => v1Client.get<V1Route>(`/api/v1/routes/${id}`),
 
-  create: (body: { code: string; name: string; color?: string; stops?: V1Stop[] }) =>
+  create: (body: { code: string; name: string; color?: string; stops?: Omit<V1Stop, 'id'>[] }) =>
     v1Client.post<V1Route>('/api/v1/routes', body),
 
-  update: (id: string, patch: Partial<{ code: string; name: string; color: string; stops: V1Stop[] }>) =>
+  update: (id: string, patch: Partial<{ code: string; name: string; color: string; stops: Omit<V1Stop, 'id'>[] }>) =>
     v1Client.patch<V1Route>(`/api/v1/routes/${id}`, patch),
 
   delete: (id: string) => v1Client.delete<void>(`/api/v1/routes/${id}`),

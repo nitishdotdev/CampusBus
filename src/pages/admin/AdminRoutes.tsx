@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
-import { Route, Stop } from '../../types';
+import { Link } from 'react-router-dom';
 import { RouteStatusBadge } from '../../components/common/StatusBadges';
 import { Modal } from '../../components/common/Modals';
-import { adminService } from '../../services/adminService';
 import { routesV1 } from '../../services/v1/routes';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 import {
   Route as RouteIcon,
   Plus,
@@ -19,93 +17,42 @@ import {
 } from 'lucide-react';
 
 export const AdminRoutes: React.FC = () => {
-  const { routes, buses } = useApp();
-  const [selectedRouteId, setSelectedRouteId] = useState<string>(routes[0]?.id || 'route_blue');
+  const { routes, buses, refreshData } = useApp();
+  const [selectedRouteId, setSelectedRouteId] = useState<string>(routes[0]?.id || '');
   const [isAddRouteModalOpen, setIsAddRouteModalOpen] = useState(false);
 
   // New Route Form
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
   const [color, setColor] = useState('#2563EB');
-  const [scheduleHours, setScheduleHours] = useState('07:00 AM – 10:00 PM');
-  const [frequencyMinutes, setFrequencyMinutes] = useState(10);
+  const [draftStops, setDraftStops] = useState<{ key: number; name: string; lat: string; lng: string }[]>([]);
+  const stopKey = React.useRef(0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const selectedRoute = routes.find((r) => r.id === selectedRouteId) || routes[0];
 
-  const handleCreateRoute = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!code || !name) return;
-
-    // Default basic stop sequence for new campus route
-    const defaultStops: Stop[] = [
-      {
-        id: `stop_${Date.now()}_1`,
-        collegeId: 'college_apex',
-        code: `${code}-01`,
-        name: `${name} Terminal`,
-        lat: 34.0537,
-        lng: -118.2570,
-        landmark: 'Main Station Gate',
-        sequence: 1,
-      },
-      {
-        id: `stop_${Date.now()}_2`,
-        collegeId: 'college_apex',
-        code: `${code}-02`,
-        name: `${name} East Quad`,
-        lat: 34.0545,
-        lng: -118.2585,
-        landmark: 'Academic Plaza',
-        sequence: 2,
-      },
-      {
-        id: `stop_${Date.now()}_3`,
-        collegeId: 'college_apex',
-        code: `${code}-03`,
-        name: `${name} Residence Hall`,
-        lat: 34.0560,
-        lng: -118.2610,
-        landmark: 'North Commons',
-        sequence: 3,
-      },
-    ];
-
-    const defaultCoords: [number, number][] = [
-      [34.0537, -118.2570],
-      [34.0545, -118.2585],
-      [34.0560, -118.2610],
-      [34.0537, -118.2570],
-    ];
-
-    if (USE_V1) {
-      await routesV1.create({
-        code: code.toUpperCase(),
-        name,
-        color,
-        stops: defaultStops.map((s, i) => ({
-          id: '', name: s.name, lat: s.lat, lng: s.lng, order: i,
-        })),
+  const handleCreateRoute = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      const route = await routesV1.create({
+        code: code.trim().toUpperCase(), name: name.trim(), color,
+        stops: draftStops.map((stop, order) => ({ name: stop.name.trim(), lat: Number(stop.lat), lng: Number(stop.lng), order })),
       });
-    } else {
-      adminService.addRoute({
-        collegeId: 'college_apex',
-        code: code.toUpperCase(),
-        name,
-        description: description || `Campus line connecting ${name}`,
-        color,
-        status: 'SCHEDULED',
-        scheduleHours,
-        frequencyMinutes: Number(frequencyMinutes) || 12,
-        stops: defaultStops,
-        pathCoordinates: defaultCoords,
-      });
+      setSelectedRouteId(route.id);
+      setCode('');
+      setName('');
+      setDraftStops([]);
+      setIsAddRouteModalOpen(false);
+      await refreshData();
+    } catch {
+      setError('Could not create the route. Check the route code and stop details.');
+    } finally {
+      setSaving(false);
     }
-
-    setIsAddRouteModalOpen(false);
-    setCode('');
-    setName('');
-    setDescription('');
   };
 
   return (
@@ -114,7 +61,7 @@ export const AdminRoutes: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-slate-900">Campus Route & Stop Management</h2>
           <p className="text-xs text-slate-500">
-            Define transit corridors, frequency headways, and ordered stop sequences
+            Configure transit routes and the order of their stops
           </p>
         </div>
 
@@ -138,10 +85,10 @@ export const AdminRoutes: React.FC = () => {
             const busesOnRoute = buses.filter((b) => b.currentRouteId === route.id).length;
 
             return (
-              <div
+              <button type="button" aria-pressed={isSelected}
                 key={route.id}
                 onClick={() => setSelectedRouteId(route.id)}
-                className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-2xs ${
+                className={`block w-full text-left p-4 rounded-2xl border transition-all cursor-pointer shadow-2xs ${
                   isSelected
                     ? 'bg-white border-blue-500 ring-2 ring-blue-500/20'
                     : 'bg-white border-slate-200 hover:border-slate-300'
@@ -164,7 +111,7 @@ export const AdminRoutes: React.FC = () => {
                   <span>{route.stops.length} designated stops</span>
                   <span className="font-semibold text-slate-700">{busesOnRoute} buses assigned</span>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -187,14 +134,8 @@ export const AdminRoutes: React.FC = () => {
                 <p className="text-xs text-slate-500 mt-1">{selectedRoute.description}</p>
               </div>
 
-              <div className="text-right text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                <div>
-                  <strong>Hours:</strong> {selectedRoute.scheduleHours}
-                </div>
-                <div>
-                  <strong>Interval:</strong> Every {selectedRoute.frequencyMinutes}m
-                </div>
-              </div>
+              <Link to="/admin/schedules" className="flex items-center text-xs font-semibold text-blue-700 underline">Manage schedules</Link>
+
             </div>
 
             {/* Ordered Stop Manager */}
@@ -224,7 +165,7 @@ export const AdminRoutes: React.FC = () => {
                         </div>
                         <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
                           <MapPin className="w-3 h-3 text-slate-400" />
-                          {stop.landmark} • [{stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}]
+                          {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}
                         </div>
                       </div>
                     </div>
@@ -281,41 +222,23 @@ export const AdminRoutes: React.FC = () => {
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>
-            <textarea
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Short description of stops and coverage..."
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Operating Hours</label>
-              <input
-                type="text"
-                value={scheduleHours}
-                onChange={(e) => setScheduleHours(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Frequency (Minutes)
-              </label>
-              <input
-                type="number"
-                min="5"
-                max="60"
-                value={frequencyMinutes}
-                onChange={(e) => setFrequencyMinutes(Number(e.target.value))}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-              />
-            </div>
-          </div>
+          <fieldset className="space-y-2">
+            <legend className="text-xs font-bold text-slate-700">Stops in service order</legend>
+            {draftStops.map((stop, index) => (
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-2" key={stop.key}>
+                <input className="col-span-2 min-w-0 rounded border p-2 text-sm" required maxLength={120} aria-label={`Stop ${index + 1} name`} placeholder="Stop name"
+                  value={stop.name} onChange={event => setDraftStops(draftStops.map(item => item.key === stop.key ? { ...item, name: event.target.value } : item))} />
+                <input className="min-w-0 rounded border p-2 text-sm" type="number" step="any" min={-90} max={90} required aria-label={`Stop ${index + 1} latitude`} placeholder="Latitude"
+                  value={stop.lat} onChange={event => setDraftStops(draftStops.map(item => item.key === stop.key ? { ...item, lat: event.target.value } : item))} />
+                <input className="min-w-0 rounded border p-2 text-sm" type="number" step="any" min={-180} max={180} required aria-label={`Stop ${index + 1} longitude`} placeholder="Longitude"
+                  value={stop.lng} onChange={event => setDraftStops(draftStops.map(item => item.key === stop.key ? { ...item, lng: event.target.value } : item))} />
+                <button type="button" className="min-h-11 text-left text-xs font-semibold text-rose-700" onClick={() => setDraftStops(draftStops.filter(item => item.key !== stop.key))}>Remove stop {index + 1}</button>
+              </div>
+            ))}
+            <button type="button" disabled={draftStops.length >= 100} className="min-h-11 text-xs font-semibold text-blue-700 underline"
+              onClick={() => setDraftStops([...draftStops, { key: stopKey.current++, name: '', lat: '', lng: '' }])}>Add stop</button>
+          </fieldset>
+          {error && <p role="alert" className="text-xs text-rose-700">{error}</p>}
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
             <button
@@ -326,7 +249,7 @@ export const AdminRoutes: React.FC = () => {
               Cancel
             </button>
             <button
-              type="submit"
+              type="submit" disabled={saving}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs cursor-pointer"
             >
               Create Route

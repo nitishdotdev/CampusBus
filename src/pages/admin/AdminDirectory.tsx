@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../store/AppContext';
-import { apiClient } from '../../services/apiClient';
+import { allPages } from '../../services/v1/pages';
 import { adminV1 } from '../../services/v1/admin';
 import { busesV1 } from '../../services/v1/buses';
 import { routesV1 } from '../../services/v1/routes';
@@ -26,7 +26,6 @@ import {
   EyeOff,
 } from 'lucide-react';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 
 interface DirectoryUser {
   id: string;
@@ -35,7 +34,6 @@ interface DirectoryUser {
   name: string;
   role: 'DRIVER' | 'STUDENT' | 'ADMIN';
   studentId?: string;
-  cdlNumber?: string;
   phone?: string;
   status: 'ACTIVE' | 'DEACTIVATED';
   createdAt: string;
@@ -60,7 +58,6 @@ export const AdminDirectory: React.FC = () => {
   const [createName, setCreateName] = useState('');
   const [createEmail, setCreateEmail] = useState('');
   const [createPhone, setCreatePhone] = useState('');
-  const [createCdl, setCreateCdl] = useState('');
   const [createPassword, setCreatePassword] = useState('');
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -79,37 +76,32 @@ export const AdminDirectory: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      if (USE_V1) {
-        const [userPage, busPage, routePage] = await Promise.all([
-          adminV1.users.list({ pageSize: 100 }),
-          busesV1.list(),
-          routesV1.list(),
-        ]);
-        const busById = new Map(busPage.items.map((b) => [b.id, b]));
-        const routeById = new Map(routePage.items.map((r) => [r.id, r]));
-        setUsers(userPage.items.map((u) => {
-          const assignedBus = u.assignedBusId ? busById.get(u.assignedBusId) : undefined;
-          const assignedRoute = u.assignedRouteId ? routeById.get(u.assignedRouteId) : undefined;
-          return {
-            id: u.id,
-            collegeId: u.campusId,
-            email: u.email,
-            name: u.name,
-            role: u.role,
-            phone: u.phone ?? undefined,
-            status: u.status === 'ACTIVE' ? 'ACTIVE' : 'DEACTIVATED',
-            createdAt: '',
-            assignedBusId: u.assignedBusId ?? null,
-            assignedBusNumber: assignedBus?.number ?? null,
-            assignedRouteId: u.assignedRouteId ?? null,
-            assignedRouteName: assignedRoute?.name ?? null,
-            assignedRouteCode: assignedRoute?.code ?? null,
-          } as DirectoryUser;
-        }));
-        return;
-      }
-      const res = await apiClient.get<DirectoryUser[]>('/api/users');
-      setUsers(res || []);
+      const [directory, fleet, lines] = await Promise.all([
+        allPages(page => adminV1.users.list({ page, pageSize: 100 })),
+        allPages(page => busesV1.list(page, 100)),
+        allPages(page => routesV1.list(page, 100)),
+      ]);
+      const busById = new Map(fleet.map((b) => [b.id, b]));
+      const routeById = new Map(lines.map((r) => [r.id, r]));
+      setUsers(directory.map((u) => {
+        const assignedBus = u.assignedBusId ? busById.get(u.assignedBusId) : undefined;
+        const assignedRoute = u.assignedRouteId ? routeById.get(u.assignedRouteId) : undefined;
+        return {
+          id: u.id,
+          collegeId: u.campusId,
+          email: u.email,
+          name: u.name,
+          role: u.role,
+          phone: u.phone ?? undefined,
+          status: u.status === 'ACTIVE' ? 'ACTIVE' : 'DEACTIVATED',
+          createdAt: '',
+          assignedBusId: u.assignedBusId ?? null,
+          assignedBusNumber: assignedBus?.number ?? null,
+          assignedRouteId: u.assignedRouteId ?? null,
+          assignedRouteName: assignedRoute?.name ?? null,
+          assignedRouteCode: assignedRoute?.code ?? null,
+        } as DirectoryUser;
+      }));
     } catch (err: any) {
       setError(err?.message || 'Failed to load user directory.');
     } finally {
@@ -128,7 +120,6 @@ export const AdminDirectory: React.FC = () => {
     (d) =>
       d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (d.cdlNumber && d.cdlNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (d.assignedBusNumber && d.assignedBusNumber.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
@@ -155,30 +146,16 @@ export const AdminDirectory: React.FC = () => {
 
     setIsSubmittingCreate(true);
     try {
-      if (USE_V1) {
-        await adminV1.users.createDriver({
-          name: createName.trim(),
-          email: createEmail.trim(),
-          password: createPassword,
-          phone: createPhone.trim() || undefined,
-        });
-      } else {
-        await apiClient.post('/api/users/drivers', {
-          name: createName,
-          email: createEmail,
-          phone: createPhone,
-          cdlNumber: createCdl,
-          password: createPassword,
-        });
-      }
-
+      await adminV1.users.createDriver({
+        name: createName.trim(), email: createEmail.trim(),
+        password: createPassword, phone: createPhone.trim() || undefined,
+      });
       setSuccessNotice(`Driver account created for ${createName}.`);
       setTimeout(() => setSuccessNotice(null), 4000);
       setIsCreateModalOpen(false);
       setCreateName('');
       setCreateEmail('');
       setCreatePhone('');
-      setCreateCdl('');
       setCreatePassword('');
       await fetchUsers();
     } catch (err: any) {
@@ -191,11 +168,7 @@ export const AdminDirectory: React.FC = () => {
   const handleToggleStatus = async (user: DirectoryUser) => {
     const nextStatus = user.status === 'ACTIVE' ? 'DEACTIVATED' : 'ACTIVE';
     try {
-      if (USE_V1) {
-        await adminV1.users.setStatus(user.id, nextStatus === 'ACTIVE' ? 'ACTIVE' : 'DISABLED');
-      } else {
-        await apiClient.put(`/api/users/${user.id}`, { status: nextStatus });
-      }
+      await adminV1.users.setStatus(user.id, nextStatus === 'ACTIVE' ? 'ACTIVE' : 'DISABLED');
       setSuccessNotice(`Account status updated to ${nextStatus}.`);
       setTimeout(() => setSuccessNotice(null), 3000);
       setDeactivatingUser(null);
@@ -214,11 +187,7 @@ export const AdminDirectory: React.FC = () => {
 
     setIsSubmittingReset(true);
     try {
-      if (USE_V1) {
-        setResetError('Password reset is not available from this screen. Ask the user to use Forgot password.');
-        return;
-      }
-      await apiClient.post(`/api/users/${resetUserId}/reset-password`, { newPassword });
+      await adminV1.users.resetPassword(resetUserId, newPassword);
       setSuccessNotice(`Password reset successfully for ${resetUserName}.`);
       setTimeout(() => setSuccessNotice(null), 4000);
       setResetUserId(null);
@@ -334,7 +303,6 @@ export const AdminDirectory: React.FC = () => {
                     <th className="py-3 px-4">Driver Name</th>
                     <th className="py-3 px-4">Account Status</th>
                     <th className="py-3 px-4">Assigned Vehicle</th>
-                    <th className="py-3 px-4">CDL License</th>
                     <th className="py-3 px-4">Contact</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
@@ -384,10 +352,6 @@ export const AdminDirectory: React.FC = () => {
                         ) : (
                           <span className="text-slate-400 italic">Unassigned</span>
                         )}
-                      </td>
-
-                      <td className="py-3.5 px-4 font-mono text-slate-600">
-                        {driver.cdlNumber || <span className="text-slate-400">—</span>}
                       </td>
 
                       <td className="py-3.5 px-4 text-slate-600">
@@ -546,16 +510,6 @@ export const AdminDirectory: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">CDL Number</label>
-              <input
-                type="text"
-                value={createCdl}
-                onChange={(e) => setCreateCdl(e.target.value)}
-                placeholder="e.g. CDL-CA-99201"
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
             <div>
               <label className="block font-bold text-slate-700 mb-1">Contact Phone</label>
               <input

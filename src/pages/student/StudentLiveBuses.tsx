@@ -1,80 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
 import { MapView } from '../../components/map/MapView';
 import { BusStatusBadge, ETAIndicator, OccupancyIndicator } from '../../components/common/StatusBadges';
 import { EmptyState } from '../../components/common/States';
 import { FilterBar } from '../../components/common/Inputs';
 import { Bus as BusIcon, MapPin, Clock, Radio, Compass } from 'lucide-react';
-import { socketV1, type BusLocationPayload } from '../../services/v1/socket';
-import type { Bus } from '../../types';
-
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
-
-// ── ETA helpers ────────────────────────────────────────────────────────────────
-/** Haversine distance in metres between two lat/lng points. */
-function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6_371_000;
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
-  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/** Estimate seconds to next stop based on current position and speed. */
-function estimateEtaSeconds(
-  curLat: number, curLng: number,
-  stopLat: number, stopLng: number,
-  speedMps: number | null,
-): number | undefined {
-  const dist = haversineM(curLat, curLng, stopLat, stopLng);
-  const speed = speedMps && speedMps > 0.5 ? speedMps : 5; // default 5 m/s (~18 km/h)
-  return Math.round(dist / speed);
-}
-
-// ── Live position overlay ──────────────────────────────────────────────────────
-type LiveMap = Map<string, BusLocationPayload>;
-
-function applyLive(buses: Bus[], live: LiveMap): Bus[] {
-  if (!USE_V1 || live.size === 0) return buses;
-  return buses.map((b) => {
-    const l = live.get(b.id);
-    if (!l) return b;
-    const stale = l.freshness === 'STALE' || l.freshness === 'UNAVAILABLE';
-    return {
-      ...b,
-      lastLocation: { lat: l.location.lat, lng: l.location.lng, timestamp: l.receivedAt, accuracy: l.accuracyM ?? undefined },
-      heading: l.headingDeg ?? b.heading,
-      speedKmh: l.speedMps != null ? Math.round(l.speedMps * 3.6) : b.speedKmh,
-      gpsStatus: stale ? 'LOCATION_STALE' : 'GPS_ACTIVE',
-      lastSyncTimestamp: l.receivedAt,
-    } as Bus;
-  });
-}
+import { useLiveBuses } from '../../hooks/useLiveBuses';
+import { estimateArrivalSeconds } from '../../services/arrivalEstimate';
 
 export const StudentLiveBuses: React.FC = () => {
   const { buses, routes } = useApp();
-  const [selectedBusId, setSelectedBusId]   = useState<string | undefined>(undefined);
-  const [selectedRouteId, setSelectedRouteId] = useState<string>('ALL');
-  const [livePositions, setLivePositions]   = useState<LiveMap>(new Map());
-
-  // Subscribe to socketV1 for every active bus when v1 is enabled
-  useEffect(() => {
-    if (!USE_V1) return;
-    const tracked = buses.filter((b) => b.status === 'ACTIVE' || b.status === 'IDLE');
-    if (tracked.length === 0) return;
-
-    const unsubs = tracked.map((b) =>
-      socketV1.subscribeTobus(b.id, (payload) => {
-        setLivePositions((prev) => new Map(prev).set(b.id, payload));
-      })
-    );
-    return () => unsubs.forEach((fn) => fn());
-  }, [buses]);
-
-  const activeBuses = buses.filter((b) => b.status === 'ACTIVE');
-  const enriched    = applyLive(activeBuses, livePositions);
+  const [selectedBusId, setSelectedBusId] = useState<string>();
+  const [selectedRouteId, setSelectedRouteId] = useState('ALL');
+  const activeBuses = useLiveBuses(buses).filter(bus => Boolean(bus.activeTripId));
 
   const getTimeSinceUpdate = (timestamp: string): { text: string; diffMinutes: number } => {
     if (!timestamp) return { text: 'Unknown', diffMinutes: 999 };
@@ -87,24 +25,12 @@ export const StudentLiveBuses: React.FC = () => {
     return { text, diffMinutes: diffMin };
   };
 
-  const filteredBuses = enriched.filter((b) =>
+  const filteredBuses = activeBuses.filter((b) =>
     selectedRouteId === 'ALL' ? true : b.currentRouteId === selectedRouteId
   );
-  const selectedBus      = buses.find((b) => b.id === selectedBusId) || filteredBuses[0];
-  const selectedEnriched = enriched.find((b) => b.id === selectedBus?.id) ?? selectedBus;
-  const selectedBusRoute = routes.find((r) => r.id === selectedEnriched?.currentRouteId);
-
-  // ETA to first upcoming stop using live position + haversine
-  const etaSeconds = (() => {
-    const live = selectedBusId ? livePositions.get(selectedBusId) : undefined;
-    if (!live || !selectedBusRoute?.stops?.length) return selectedEnriched?.etaToNextStopSeconds;
-    const { lat, lng } = live.location;
-    // Find closest upcoming stop by index
-    const stops = [...selectedBusRoute.stops].sort((a, b) => a.sequence - b.sequence);
-    const nextStop = stops[0];
-    if (!nextStop) return undefined;
-    return estimateEtaSeconds(lat, lng, nextStop.lat, nextStop.lng, live.speedMps);
-  })();
+  const selectedEnriched = filteredBuses.find(bus => bus.id === selectedBusId) ?? filteredBuses[0];
+  const selectedBusRoute = routes.find(route => route.id === selectedEnriched?.currentRouteId);
+  const etaSeconds = estimateArrivalSeconds(selectedEnriched, selectedBusRoute);
 
   const routeFilters = [
     { id: 'ALL', label: 'All Routes', count: activeBuses.length },
@@ -121,7 +47,7 @@ export const StudentLiveBuses: React.FC = () => {
           <h2 className="text-lg font-bold text-slate-900">Live Bus Tracking</h2>
           <p className="text-xs text-slate-500">
             {activeBuses.length > 0
-              ? `Real-time telemetry from driver devices${USE_V1 ? ' (v1 socket)' : ''}`
+              ? 'Tracking is available for assigned vehicles when a fresh GPS fix is received.'
               : 'No buses are currently active'}
           </p>
         </div>
@@ -158,7 +84,7 @@ export const StudentLiveBuses: React.FC = () => {
               {filteredBuses.map((bus) => {
                 const route     = routes.find((r) => r.id === bus.currentRouteId);
                 const isSelected = selectedBusId === bus.id;
-                const hasLive   = livePositions.has(bus.id);
+                const hasLive   = bus.canTrack && bus.trackingStatus === 'LIVE' && Boolean(bus.lastLocation) && !bus.isSimulated;
                 return (
                   <button key={bus.id} onClick={() => setSelectedBusId(bus.id)}
                     className={`px-3 py-2 rounded-xl text-xs font-bold shrink-0 flex items-center gap-2 shadow-md transition-all cursor-pointer backdrop-blur-md ${isSelected ? 'bg-slate-900 text-white ring-2 ring-blue-500' : 'bg-white/95 text-slate-800 hover:bg-white'}`}>
@@ -211,7 +137,7 @@ export const StudentLiveBuses: React.FC = () => {
                       <MapPin className="w-3 h-3" /> Next Stop
                     </div>
                     <div className="font-bold text-xs text-slate-900 mt-1 truncate">
-                      {selectedBusRoute?.stops?.[0]?.name ?? selectedEnriched.nextStop?.stopName ?? '—'}
+                      {selectedBusRoute?.stops.find(stop => stop.id === selectedEnriched.nextStopId)?.name ?? 'Unavailable'}
                     </div>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
@@ -221,14 +147,15 @@ export const StudentLiveBuses: React.FC = () => {
                     <div className="mt-1">
                       <ETAIndicator
                         seconds={etaSeconds}
-                        confidence={livePositions.has(selectedEnriched.id) ? 'LIVE' : selectedEnriched.etaConfidence}
+                        confidence={etaSeconds != null ? 'DEGRADED' : 'OFFLINE'}
                       />
                     </div>
                   </div>
                 </div>
 
                 <div className="p-3.5 bg-white border border-slate-200 rounded-xl">
-                  <OccupancyIndicator current={selectedEnriched.currentOccupancy} capacity={selectedEnriched.capacity} />
+                  {selectedEnriched.hasOccupancy ? <OccupancyIndicator current={selectedEnriched.currentOccupancy} capacity={selectedEnriched.capacity} />
+                    : <p className="text-xs text-slate-600">Passenger count unavailable</p>}
                 </div>
 
                 {(() => {
@@ -250,12 +177,12 @@ export const StudentLiveBuses: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5"><Radio className="w-3.5 h-3.5 text-emerald-500" />GPS:</span>
                     <span className="font-semibold text-slate-800">
-                      {livePositions.has(selectedEnriched.id) ? 'Live' : selectedEnriched.gpsStatus === 'GPS_ACTIVE' ? 'Live' : selectedEnriched.gpsStatus === 'LOCATION_STALE' ? 'Stale' : 'Unavailable'}
+                      {!selectedEnriched.canTrack ? 'Not available for this vehicle' : selectedEnriched.isSimulated ? 'Simulated' : selectedEnriched.lastLocation && selectedEnriched.trackingStatus === 'LIVE' ? 'Live' : selectedEnriched.trackingStatus === 'STALE' ? 'Stale' : 'Unavailable'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5"><Compass className="w-3.5 h-3.5 text-slate-400" />Speed:</span>
-                    <span className="font-semibold text-slate-800">{selectedEnriched.speedKmh || 0} km/h</span>
+                    <span className="font-semibold text-slate-800">{selectedEnriched.speedKmh == null ? 'Unavailable' : `${selectedEnriched.speedKmh} km/h`}</span>
                   </div>
                 </div>
               </div>

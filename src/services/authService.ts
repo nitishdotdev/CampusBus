@@ -1,6 +1,6 @@
 import type { User } from '../types';
 import { getMeV1, logoutV1, type V1SessionUser } from './v1/auth';
-import { refreshV1Session, v1Token } from './v1/client';
+import { ApiV1Error, refreshV1Session, v1Client, v1Token } from './v1/client';
 import { socketV1 } from './v1/socket';
 
 class AuthService {
@@ -47,8 +47,16 @@ class AuthService {
     this.notifyListeners();
   }
 
-  public async changePassword(_currentPassword: string, _newPassword: string): Promise<{ success: boolean; error?: string }> {
-    return { success: false, error: 'Password changes are not available on this API. Use password reset from sign-in.' };
+  public async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      await v1Client.post('/api/v1/auth/change-password', { currentPassword, newPassword });
+      // The old refresh token is revoked after a password change.
+      v1Token.setRefresh(null);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof ApiV1Error && error.code === 'INCORRECT_CURRENT_PASSWORD'
+        ? 'The current password is incorrect.' : 'Could not change your password. Check both passwords and try again.' };
+    }
   }
 
   public logout(): void {

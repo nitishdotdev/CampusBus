@@ -22,8 +22,7 @@ import {
 
 const NAV_LINKS = [
   { href: '#home', label: 'Home' },
-  { href: '#features', label: 'Routes' },
-  { href: '#features', label: 'Live Tracking' },
+  { href: '#features', label: 'Features' },
   { href: '#about', label: 'About' },
 ] as const;
 
@@ -304,7 +303,7 @@ export const LandingPage: React.FC = () => {
       <main>
         <section id="home" className="relative overflow-hidden">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(59,130,246,0.10),_transparent_55%)] pointer-events-none" />
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 lg:pt-20 pb-16 lg:pb-24 grid lg:grid-cols-2 gap-10 lg:gap-12 items-center">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 lg:pt-20 pb-16 lg:pb-24 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             <div className="landing-fade-up">
               <div className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-blue-100 bg-blue-50/70 px-3 py-1 text-[11px] sm:text-xs font-semibold text-blue-700">
                 <span>Smart Transport</span>
@@ -313,7 +312,7 @@ export const LandingPage: React.FC = () => {
                 <span className="text-blue-300">·</span>
                 <span>Better Tomorrow</span>
               </div>
-              <h1 className="mt-5 text-[2.35rem] sm:text-5xl lg:text-[3.5rem] font-extrabold tracking-tight leading-[1.08] text-slate-900">
+              <h1 className="mt-5 text-[2.35rem] sm:text-5xl lg:text-[3rem] xl:text-[3.5rem] font-extrabold tracking-tight leading-[1.08] text-slate-900">
                 Your Campus
                 <br />
                 Bus, <span className="text-blue-600">Smarter</span>
@@ -335,40 +334,10 @@ export const LandingPage: React.FC = () => {
                   View Routes
                 </Link>
               </div>
-              <div className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-5">
-                <div className="flex items-start gap-2.5">
-                  <span className="mt-0.5 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                    <MapPin className="w-4 h-4" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <div className="text-sm font-bold text-slate-800">Live Tracking</div>
-                    <div className="text-xs text-slate-500">See buses in real-time</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="mt-0.5 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <div className="text-sm font-bold text-slate-800">Safe & Reliable</div>
-                    <div className="text-xs text-slate-500">Verified drivers & routes</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="mt-0.5 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                    <Zap className="w-4 h-4" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <div className="text-sm font-bold text-slate-800">Easy Access</div>
-                    <div className="text-xs text-slate-500">Book & ride with ease</div>
-                  </div>
-                </div>
-              </div>
             </div>
 
-            <div className="relative landing-fade-up-delay">
-              <div className="absolute -inset-8 bg-blue-100/40 blur-3xl rounded-full pointer-events-none" />
-              <div className="relative rounded-[2rem] overflow-hidden shadow-[0_24px_60px_-24px_rgba(37,99,235,0.45)] ring-1 ring-blue-100">
+            <div className="relative min-w-0">
+              <div className="relative rounded-[2rem] overflow-hidden shadow-sm ring-1 ring-blue-100">
                 <img
                   src="/images/campus-bus.jpg"
                   alt="Blue campus shuttle bus ready for student transport"
@@ -389,7 +358,7 @@ export const LandingPage: React.FC = () => {
         </section>
 
         <section id="features" className="py-16 sm:py-20 lg:py-24">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             <div>
               <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">Why CampusBus?</h2>
               <p className="mt-3 text-slate-500 max-w-md">
