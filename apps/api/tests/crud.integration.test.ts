@@ -16,6 +16,38 @@ describe.skipIf(!PG_TEST_URL)('CRUD APIs (buses, routes, schedules, notification
   const patch = (path: string, body: object, tok: string) => api().patch(path).set('Authorization', `Bearer ${tok}`).send(body);
   const del = (path: string, tok: string) => api().delete(path).set('Authorization', `Bearer ${tok}`);
 
+  it('rejects unsupported PATCH fields and invalid nested data', async () => {
+    const items = [
+      [`/api/v1/buses/${h.seed.bus1}`, { number: 'VALID', driverId: h.seed.driverFree }],
+      [`/api/v1/routes/${h.seed.route1}`, { stops: [{ name: 'Stop', lat: 20, lng: 30, order: 0, note: 'ignored' }] }],
+      [`/api/v1/users/${h.seed.studentR1}/status`, { status: 'ACTIVE', role: 'ADMIN' }],
+      [`/api/v1/schedules/${h.seed.bus1}`, { departTime: '26:00' }],
+    ] as const;
+    for (const [url, body] of items) expect((await patch(url, body, admin())).status).toBe(400);
+  });
+
+  it('changes assignment atomically and derives the driver profile from the bus', async () => {
+    const path = `/api/v1/buses/${h.seed.busNoRoute}/assignment`;
+    const cross = await patch(path, { driverId: h.seed.driverB, routeId: h.seed.route1 }, admin());
+    expect(cross.status).toBe(404);
+    const taken = await patch(path, { driverId: h.seed.driver1, routeId: h.seed.route1 }, admin());
+    expect(taken.status).toBe(409);
+    expect((await get(`/api/v1/buses/${h.seed.busNoRoute}`, admin())).body.routeId).toBeNull();
+    expect((await patch(path, { driverId: h.seed.driverFree, routeId: h.seed.route1 }, student())).status).toBe(403);
+    expect((await patch(path, { driverId: h.seed.driverFree, routeId: h.seed.route1 }, admin())).status).toBe(200);
+    const users = await get('/api/v1/users?role=DRIVER', admin());
+    expect(users.body.items.find((user: { id: string }) => user.id === h.seed.driverFree)).toMatchObject({
+      assignedBusId: h.seed.busNoRoute, assignedRouteId: h.seed.route1,
+    });
+    const token = h.token({ id: h.seed.driverFree, campusId: h.seed.campusA, role: 'DRIVER' });
+    const started = await post('/api/v1/trips/start', { busId: h.seed.busNoRoute }, token);
+    expect(started.status).toBe(201);
+    expect((await patch(path, { driverId: null, routeId: null }, admin())).status).toBe(409);
+    expect((await patch(`/api/v1/buses/${h.seed.busNoRoute}`, { status: 'MAINTENANCE' }, admin())).status).toBe(409);
+    expect((await post(`/api/v1/trips/${started.body.trip.id}/end`, {}, token)).status).toBe(200);
+    expect((await patch(path, { driverId: null, routeId: null }, admin())).status).toBe(200);
+  });
+
   // ── Buses ─────────────────────────────────────────────────────────────────
   describe('buses', () => {
     let busId: string;

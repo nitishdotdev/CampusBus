@@ -228,3 +228,20 @@ CREATE TABLE IF NOT EXISTS v1.complaints (
 
 CREATE INDEX IF NOT EXISTS idx_v1_complaints_campus_created ON v1.complaints (campus_id, created_at DESC, id);
 CREATE INDEX IF NOT EXISTS idx_v1_complaints_student_created ON v1.complaints (campus_id, student_id, created_at DESC, id);
+
+ALTER TABLE v1.trips ADD COLUMN IF NOT EXISTS current_occupancy INTEGER CHECK (current_occupancy BETWEEN 0 AND 200);
+
+CREATE TABLE IF NOT EXISTS v1.trip_stops (
+  trip_id VARCHAR(24) NOT NULL REFERENCES v1.trips(id),
+  stop_id VARCHAR(24) NOT NULL,
+  stop_order INTEGER NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  lat DOUBLE PRECISION NOT NULL,
+  lng DOUBLE PRECISION NOT NULL,
+  first_fix_at TIMESTAMPTZ,
+  arrived_at TIMESTAMPTZ,
+  PRIMARY KEY (trip_id, stop_order)
+);
+
+ALTER TABLE v1.buses ADD COLUMN IF NOT EXISTS model VARCHAR(80);
+ALTER TABLE v1.buses ADD COLUMN IF NOT EXISTS plate_number VARCHAR(32);

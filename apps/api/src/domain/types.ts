@@ -1,3 +1,4 @@
+import type { Freshness } from './telemetry/freshness';
 export type Role = 'STUDENT' | 'DRIVER' | 'ADMIN';
 
 export interface CampusDTO {
@@ -26,6 +27,9 @@ export interface UserDTO {
 export interface BusDTO {
   id: string; campusId: string; number: string; capacity: number;
   status: 'ACTIVE' | 'MAINTENANCE' | 'OFFLINE'; driverId?: string | null; routeId?: string | null;
+  model?: string | null; plateNumber?: string | null; driverName?: string | null;
+  currentOccupancy?: number | null;
+  activeTrip?: { id: string; routeId: string; mode: TripMode; freshness: Freshness; nextStopId?: string; completedStopIds?: string[] } | null;
 }
 export interface RouteDTO {
   id: string; campusId: string; code: string; name: string; color: string;
@@ -35,6 +39,10 @@ export interface StopDTO { id: string; name: string; lat: number; lng: number; o
 export interface TripDTO {
   id: string; campusId: string; busId: string; driverId: string; routeId: string;
   status: TripStatus; mode: TripMode; startedAt: Date; endedAt?: Date | null;
+  currentOccupancy?: number | null;
+  completedStopIds?: string[];
+  nextStopId?: string | null;
+  totalLocationsLogged?: number;
 }
 export interface GeoPoint { lat: number; lng: number }
 export interface TelemetryRecord {
@@ -64,7 +72,7 @@ export interface UserRepository {
   create(u: { campusId: string; email: string; passwordHash: string; name: string; role: Role; status: UserStatus; phone?: string }): Promise<UserDTO>;
   updateStatus(campusId: string, id: string, status: UserStatus): Promise<boolean>;
   verifyEmail(campusId: string, id: string, at: Date): Promise<boolean>;
-  updatePassword(campusId: string, id: string, hash: string): Promise<boolean>;
+  updatePassword(campusId: string, id: string, hash: string, expectedHash?: string): Promise<boolean>;
   list(campusId: string, opts: { role?: Role; status?: UserStatus; page?: number; pageSize?: number }): Promise<Page<UserDTO>>;
   assignTransport(campusId: string, id: string, busId: string | null, routeId: string | null): Promise<boolean>;
 }
@@ -99,6 +107,7 @@ export interface BusRepository {
   delete(campusId: string, id: string): Promise<boolean>;
   assignDriver(campusId: string, id: string, driverId: string | null): Promise<BusDTO | null>;
   assignRoute(campusId: string, id: string, routeId: string | null): Promise<BusDTO | null>;
+  assign?(campusId: string, id: string, assignment: { driverId: string | null; routeId: string | null }): Promise<BusDTO | null>;
 }
 export interface RouteRepository {
   findById(campusId: string, id: string): Promise<RouteDTO | null>;
@@ -110,7 +119,8 @@ export interface RouteRepository {
 export interface TripRepository {
   findById(campusId: string, id: string): Promise<TripDTO | null>;
   findActiveByBus(campusId: string, busId: string): Promise<TripDTO | null>;
-  start(t: { campusId: string; busId: string; driverId: string; routeId: string; mode: TripMode; startedAt: Date }): Promise<TripDTO>;
+  start(t: { campusId: string; busId: string; driverId: string; routeId: string; mode: TripMode; startedAt: Date; verifyAssignment?: boolean }): Promise<TripDTO>;
+  updateOccupancy?(campusId: string, id: string, driverId: string, delta: number): Promise<TripDTO | null>;
   end(campusId: string, id: string, endedAt: Date, status?: 'COMPLETED' | 'CANCELLED'): Promise<TripDTO | null>;
   list(campusId: string, opts: { driverId?: string; busId?: string; status?: TripStatus; page?: number; pageSize?: number }): Promise<Page<TripDTO>>;
 }

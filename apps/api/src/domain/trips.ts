@@ -20,7 +20,7 @@ export class TripService {
       if (!this.d.config.simulationEnabled) throw forbidden('SIMULATION_DISABLED');
       mode = 'SIMULATED';
     }
-    return this.d.trips.start({ campusId: p.campusId, busId: bus.id, driverId: p.userId, routeId: bus.routeId, mode, startedAt: this.now() });
+    return this.d.trips.start({ campusId: p.campusId, busId: bus.id, driverId: p.userId, routeId: bus.routeId, mode, startedAt: this.now(), verifyAssignment: true });
   }
 
   async end(p: Principal, tripId: string): Promise<TripDTO> {

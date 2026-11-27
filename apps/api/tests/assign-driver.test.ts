@@ -130,14 +130,15 @@ describe('POST /api/v1/buses/:id/assign-driver', () => {
     expect(assigned).toHaveLength(0);
   });
 
-  it('does not assign a driver from another campus even if body.campusId claims otherwise', async () => {
+  it('rejects extra assignment fields and a driver from another campus', async () => {
     const { app, assigned } = makeApp();
-    const res = await request(app)
-      .post(`/api/v1/buses/${BUS_ID}/assign-driver`)
-      .set('Authorization', `Bearer ${adminTok()}`)
+    const path = `/api/v1/buses/${BUS_ID}/assign-driver`;
+    const extra = await request(app).post(path).set('Authorization', `Bearer ${adminTok()}`)
       .send({ driverId: FOREIGN_ID, campusId: CAMPUS_B, role: 'ADMIN' });
-    expect(res.status).toBe(404);
-    expect(res.body.error).toBe('DRIVER_NOT_FOUND');
+    expect(extra.status).toBe(400);
+    const foreign = await request(app).post(path).set('Authorization', `Bearer ${adminTok()}`).send({ driverId: FOREIGN_ID });
+    expect(foreign.status).toBe(404);
+    expect(foreign.body.error).toBe('DRIVER_NOT_FOUND');
     expect(assigned).toHaveLength(0);
   });
 });
