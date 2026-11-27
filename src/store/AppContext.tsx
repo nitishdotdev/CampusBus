@@ -1,355 +1,201 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import {
-  User,
-  UserRole,
-  College,
-  Bus,
-  Route,
-  Trip,
-  CampusNotification,
-  EmergencyAlert,
-} from '../types';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { Bus, CampusNotification, College, EmergencyAlert, Route, RouteStatus, Trip, User, UserRole } from '../types';
 import { authService } from '../services/authService';
-import { apiClient } from '../services/apiClient';
-import { realtimeService } from '../services/realtimeService';
-import { routeService } from '../services/routeService';
+import { locationService, type LocationServiceState } from '../services/locationService';
 import { tripService } from '../services/tripService';
-import { locationService, LocationServiceState } from '../services/locationService';
-import { notificationService } from '../services/notificationService';
-import { adminService } from '../services/adminService';
-
-// ── v1 API integration (enabled via VITE_USE_V1_API=true) ────────────────────
-import { isV1Api } from '../services/v1/flag';
-
-const USE_V1 = isV1Api();
-import { loginV1, logoutV1, getMeV1, listCampuses, type V1Campus, type V1SessionUser } from '../services/v1/auth';
+import { listCampuses, type V1Campus } from '../services/v1/auth';
+import { v1AlertToUi, v1BusToUi, v1NotificationToUi, v1RouteToUi, v1TripToUi } from '../services/v1/adapters';
 import { busesV1 } from '../services/v1/buses';
+import { alertsV1, notificationsV1 } from '../services/v1/notifications';
+import { ApiV1Error } from '../services/v1/client';
+import { allPages } from '../services/v1/pages';
 import { routesV1 } from '../services/v1/routes';
-import { notificationsV1, alertsV1 } from '../services/v1/notifications';
 import { socketV1 } from '../services/v1/socket';
 import { tripsV1 } from '../services/v1/trips';
 
-const DEFAULT_COLLEGE: College = {
-  id: 'college_apex',
-  name: 'Apex State University',
-  shortCode: 'ASU',
-  campusName: 'Main Campus',
-  centerLocation: { lat: 34.0537, lng: -118.2570 },
-  defaultZoom: 15,
-  timezone: 'America/Los_Angeles',
+const unknownCampus: College = {
+  id: '', name: 'Campus', shortCode: '', campusName: '',
+  centerLocation: { lat: 0, lng: 0 }, defaultZoom: 2, timezone: 'UTC',
 };
 
 interface AppContextType {
   currentUser: User | null;
   role: UserRole;
   currentCollege: College;
-  colleges: College[];
-  /** Available campuses from the v1 API (empty when v1 is off). */
   v1Campuses: V1Campus[];
-  switchCollege: (collegeId: string) => void;
   logout: () => void;
   isAuthenticated: boolean;
-
-  // Data
+  isRestoringSession: boolean;
   buses: Bus[];
   routes: Route[];
   trips: Trip[];
   activeTrip: Trip | null;
   notifications: CampusNotification[];
+  markNotificationsRead: (ids: string[]) => void;
   unreadCount: number;
   emergencyAlerts: EmergencyAlert[];
   activeEmergencyCount: number;
-
-  // Loading states
   isLoadingData: boolean;
   dataError: string | null;
-
-  // Location / GPS / Network
   locationState: LocationServiceState;
   toggleSimulatedOffline: (simulateOffline: boolean) => void;
-
-  // Refresh & Reset
   refreshData: () => Promise<void>;
-  resetAllData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 
+function routeTracking(buses: Bus[]): Map<string, RouteStatus> {
+  const status = new Map<string, RouteStatus>();
+  for (const bus of buses) {
+    if (!bus.currentRouteId || !bus.activeTripId) continue;
+    const next = bus.trackingStatus === 'LIVE' && !bus.isSimulated ? 'LIVE' : 'DEGRADED';
+    if (status.get(bus.currentRouteId) !== 'LIVE') status.set(bus.currentRouteId, next);
+  }
+  return status;
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(authService.getCurrentUser());
-  const [currentCollege, setCurrentCollege] = useState<College>(DEFAULT_COLLEGE);
+  const [campuses, setCampuses] = useState<V1Campus[]>([]);
   const [buses, setBuses] = useState<Bus[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
-  const [activeTrip, setActiveTrip] = useState<Trip | null>(tripService.getActiveTrip());
-  const [notifications, setNotifications] = useState<CampusNotification[]>([]);
+  const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
+  const [notificationRecords, setNotifications] = useState<CampusNotification[]>([]);
+  const [readNotifications, setReadNotifications] = useState<Set<string>>(new Set());
   const [emergencyAlerts, setEmergencyAlerts] = useState<EmergencyAlert[]>([]);
-  const [locationState, setLocationState] = useState<LocationServiceState>(locationService.getState());
-  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [locationState, setLocationState] = useState(locationService.getState());
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
-  const [v1Campuses, setV1Campuses] = useState<V1Campus[]>([]);
+  const requestVersion = useRef(0);
 
-  // Load campuses from v1 API (always, so login form can list them)
   useEffect(() => {
-    if (!USE_V1) return;
-    listCampuses().then(setV1Campuses).catch(() => {});
-  }, []);
-
-  // Connect socketV1 when authenticated under v1
-  useEffect(() => {
-    if (!USE_V1 || !currentUser) return;
-    socketV1.connect();
-    return () => { /* keep socket alive while session is active */ };
-  }, [currentUser?.id]);
-
-  const isAuthenticated = authService.isAuthenticated();
-
-  // Auth subscription
-  useEffect(() => {
-    const unsubAuth = authService.subscribe((user) => {
+    let mounted = true;
+    const unsubscribe = authService.subscribe(user => {
+      requestVersion.current++;
       setCurrentUser(user);
-      if (user) {
-        // Load data when user is authenticated
-        loadAllData();
-      } else {
-        // Clear all data on logout
-        setBuses([]);
-        setRoutes([]);
-        setTrips([]);
-        setActiveTrip(null);
-        setNotifications([]);
-        setEmergencyAlerts([]);
-        setIsLoadingData(false);
-      }
+      setBuses([]);
+      setRoutes([]);
+      setTrips([]);
+      setActiveTrip(null);
+      setNotifications([]);
+      setEmergencyAlerts([]);
+      setDataError(null);
+      setIsLoadingData(Boolean(user));
+      locationService.setDriver(user?.role === 'DRIVER' ? user.id : null);
+      if (!user) tripService.clearActiveTrip();
     });
-    return () => unsubAuth();
+    void authService.restore().finally(() => { if (mounted) setIsRestoringSession(false); });
+    return () => { mounted = false; unsubscribe(); };
   }, []);
 
-  // Data subscriptions (only when authenticated)
   useEffect(() => {
     if (!currentUser) return;
-
-    const unsubTrips = tripService.subscribeActiveTrip((trip) => {
-      setActiveTrip(trip);
-      setTrips(tripService.getTripHistory());
-    });
-    const unsubLoc = locationService.subscribe(setLocationState);
-
-    if (USE_V1) {
-      loadAllData();
-      return () => {
-        unsubTrips();
-        unsubLoc();
-      };
-    }
-
-    const unsubBuses = realtimeService.subscribeBuses(setBuses);
-    const unsubNotif = notificationService.subscribe(setNotifications);
-    const unsubAlerts = adminService.subscribeAlerts(setEmergencyAlerts);
-
-    loadAllData();
-
-    return () => {
-      unsubBuses();
-      unsubTrips();
-      unsubLoc();
-      unsubNotif();
-      unsubAlerts();
-    };
+    socketV1.connect();
+    return locationService.subscribe(setLocationState);
   }, [currentUser]);
 
-  // Trip Recovery After Disconnect (for drivers)
-  useEffect(() => {
-    const recoverActiveTrip = async () => {
-      try {
-        if (USE_V1) {
-          const page = await tripsV1.list(1, 20);
-          const active = page.items.find((t) => t.status === 'ACTIVE' && t.driverId === currentUser?.id);
-          if (active) {
-            const adopted = tripService.adoptV1Trip(active);
-            setActiveTrip(adopted);
-            await locationService.startTracking(adopted.id, adopted.busId, currentUser?.id || '', false);
-          }
-          return;
-        }
-        const response = await apiClient.get<{ activeTrip: Trip | null }>('/api/trips/active');
-        if (response && response.activeTrip) {
-          setActiveTrip(response.activeTrip);
-          if (response.activeTrip.status === 'IN_PROGRESS') {
-            locationService.startTracking(
-              response.activeTrip.id,
-              response.activeTrip.busId,
-              currentUser?.id || ''
-            );
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to recover active trip on connect:', err);
-      }
-    };
-
-    if (currentUser?.role === 'DRIVER') {
-      recoverActiveTrip();
-    }
-  }, [currentUser]);
-
-  // Persistent storage for active trip
-  useEffect(() => {
-    if (activeTrip) {
-      localStorage.setItem('smart_campus_bus_active_trip', JSON.stringify(activeTrip));
-    } else {
-      localStorage.removeItem('smart_campus_bus_active_trip');
-    }
-  }, [activeTrip]);
-
-  const role: UserRole = currentUser?.role || 'STUDENT';
-
-  const loadAllData = async () => {
-    setIsLoadingData(true);
-    setDataError(null);
+  const loadData = useCallback(async (showLoading = false) => {
+    if (!currentUser) return;
+    const version = ++requestVersion.current;
+    if (showLoading) setIsLoadingData(true);
+    const stillCurrent = () => requestVersion.current === version && authService.getCurrentUser() === currentUser;
     try {
-      if (USE_V1) {
-        // ── v1 API path ─────────────────────────────────────────────────────
-        const [busPage, routePage, notifPage, alertPage, tripPage] = await Promise.allSettled([
-          busesV1.list(),
-          routesV1.list(),
-          notificationsV1.list(),
-          alertsV1.list(),
-          tripsV1.list(1, 50),
-        ]);
-        if (busPage.status === 'fulfilled') {
-          const activeTripBusIds = new Set(
-            tripPage.status === 'fulfilled'
-              ? tripPage.value.items.filter((t) => t.status === 'ACTIVE').map((t) => t.busId)
-              : []
-          );
-          setBuses(busPage.value.items.map(b => ({
-            id: b.id, collegeId: b.campusId, busNumber: b.number,
-            plateNumber: '', model: 'Campus Shuttle',
-            capacity: b.capacity, currentOccupancy: 0,
-            status: b.status === 'MAINTENANCE' ? 'MAINTENANCE' : b.status === 'OFFLINE' ? 'OFFLINE' : activeTripBusIds.has(b.id) ? 'ACTIVE' : 'IDLE',
-            currentDriverId: b.driverId ?? undefined,
-            currentRouteId: b.routeId ?? undefined,
-            gpsStatus: 'GPS_UNAVAILABLE',
-            networkStatus: 'NETWORK_ONLINE',
-            etaConfidence: 'OFFLINE',
-            lastSyncTimestamp: new Date().toISOString(),
-            isSimulated: false,
-          } as Bus)));
+      const [campusRecords, busRecords, routeRecords, notificationRows, alertRows, tripRows, activeRows] = await Promise.all([
+        listCampuses(),
+        allPages(page => busesV1.list(page, 100)),
+        allPages(page => routesV1.list(page, 100)),
+        notificationsV1.list(),
+        currentUser.role === 'ADMIN' ? alertsV1.list() : Promise.resolve(null),
+        currentUser.role === 'STUDENT' ? Promise.resolve(null) : tripsV1.list(1, 100),
+        currentUser.role === 'DRIVER' ? tripsV1.list(1, 1, 'ACTIVE') : Promise.resolve(null),
+      ]);
+      if (!stillCurrent()) return;
+      const fleet = busRecords.map(bus => v1BusToUi(bus));
+      const tracking = routeTracking(fleet);
+      setCampuses(campusRecords);
+      locationService.setReportingInterval(campusRecords.find(campus => campus.id === currentUser.collegeId)?.gpsIntervalSeconds ?? 3);
+      setBuses(fleet);
+      setRoutes(routeRecords.map(route => v1RouteToUi(route, tracking.get(route.id))));
+      setNotifications(notificationRows.items.map(v1NotificationToUi));
+      setEmergencyAlerts(alertRows?.items.map(alert => {
+        const bus = fleet.find(item => item.id === alert.busId);
+        return { ...v1AlertToUi(alert), busNumber: bus?.busNumber ?? '', routeName: routeRecords.find(route => route.id === bus?.currentRouteId)?.name ?? '' };
+      }) ?? []);
+      setTrips(tripRows?.items.map(v1TripToUi) ?? []);
+      if (currentUser.role === 'DRIVER') {
+        const active = activeRows?.items[0];
+        const adopted = tripService.getActiveTrip();
+        if (active) {
+          const trip = tripService.adoptV1Trip(active);
+          if (active.id !== adopted?.id) locationService.startTracking(trip.id, trip.busId, currentUser.id);
+        } else if (adopted) {
+          tripService.clearActiveTrip();
         }
-        if (routePage.status === 'fulfilled') {
-          setRoutes(routePage.value.items.map(r => ({
-            id: r.id, collegeId: r.campusId, name: r.name, code: r.code, color: r.color,
-            description: '', status: 'LIVE', scheduleHours: '', frequencyMinutes: 0,
-            pathCoordinates: [],
-            stops: r.stops.map(s => ({
-              id: s.id, collegeId: r.campusId, name: s.name, code: '',
-              lat: s.lat, lng: s.lng, sequence: s.order,
-            })),
-          } as Route)));
-        }
-        if (notifPage.status === 'fulfilled') {
-          setNotifications(notifPage.value.items.map(n => ({
-            id: n.id, collegeId: n.campusId, type: n.kind, priority: n.priority,
-            title: n.title, message: n.body, timestamp: n.createdAt, isRead: false,
-            routeId: n.routeId ?? undefined, expiresAt: n.expiresAt ?? undefined,
-          } as any)));
-        }
-        if (alertPage.status === 'fulfilled') {
-          setEmergencyAlerts(alertPage.value.items.map(a => ({
-            id: a.id, collegeId: a.campusId, type: 'SOS', severity: 'HIGH',
-            title: a.message ?? 'Emergency alert', description: a.message ?? '',
-            busId: a.busId, driverId: a.raisedBy, tripId: a.tripId ?? undefined,
-            status: a.status === 'OPEN' ? 'ACTIVE' : a.status === 'RESOLVED' ? 'RESOLVED' : 'ACKNOWLEDGED',
-            timestamp: a.createdAt, location: a.location ?? undefined,
-            acknowledgedBy: a.acknowledgedBy ?? undefined, resolvedBy: a.resolvedBy ?? undefined,
-          } as any)));
-        }
-      } else {
-        // ── Legacy API path ───────────────────────────────────────────────────
-        const [busesResult, routesResult] = await Promise.all([
-          realtimeService.fetchBusesFromApi(),
-          routeService.getRoutes(),
-        ]);
-        if (routesResult) setRoutes(routesResult);
       }
-      setIsLoadingData(false);
-    } catch (err: any) {
-      setDataError(err.message || 'Failed to load data.');
-      setIsLoadingData(false);
+      if (stillCurrent()) setDataError(null);
+    } catch (error) {
+      if (!stillCurrent()) return;
+      if (error instanceof ApiV1Error && (error.code === 'ACCOUNT_NOT_ACTIVE' || error.status === 401)) {
+        authService.logout();
+        return;
+      }
+      setDataError('Could not refresh campus data. Try again when your connection is available.');
+    } finally {
+      if (stillCurrent()) setIsLoadingData(false);
     }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    void loadData(true);
+    const timer = window.setInterval(() => { if (!document.hidden) void loadData(); }, 15_000);
+    return () => { window.clearInterval(timer); };
+  }, [currentUser, loadData]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'DRIVER') return;
+    return tripService.subscribeActiveTrip(setActiveTrip);
+  }, [currentUser]);
+
+  const readKey = currentUser ? `campusbus_notification_reads_${currentUser.id}` : null;
+  useEffect(() => {
+    if (!readKey) { setReadNotifications(new Set()); return; }
+    try { setReadNotifications(new Set(JSON.parse(localStorage.getItem(readKey) ?? '[]'))); }
+    catch { setReadNotifications(new Set()); }
+  }, [readKey]);
+
+  const markNotificationsRead = (ids: string[]) => {
+    const next = new Set([...readNotifications, ...ids]);
+    setReadNotifications(next);
+    if (readKey) localStorage.setItem(readKey, JSON.stringify([...next]));
   };
-
-  const logout = () => {
-    if (USE_V1) { logoutV1(); socketV1.disconnect(); }
-    authService.logout();
-  };
-
-  const switchCollege = (collegeId: string) => {
-    // In production, this would fetch the college data and associated resources
-    setCurrentCollege(DEFAULT_COLLEGE);
-  };
-
-  const refreshData = async () => {
-    await loadAllData();
-    if (!USE_V1) {
-      setBuses(realtimeService.getBuses());
-      setTrips(tripService.getTripHistory());
-    }
-  };
-
-  const unreadCount = useMemo(
-    () => notifications.filter((n) => !n.isRead).length,
-    [notifications]
-  );
-
-  const activeEmergencyCount = useMemo(
-    () => emergencyAlerts.filter((a) => a.status === 'ACTIVE').length,
-    [emergencyAlerts]
-  );
-
-  const toggleSimulatedOffline = (simulateOffline: boolean) => {
-    locationService.toggleSimulatedOffline(simulateOffline);
-  };
-
-  const resetAllData = async () => {
-    localStorage.clear();
-    locationService.stopTracking();
-    await loadAllData();
-  };
+  const notifications = useMemo(() => notificationRecords.map(item => ({ ...item, isRead: readNotifications.has(item.id) })), [notificationRecords, readNotifications]);
+  const campus = campuses.find(item => item.id === currentUser?.collegeId);
+  const currentCollege: College = campus ? {
+    id: campus.id, name: campus.name, shortCode: campus.shortCode, campusName: campus.city,
+    centerLocation: { lat: campus.lat, lng: campus.lng }, defaultZoom: campus.zoom, timezone: campus.timezone,
+    gpsIntervalSeconds: campus.gpsIntervalSeconds, dispatchPhone: campus.dispatchPhone,
+  } : unknownCampus;
 
   const value: AppContextType = {
-    currentUser,
-    role,
-    currentCollege,
-    colleges: [DEFAULT_COLLEGE],
-    v1Campuses,
-    switchCollege,
-    logout,
-    isAuthenticated,
-    buses,
-    routes,
-    trips,
-    activeTrip,
-    notifications,
-    unreadCount,
-    emergencyAlerts,
-    activeEmergencyCount,
-    isLoadingData,
-    dataError,
-    locationState,
-    toggleSimulatedOffline,
-    refreshData,
-    resetAllData,
-  };
+    currentUser, role: currentUser?.role ?? 'STUDENT', currentCollege, v1Campuses: campuses,
+    logout: () => authService.logout(),
+    isAuthenticated: authService.isAuthenticated(), isRestoringSession,
+    buses, routes, trips, activeTrip, notifications, markNotificationsRead,
+    unreadCount: notifications.filter(item => !item.isRead).length,
+    emergencyAlerts, activeEmergencyCount: emergencyAlerts.filter(item => item.status === 'ACTIVE').length,
+    isLoadingData, dataError, locationState,
+    toggleSimulatedOffline: simulate => locationService.toggleSimulatedOffline(simulate),
+    refreshData: () => loadData(),
 
+  };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
 
-export const useApp = (): AppContextType => {
+export function useApp(): AppContextType {
   const context = useContext(AppContext);
-  if (!context) {
-    throw new Error('useApp must be used within an AppProvider');
-  }
+  if (!context) throw new Error('useApp must be used within an AppProvider.');
   return context;
-};
+}

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../store/AppContext';
-import { apiClient } from '../../services/apiClient';
-import { socketService } from '../../services/socketService';
 import { adminV1 } from '../../services/v1/admin';
+import { allPages } from '../../services/v1/pages';
 import { busesV1 } from '../../services/v1/buses';
 import { routesV1 } from '../../services/v1/routes';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
@@ -22,7 +21,6 @@ import {
   Search,
 } from 'lucide-react';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 
 interface AssignmentItem {
   id: string;
@@ -72,56 +70,46 @@ export const AdminAssignments: React.FC = () => {
   const [selectedBusId, setSelectedBusId] = useState('');
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [selectedRouteId, setSelectedRouteId] = useState('');
-  const [shift, setShift] = useState('Morning Peak');
 
-  const fetchAssignments = async () => {
+  const fetchAssignments = async (showLoading = true) => {
     try {
-      setIsLoading(true);
+      if (showLoading) setIsLoading(true);
       setError(null);
-      if (USE_V1) {
-        const [busPage, driverPage, routePage] = await Promise.all([
-          busesV1.list(),
-          adminV1.users.list({ role: 'DRIVER', pageSize: 100 }),
-          routesV1.list(),
-        ]);
-        const driverById = new Map(driverPage.items.map((d) => [d.id, d]));
-        const routeById = new Map(routePage.items.map((r) => [r.id, r]));
-        setAssignments(busPage.items.map((b) => {
-          const driver = b.driverId ? driverById.get(b.driverId) : undefined;
-          const route = b.routeId ? routeById.get(b.routeId) : undefined;
-          return {
-            id: b.id,
-            busId: b.id,
-            busNumber: b.number,
-            plateNumber: '',
-            capacity: b.capacity,
-            driverId: b.driverId ?? null,
-            driverName: driver?.name || 'Unassigned',
-            driverPhone: driver?.phone ?? null,
-            driverCdl: null,
-            routeId: b.routeId ?? null,
-            routeName: route?.name ?? null,
-            routeCode: route?.code ?? null,
-            routeColor: route?.color || '#2563EB',
-            status: b.status === 'MAINTENANCE' ? 'MAINTENANCE' : b.driverId ? 'ASSIGNED' : 'ASSIGNED',
-            activeTripId: null,
-          } as AssignmentItem;
-        }));
-        setDrivers(driverPage.items.filter((d) => d.status === 'ACTIVE').map((d) => ({
-          id: d.id,
-          name: d.name,
-          email: d.email,
-          phone: d.phone ?? undefined,
-          status: d.status,
-        })));
-        return;
-      }
-      const [assignmentData, driverData] = await Promise.all([
-        apiClient.get<AssignmentItem[]>('/api/assignments'),
-        apiClient.get<DirectoryDriver[]>('/api/users?role=DRIVER'),
+      const [fleet, directory, lines] = await Promise.all([
+        allPages(page => busesV1.list(page, 100)),
+        allPages(page => adminV1.users.list({ role: 'DRIVER', page, pageSize: 100 })),
+        allPages(page => routesV1.list(page, 100)),
       ]);
-      setAssignments(assignmentData || []);
-      setDrivers((driverData || []).filter((d) => d.status === 'ACTIVE'));
+      const driverById = new Map(directory.map((d) => [d.id, d]));
+      const routeById = new Map(lines.map((r) => [r.id, r]));
+      setAssignments(fleet.filter(bus => bus.driverId || bus.routeId).map((b) => {
+        const driver = b.driverId ? driverById.get(b.driverId) : undefined;
+        const route = b.routeId ? routeById.get(b.routeId) : undefined;
+        return {
+          id: b.id,
+          busId: b.id,
+          busNumber: b.number,
+          plateNumber: '',
+          capacity: b.capacity,
+          driverId: b.driverId ?? null,
+          driverName: driver?.name || 'Unassigned',
+          driverPhone: driver?.phone ?? null,
+          driverCdl: null,
+          routeId: b.routeId ?? null,
+          routeName: route?.name ?? null,
+          routeCode: route?.code ?? null,
+          routeColor: route?.color || '#2563EB',
+          status: b.activeTrip ? 'ACTIVE_TRIP' : b.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'ASSIGNED',
+          activeTripId: b.activeTrip?.id ?? null,
+        } as AssignmentItem;
+      }));
+      setDrivers(directory.filter((d) => d.status === 'ACTIVE').map((d) => ({
+        id: d.id,
+        name: d.name,
+        email: d.email,
+        phone: d.phone ?? undefined,
+        status: d.status,
+      })));
     } catch (err: any) {
       setError(err?.message || 'Failed to load assignments.');
     } finally {
@@ -132,16 +120,8 @@ export const AdminAssignments: React.FC = () => {
   useEffect(() => {
     fetchAssignments();
 
-    // Listen for realtime bus or trip status changes
-    const unsubBus = socketService.on('bus:updated', () => fetchAssignments());
-    const unsubTripStart = socketService.on('trip:started', () => fetchAssignments());
-    const unsubTripEnd = socketService.on('trip:ended', () => fetchAssignments());
-
-    return () => {
-      unsubBus();
-      unsubTripStart();
-      unsubTripEnd();
-    };
+    const timer = window.setInterval(() => { if (!document.hidden) void fetchAssignments(false); }, 15_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const openAssignModal = (prefillBusId?: string) => {
@@ -170,19 +150,8 @@ export const AdminAssignments: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      if (USE_V1) {
-        await busesV1.assignDriver(selectedBusId, selectedDriverId);
-        await busesV1.assignRoute(selectedBusId, selectedRouteId);
-      } else {
-        await apiClient.post('/api/assignments', {
-          busId: selectedBusId,
-          driverId: selectedDriverId,
-          routeId: selectedRouteId,
-          shift,
-        });
-      }
-
-      setSuccessNotice('Driver assigned successfully. Terminal will immediately reflect this assignment.');
+      await busesV1.assign(selectedBusId, selectedDriverId, selectedRouteId);
+      setSuccessNotice('Driver and route assignment saved.');
       setTimeout(() => setSuccessNotice(null), 4000);
       setIsModalOpen(false);
       await fetchAssignments();
@@ -196,12 +165,7 @@ export const AdminAssignments: React.FC = () => {
   const handleUnassign = async () => {
     if (!unassigningBusId) return;
     try {
-      if (USE_V1) {
-        await busesV1.assignDriver(unassigningBusId, null);
-        await busesV1.assignRoute(unassigningBusId, null);
-      } else {
-        await apiClient.delete(`/api/assignments/${unassigningBusId}`);
-      }
+      await busesV1.assign(unassigningBusId, null, null);
       setSuccessNotice('Assignment cleared successfully.');
       setTimeout(() => setSuccessNotice(null), 3000);
       setUnassigningBusId(null);
@@ -467,21 +431,6 @@ export const AdminAssignments: React.FC = () => {
                   {r.code} — {r.name} ({r.stops.length} stops)
                 </option>
               ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Shift / Schedule Plan</label>
-            <select
-              value={shift}
-              onChange={(e) => setShift(e.target.value)}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="Morning Peak (07:00 - 12:00)">Morning Peak (07:00 - 12:00)</option>
-              <option value="Midday Regular (12:00 - 17:00)">Midday Regular (12:00 - 17:00)</option>
-              <option value="Evening Peak (17:00 - 22:00)">Evening Peak (17:00 - 22:00)</option>
-              <option value="Night Owl Shuttle (22:00 - 02:00)">Night Owl Shuttle (22:00 - 02:00)</option>
-              <option value="Full Day Shift">Full Day Shift</option>
             </select>
           </div>
 

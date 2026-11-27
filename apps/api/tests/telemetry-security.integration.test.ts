@@ -1,15 +1,15 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadTrackingConfig } from '../src/config/env';
-import { createHarness, ev, freshTrip, id, MONGO_URI, P, T0, type Harness } from './harness';
+import { createHarness, ev, freshTrip, id, PG_TEST_URL, P, T0, type Harness } from './harness';
 
 const post = (h: Harness, token: string | null, body: unknown) => {
   const r = request(h.app).post('/api/v1/telemetry');
   return (token ? r.set('Authorization', `Bearer ${token}`) : r).send(body as object);
 };
-const count = (h: Harness, tripId: string) => h.models.Telemetry.countDocuments({ tripId });
+const count = async (h: Harness, tripId: string) => (await h.services.repos.telemetry.listByTrip(tripId, {})).total;
 
-describe.skipIf(!MONGO_URI)('GPS ingestion: authorization', () => {
+describe.skipIf(!PG_TEST_URL)('GPS ingestion: authorization', () => {
   let h: Harness;
   beforeAll(async () => { h = await createHarness(); });
   afterAll(async () => { await h.close(); });
@@ -37,10 +37,10 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: authorization', () => {
     const trip = await freshTrip(h);
     const ghost = await post(h, h.token({ id: id(), campusId: h.seed.campusA, role: 'DRIVER' }), { tripId: trip.id, events: [ev(h, 0)] });
     expect(ghost.status).toBe(403);
-    await h.models.User.updateOne({ _id: h.seed.driver1 }, { status: 'DISABLED' });
+    await h.services.repos.users.updateStatus(h.seed.campusA, h.seed.driver1, 'DISABLED');
     const disabled = await post(h, driver1Token(), { tripId: trip.id, events: [ev(h, 0)] });
     expect(disabled.status).toBe(403);
-    await h.models.User.updateOne({ _id: h.seed.driver1 }, { status: 'ACTIVE' });
+    await h.services.repos.users.updateStatus(h.seed.campusA, h.seed.driver1, 'ACTIVE');
     expect(await count(h, trip.id)).toBe(0);
   });
 
@@ -52,7 +52,7 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: authorization', () => {
       expect(res.body.error).toBe('TRIP_NOT_FOUND');
     }
     expect(await count(h, trip.id)).toBe(0);
-    expect(await h.models.VehicleLocation.countDocuments({ busId: h.seed.bus1 })).toBe(0);
+    expect(await h.services.repos.live.getByBus(h.seed.campusA, h.seed.bus1)).toBeNull();
   });
 
   it('a driver cannot start a trip on a bus that is not assigned to them', async () => {
@@ -62,27 +62,27 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: authorization', () => {
   });
 
   it('rejects spoofed, malformed and cross-campus trip identifiers', async () => {
-    const tripB = await h.models.Trip.create({ campusId: h.seed.campusB, busId: id(), driverId: h.seed.driverB, routeId: id(), startedAt: T0, status: 'ACTIVE', mode: 'REAL' });
-    const cases: [string, number][] = [[id(), 404], [String(tripB._id), 404], ['abc', 400], ['', 400], ['../../etc/passwd', 400]];
+    const tripB = await h.services.repos.trips.start({ campusId: h.seed.campusB, busId: id(), driverId: h.seed.driverB, routeId: id(), startedAt: T0, mode: 'REAL' });
+    const cases: [string, number][] = [[id(), 404], [tripB.id, 404], ['abc', 400], ['', 400], ['../../etc/passwd', 400]];
     for (const [tripId, status] of cases) {
       const res = await post(h, driver1Token(), { tripId, events: [ev(h, 0)] });
       expect(res.status, `tripId=${tripId}`).toBe(status);
     }
-    expect(await h.models.Telemetry.countDocuments({ tripId: tripB._id })).toBe(0);
+    expect(await count(h, tripB.id)).toBe(0);
   });
 
   it('refuses reports after the driver was unassigned from the vehicle', async () => {
     const trip = await freshTrip(h);
-    await h.models.Bus.updateOne({ _id: h.seed.bus1 }, { $unset: { driverId: 1 } });
+    await h.pool.query('UPDATE v1.buses SET driver_id = NULL WHERE id = $1', [h.seed.bus1]);
     const res = await post(h, driver1Token(), { tripId: trip.id, events: [ev(h, 0)] });
     expect(res.status).toBe(403);
     expect(res.body.error).toBe('VEHICLE_ASSIGNMENT_REVOKED');
-    await h.models.Bus.updateOne({ _id: h.seed.bus1 }, { driverId: h.seed.driver1 });
+    await h.pool.query('UPDATE v1.buses SET driver_id = $1 WHERE id = $2', [h.seed.driver1, h.seed.bus1]);
     expect(await count(h, trip.id)).toBe(0);
   });
 });
 
-describe.skipIf(!MONGO_URI)('GPS ingestion: simulation flag is server-controlled', () => {
+describe.skipIf(!PG_TEST_URL)('GPS ingestion: simulation flag is server-controlled', () => {
   let h: Harness; let hs: Harness;
   beforeAll(async () => { h = await createHarness(); hs = await createHarness({ simulationEnabled: true }); });
   afterAll(async () => { await h.close(); await hs.close(); });
@@ -96,29 +96,28 @@ describe.skipIf(!MONGO_URI)('GPS ingestion: simulation flag is server-controlled
     expect(per.status).toBe(200);
     expect(per.body.results[0]).toMatchObject({ status: 'rejected', reason: 'UNKNOWN_FIELD' });
     expect(per.body.results[1].status).toBe('accepted');
-    const stored = await h.models.Telemetry.find({ tripId: trip.id }).lean();
+    const stored = await (await h.services.repos.telemetry.listByTrip(trip.id, {})).items;
     expect(stored).toHaveLength(1);
     expect(stored[0]!.mode).toBe('REAL');
   });
 
   it('a driver cannot start a simulated trip while simulation is disabled', async () => {
-    await freshTrip(h);
-    await h.models.Trip.updateMany({ busId: h.seed.bus1 }, { $set: { status: 'CANCELLED' }, $unset: { activeBusKey: 1, activeDriverKey: 1 } });
+    const trip = await freshTrip(h);
+    await h.services.repos.trips.end(h.seed.campusA, trip.id, h.clock.now(), 'CANCELLED');
     const res = await request(h.app).post('/api/v1/trips/start').set('Authorization', `Bearer ${tok(h)}`).send({ busId: h.seed.bus1, simulated: true });
     expect(res.status).toBe(403);
     expect(res.body.error).toBe('SIMULATION_DISABLED');
   });
 
   it('when the server enables simulation, trip mode (not the payload) decides how telemetry is labelled', async () => {
-    await hs.models.Trip.updateMany({}, { $set: { status: 'CANCELLED' }, $unset: { activeBusKey: 1, activeDriverKey: 1 } });
     const start = await request(hs.app).post('/api/v1/trips/start').set('Authorization', `Bearer ${tok(hs)}`).send({ busId: hs.seed.bus1, simulated: true });
     expect(start.status).toBe(201);
     expect(start.body.trip.mode).toBe('SIMULATED');
     const res = await post(hs, tok(hs), { tripId: start.body.trip.id, events: [ev(hs, -500)] });
     expect(res.body.results[0].status).toBe('accepted');
-    const rec = await hs.models.Telemetry.findOne({ tripId: start.body.trip.id }).lean();
+    const rec = await (await hs.services.repos.telemetry.listByTrip(start.body.trip.id, {})).items[0];
     expect(rec!.mode).toBe('SIMULATED');
-    const loc = await hs.models.VehicleLocation.findOne({ busId: hs.seed.bus1 }).lean();
+    const loc = await hs.services.repos.live.getByBus(hs.seed.campusA, hs.seed.bus1);
     expect(loc!.mode).toBe('SIMULATED');
   });
 

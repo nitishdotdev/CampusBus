@@ -1,8 +1,8 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHarness, MONGO_URI, type Harness } from './harness';
+import { createHarness, PG_TEST_URL, type Harness } from './harness';
 
-describe.skipIf(!MONGO_URI)('CRUD APIs (buses, routes, schedules, notifications, alerts)', () => {
+describe.skipIf(!PG_TEST_URL)('CRUD APIs (buses, routes, schedules, notifications, alerts)', () => {
   let h: Harness;
   beforeAll(async () => { h = await createHarness(); });
   afterAll(async () => { await h.close(); });
@@ -15,6 +15,38 @@ describe.skipIf(!MONGO_URI)('CRUD APIs (buses, routes, schedules, notifications,
   const post = (path: string, body: object, tok: string) => api().post(path).set('Authorization', `Bearer ${tok}`).send(body);
   const patch = (path: string, body: object, tok: string) => api().patch(path).set('Authorization', `Bearer ${tok}`).send(body);
   const del = (path: string, tok: string) => api().delete(path).set('Authorization', `Bearer ${tok}`);
+
+  it('rejects unsupported PATCH fields and invalid nested data', async () => {
+    const items = [
+      [`/api/v1/buses/${h.seed.bus1}`, { number: 'VALID', driverId: h.seed.driverFree }],
+      [`/api/v1/routes/${h.seed.route1}`, { stops: [{ name: 'Stop', lat: 20, lng: 30, order: 0, note: 'ignored' }] }],
+      [`/api/v1/users/${h.seed.studentR1}/status`, { status: 'ACTIVE', role: 'ADMIN' }],
+      [`/api/v1/schedules/${h.seed.bus1}`, { departTime: '26:00' }],
+    ] as const;
+    for (const [url, body] of items) expect((await patch(url, body, admin())).status).toBe(400);
+  });
+
+  it('changes assignment atomically and derives the driver profile from the bus', async () => {
+    const path = `/api/v1/buses/${h.seed.busNoRoute}/assignment`;
+    const cross = await patch(path, { driverId: h.seed.driverB, routeId: h.seed.route1 }, admin());
+    expect(cross.status).toBe(404);
+    const taken = await patch(path, { driverId: h.seed.driver1, routeId: h.seed.route1 }, admin());
+    expect(taken.status).toBe(409);
+    expect((await get(`/api/v1/buses/${h.seed.busNoRoute}`, admin())).body.routeId).toBeNull();
+    expect((await patch(path, { driverId: h.seed.driverFree, routeId: h.seed.route1 }, student())).status).toBe(403);
+    expect((await patch(path, { driverId: h.seed.driverFree, routeId: h.seed.route1 }, admin())).status).toBe(200);
+    const users = await get('/api/v1/users?role=DRIVER', admin());
+    expect(users.body.items.find((user: { id: string }) => user.id === h.seed.driverFree)).toMatchObject({
+      assignedBusId: h.seed.busNoRoute, assignedRouteId: h.seed.route1,
+    });
+    const token = h.token({ id: h.seed.driverFree, campusId: h.seed.campusA, role: 'DRIVER' });
+    const started = await post('/api/v1/trips/start', { busId: h.seed.busNoRoute }, token);
+    expect(started.status).toBe(201);
+    expect((await patch(path, { driverId: null, routeId: null }, admin())).status).toBe(409);
+    expect((await patch(`/api/v1/buses/${h.seed.busNoRoute}`, { status: 'MAINTENANCE' }, admin())).status).toBe(409);
+    expect((await post(`/api/v1/trips/${started.body.trip.id}/end`, {}, token)).status).toBe(200);
+    expect((await patch(path, { driverId: null, routeId: null }, admin())).status).toBe(200);
+  });
 
   // ── Buses ─────────────────────────────────────────────────────────────────
   describe('buses', () => {
@@ -84,9 +116,9 @@ describe.skipIf(!MONGO_URI)('CRUD APIs (buses, routes, schedules, notifications,
   describe('schedules', () => {
     let schedId: string;
     it('admin creates a schedule', async () => {
-      const r = await post('/api/v1/schedules', { routeId: h.seed.route1, busId: h.seed.bus1, direction: 'TO_CAMPUS', daysOfWeek: [1, 2, 3, 4, 5], departTime: '08:00' }, admin());
+      const r = await post('/api/v1/schedules', { routeId: h.seed.route1, busId: h.seed.bus1, direction: 'TO_CAMPUS', daysOfWeek: [1, 2, 3, 4, 5], departTime: '08:00', arriveTime: '08:25' }, admin());
       expect(r.status).toBe(201);
-      expect(r.body.departTime).toBe('08:00');
+      expect(r.body).toMatchObject({ departTime: '08:00', arriveTime: '08:25' });
       schedId = r.body.id;
     });
     it('lists schedules filtered by day', async () => {
@@ -101,7 +133,8 @@ describe.skipIf(!MONGO_URI)('CRUD APIs (buses, routes, schedules, notifications,
       expect(r.status).toBe(400);
     });
     it('admin updates and deletes schedule', async () => {
-      expect((await patch(`/api/v1/schedules/${schedId}`, { active: false }, admin())).body.active).toBe(false);
+      const updated = await patch(`/api/v1/schedules/${schedId}`, { active: false, arriveTime: null, direction: 'FROM_CAMPUS' }, admin());
+      expect(updated.body).toMatchObject({ active: false, arriveTime: null, direction: 'FROM_CAMPUS' });
       expect((await del(`/api/v1/schedules/${schedId}`, admin())).status).toBe(204);
     });
     it('student cannot create/delete schedules', async () => {

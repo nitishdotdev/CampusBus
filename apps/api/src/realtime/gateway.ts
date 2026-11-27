@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from 'http';
 import { Server, type Socket } from 'socket.io';
-import { createOriginCheck } from '../../../../server/config/cors';
+import { createOriginCheck } from '../config/cors';
 import { DomainError } from '../domain/errors';
 import type { LiveService } from '../domain/live';
 import type { LiveEmitter, Principal } from '../domain/types';

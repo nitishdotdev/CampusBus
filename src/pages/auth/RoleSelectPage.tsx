@@ -56,7 +56,7 @@ const CARDS: Array<{
     icon: Bus,
     accent: 'hover:border-sky-300 hover:shadow-sky-100/80 focus-visible:ring-sky-500',
     iconWrap: 'bg-sky-50 text-sky-600',
-    button: 'bg-sky-600 hover:bg-sky-700 focus-visible:ring-sky-500',
+    button: 'bg-sky-700 hover:bg-sky-800 focus-visible:ring-sky-500',
   },
   {
     id: 'admin',
@@ -157,12 +157,12 @@ export const RoleSelectPage: React.FC = () => {
                       ))}
                     </ul>
                     {card.id === 'driver' && (
-                      <p className="mt-4 text-xs text-slate-400">
+                      <p className="mt-4 text-xs text-slate-600">
                         Driver accounts are provisioned by transport administration. Public signup is not available.
                       </p>
                     )}
                     {card.id === 'admin' && (
-                      <p className="mt-4 text-xs text-slate-400">
+                      <p className="mt-4 text-xs text-slate-600">
                         Admin accounts are provisioned by your campus. Public registration is not available.
                       </p>
                     )}

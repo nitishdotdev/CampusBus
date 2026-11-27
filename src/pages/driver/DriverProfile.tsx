@@ -27,35 +27,17 @@ export const DriverProfile: React.FC = () => {
             )}
           </div>
           <div>
-            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold mb-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-              Certified Campus Transit Operator
-            </div>
             <h2 className="text-xl font-bold text-slate-900">{currentUser?.name}</h2>
             <p className="text-xs text-slate-500">{currentUser?.email}</p>
-            <p className="text-xs text-slate-600 mt-1">
-              CDL / Operator ID:{' '}
-              <span className="font-mono font-bold text-slate-900">
-                {(currentUser as any)?.cdlNumber || 'CDL-ACTIVE'}
-              </span>
-            </p>
           </div>
         </div>
 
         {/* License & Credentials Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6 pt-6 border-t border-slate-100 text-xs">
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-            <div className="text-slate-500 text-[11px] font-semibold uppercase">CDL Endorsement</div>
-            <div className="font-bold text-slate-900 mt-0.5">Commercial Passenger Transit</div>
-            <div className="text-emerald-600 text-[11px] font-medium mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Valid &amp; Verified
-            </div>
-          </div>
-
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-            <div className="text-slate-500 text-[11px] font-semibold uppercase">Duty Authorization</div>
-            <div className="font-bold text-slate-900 mt-0.5">Campus Shuttle Operations</div>
-            <div className="text-emerald-600 text-[11px] font-medium mt-1 flex items-center gap-1">
+            <div className="text-slate-500 text-[11px] font-semibold uppercase">Account role</div>
+            <div className="font-bold text-slate-900 mt-0.5">Driver</div>
+            <div className="text-emerald-800 text-[11px] font-medium mt-1 flex items-center gap-1">
               <CheckCircle2 className="w-3.5 h-3.5" /> Active Status
             </div>
           </div>
@@ -74,7 +56,7 @@ export const DriverProfile: React.FC = () => {
             <div>
               <div className="text-base font-black text-slate-900">{assignedBus.busNumber}</div>
               <div className="text-xs text-slate-600 mt-0.5">
-                {assignedBus.model} • License Plate: {assignedBus.plateNumber}
+                {[assignedBus.model, assignedBus.plateNumber].filter(Boolean).join(' · ')}
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
                 Capacity: {assignedBus.capacity} passengers
@@ -82,7 +64,7 @@ export const DriverProfile: React.FC = () => {
               </div>
             </div>
             <div className="text-xs font-bold text-blue-700 bg-blue-100 px-3 py-1.5 rounded-lg shrink-0 self-start sm:self-auto">
-              Ready for Trip
+              {assignedBus.activeTripId ? 'Trip in progress' : assignedBus.operationalStatus === 'ACTIVE' && assignedRoute ? 'Available' : 'Not ready for dispatch'}
             </div>
           </div>
         ) : (

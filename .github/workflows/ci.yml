@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
-      # Disposable PostgreSQL for the legacy-store integration tests (schema, schedules/complaints).
+      # Disposable PostgreSQL for the API repository and migration suites.
       postgres:
         image: postgres:16
         env:
@@ -22,16 +22,9 @@ jobs:
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
-      # Real MongoDB for the apps/api integration tests.
-      mongo:
-        image: mongo:7
-        ports: ['27017:27017']
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       CI_REQUIRE_INTEGRATION: '1'
       PG_TEST_URL: postgres://postgres:postgres@localhost:5432/campusmove_test
-      MONGODB_TEST_URI: mongodb://localhost:27017
       PG_TLS_TEST_URL: postgres://postgres:postgres@localhost:54330/postgres
       PG_TLS_TEST_CA_FILE: ${{ github.workspace }}/.tls/ca.crt
       PG_TLS_TEST_WRONG_DNS_URL: postgres://postgres:postgres@db-wrong.test:54330/postgres
@@ -57,21 +50,15 @@ jobs:
           for i in $(seq 1 30); do docker exec pgtls pg_isready -U postgres && break || sleep 1; done
           echo "127.0.0.1 db-wrong.test" | sudo tee -a /etc/hosts
 
-      - name: Type-check (web/server and strict apps/api)
+      - name: Type-check frontend and API
         run: npm run lint
       - name: Unit + integration tests (Vitest; fails if integration suites are skipped)
         run: npm test
       - name: Production build
         env:
-          VITE_USE_V1_API: 'true'
           VITE_API_V1_URL: https://campusmove-api.example.com
         run: npm run build
-      - name: Legacy integration suite (dev server, file-backed store)
-        run: |
-          NODE_ENV=development PORT=3000 npx tsx server.ts > server.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break || sleep 1; done
-          npm run test:verify
-      - name: Production-hardening checks
-        run: npx tsx scripts/test-prod-hardening.ts
+      - name: API build
+        run: npm run api:build
       - name: Dependency audit
         run: npm audit --audit-level=high

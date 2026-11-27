@@ -28,8 +28,8 @@ export const DEFAULT_AUTH_CONFIG: AuthConfig = {
 };
 
 // ─── Validation schemas ───────────────────────────────────────────────────────
-const passwordSchema = z.string().min(8).max(72).regex(/[A-Za-z]/, 'must contain a letter').regex(/[0-9!@#$%^&*]/, 'must contain a number or symbol');
-const nameSchema = z.string().min(1).max(120).trim();
+export const passwordSchema = z.string().min(8).max(72).regex(/[A-Za-z]/, 'must contain a letter').regex(/[0-9!@#$%^&*]/, 'must contain a number or symbol');
+const nameSchema = z.string().trim().min(1).max(120);
 const emailSchema = z.string().email().toLowerCase().max(254);
 export const registerSchema = z.object({
   campusId: z.string().regex(/^[a-f0-9]{24}$/i),
@@ -142,7 +142,7 @@ export class AuthService {
     if (d_requireVerify(this.d.config) && !user.emailVerifiedAt) throw new DomainError(403, 'EMAIL_NOT_VERIFIED');
 
     // Opportunistic live migration of bcrypt hashes to Argon2id.
-    if (verify.needsRehash) await this.d.users.updatePassword(campusId, user.id, verify.newHash);
+    if (verify.needsRehash) await this.d.users.updatePassword(campusId, user.id, verify.newHash, user.passwordHash);
 
     const { raw } = await this.issueRefreshToken(user.id, campusId);
     const accessToken = signAccessToken({ userId: user.id, campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
@@ -154,7 +154,7 @@ export class AuthService {
     const hash = hashRefreshToken(rawToken);
     const stored = await this.d.refreshTokens.find(hash);
     if (!stored) throw new DomainError(401, 'INVALID_REFRESH_TOKEN');
-    if (stored.revokedAt) {
+    if (stored.revokedAt && !this.d.refreshTokens.rotate) {
       // Reuse detected: revoke the whole family to neutralize any stolen token.
       await this.d.refreshTokens.revokeFamily(stored.familyId, this.now());
       throw new DomainError(401, 'REFRESH_TOKEN_REUSE');
@@ -164,10 +164,20 @@ export class AuthService {
     const user = await this.d.users.findById(stored.campusId, stored.userId);
     if (!user || user.status !== 'ACTIVE') { await this.d.refreshTokens.revokeFamily(stored.familyId, this.now()); throw forbidden('ACCOUNT_NOT_ACTIVE'); }
 
-    // Rotate: revoke old token, issue a new one in the same family.
-    await this.d.refreshTokens.revoke(stored.id, this.now());
-    const { raw, id } = await this.issueRefreshToken(user.id, stored.campusId, stored.familyId, stored.id);
-    void id; // used internally
+    let raw: string;
+    if (this.d.refreshTokens.rotate) {
+      raw = generateRefreshToken();
+      const at = this.now();
+      const outcome = await this.d.refreshTokens.rotate(stored.id, at, {
+        userId: user.id, campusId: stored.campusId, familyId: stored.familyId,
+        tokenHash: hashRefreshToken(raw), expiresAt: new Date(at.getTime() + this.d.config.refreshTtlDays * 86_400_000),
+      });
+      if (outcome === 'reused') throw new DomainError(401, 'REFRESH_TOKEN_REUSE');
+      if (outcome === 'expired') throw new DomainError(401, 'REFRESH_TOKEN_EXPIRED');
+    } else {
+      await this.d.refreshTokens.revoke(stored.id, this.now());
+      ({ raw } = await this.issueRefreshToken(user.id, stored.campusId, stored.familyId, stored.id));
+    }
     const accessToken = signAccessToken({ userId: user.id, campusId: stored.campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
     return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw };
   }
@@ -176,7 +186,7 @@ export class AuthService {
   async logout(rawToken: string): Promise<void> {
     const hash = hashRefreshToken(rawToken);
     const stored = await this.d.refreshTokens.find(hash);
-    if (stored && !stored.revokedAt) await this.d.refreshTokens.revoke(stored.id, this.now());
+    if (stored) await this.d.refreshTokens.revokeFamily(stored.familyId, this.now());
   }
 
   async logoutAll(principal: Principal): Promise<void> {
@@ -222,6 +232,32 @@ export class AuthService {
       this.d.emailTokens.markUsed(hashToken(otp), this.now()),
       this.d.refreshTokens.revokeAll(user.id, this.now()),
     ]);
+  }
+
+  async changePassword(principal: Principal, currentPassword: string, newPassword: string): Promise<void> {
+    const profile = await this.d.users.findById(principal.campusId, principal.userId);
+    if (!profile || profile.status !== 'ACTIVE' || profile.role !== principal.role) throw forbidden('ACCOUNT_NOT_ACTIVE');
+    const record = await this.d.users.findByEmail(principal.campusId, profile.email);
+    if (!record || !(await verifyPassword(currentPassword, record.passwordHash)).ok) {
+      throw new DomainError(400, 'INCORRECT_CURRENT_PASSWORD');
+    }
+    const hash = await hashPassword(passwordSchema.parse(newPassword));
+    if (!await this.d.users.updatePassword(principal.campusId, principal.userId, hash, record.passwordHash)) {
+      throw new DomainError(409, 'PASSWORD_CHANGED');
+    }
+    await this.d.refreshTokens.revokeAll(principal.userId, this.now());
+  }
+
+  async resetManagedPassword(principal: Principal, userId: string, newPassword: string): Promise<void> {
+    const actor = await this.d.users.findById(principal.campusId, principal.userId);
+    if (actor?.role !== 'ADMIN' || actor.status !== 'ACTIVE') throw forbidden();
+    const user = await this.d.users.findById(principal.campusId, userId);
+    if (!user || user.role === 'ADMIN') throw new DomainError(404, 'MANAGED_ACCOUNT_NOT_FOUND');
+    const hash = await hashPassword(passwordSchema.parse(newPassword));
+    if (!await this.d.users.updatePassword(principal.campusId, userId, hash)) {
+      throw new DomainError(404, 'MANAGED_ACCOUNT_NOT_FOUND');
+    }
+    await this.d.refreshTokens.revokeAll(userId, this.now());
   }
 
   // ─── Admin bootstrap ───────────────────────────────────────────────────────

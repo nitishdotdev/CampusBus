@@ -10,7 +10,6 @@ function campusBusV1EnvPlugin(): Plugin {
       if (command !== 'build' || mode !== 'production') return;
       const env = loadEnv(mode, process.cwd(), '');
       assertProductionV1Env({
-        VITE_USE_V1_API: process.env.VITE_USE_V1_API ?? env.VITE_USE_V1_API,
         VITE_API_V1_URL: process.env.VITE_API_V1_URL ?? env.VITE_API_V1_URL,
         NODE_ENV: 'production',
         PROD: true,
@@ -26,7 +25,9 @@ const VENDOR_CHUNKS: Record<string, string[]> = {
   'vendor-lucide': ['lucide-react'],
 };
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const target = `http://127.0.0.1:${process.env.PORT ?? env.PORT ?? 4000}`;
   return {
     plugins: [react(), campusBusV1EnvPlugin()],
     resolve: {
@@ -35,14 +36,13 @@ export default defineConfig(() => {
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
-      allowedHosts: ['.monkeycode-ai.live'],
       proxy: {
         '/api': {
-          target: 'http://localhost:4000',
+          target,
           changeOrigin: true,
         },
         '/socket.io': {
-          target: 'http://localhost:4000',
+          target,
           changeOrigin: true,
           ws: true,
         },

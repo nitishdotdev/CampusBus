@@ -204,3 +204,50 @@ CREATE INDEX IF NOT EXISTS idx_v1_schedules_campus ON v1.schedules (campus_id, r
 CREATE INDEX IF NOT EXISTS idx_v1_schedules_bus ON v1.schedules (campus_id, bus_id);
 CREATE INDEX IF NOT EXISTS idx_v1_notif_campus ON v1.notifications (campus_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_v1_alerts_campus ON v1.emergency_alerts (campus_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS v1.complaints (
+  id VARCHAR(24) PRIMARY KEY,
+  campus_id VARCHAR(24) NOT NULL REFERENCES v1.campuses(id),
+  student_id VARCHAR(24) NOT NULL REFERENCES v1.users(id),
+  title VARCHAR(160) NOT NULL,
+  description VARCHAR(4000) NOT NULL,
+  category VARCHAR(24) NOT NULL CHECK (category IN ('DRIVER_BEHAVIOR', 'VEHICLE_CONDITION', 'SCHEDULE_ISSUE', 'CLEANLINESS', 'SAFETY', 'OTHER')),
+  priority VARCHAR(8) NOT NULL CHECK (priority IN ('LOW', 'NORMAL', 'HIGH')),
+  status VARCHAR(16) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED')),
+  trip_id VARCHAR(24),
+  bus_id VARCHAR(24),
+  route_id VARCHAR(24),
+  admin_response VARCHAR(4000),
+  responded_by VARCHAR(24) REFERENCES v1.users(id),
+  responded_at TIMESTAMPTZ,
+  resolved_at TIMESTAMPTZ,
+  closed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_v1_complaints_campus_created ON v1.complaints (campus_id, created_at DESC, id);
+CREATE INDEX IF NOT EXISTS idx_v1_complaints_student_created ON v1.complaints (campus_id, student_id, created_at DESC, id);
+
+ALTER TABLE v1.trips ADD COLUMN IF NOT EXISTS current_occupancy INTEGER CHECK (current_occupancy BETWEEN 0 AND 200);
+
+CREATE TABLE IF NOT EXISTS v1.trip_stops (
+  trip_id VARCHAR(24) NOT NULL REFERENCES v1.trips(id),
+  stop_id VARCHAR(24) NOT NULL,
+  stop_order INTEGER NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  lat DOUBLE PRECISION NOT NULL,
+  lng DOUBLE PRECISION NOT NULL,
+  first_fix_at TIMESTAMPTZ,
+  arrived_at TIMESTAMPTZ,
+  PRIMARY KEY (trip_id, stop_order)
+);
+
+ALTER TABLE v1.buses ADD COLUMN IF NOT EXISTS model VARCHAR(80);
+ALTER TABLE v1.buses ADD COLUMN IF NOT EXISTS plate_number VARCHAR(32);
+
+ALTER TABLE v1.campuses ADD COLUMN IF NOT EXISTS dispatch_phone VARCHAR(32);
+ALTER TABLE v1.campuses ADD COLUMN IF NOT EXISTS gps_interval_seconds INTEGER NOT NULL DEFAULT 3 CHECK (gps_interval_seconds BETWEEN 2 AND 10);
+
+ALTER TABLE v1.schedules ADD COLUMN IF NOT EXISTS arrive_time VARCHAR(5)
+  CHECK (arrive_time IS NULL OR arrive_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$');

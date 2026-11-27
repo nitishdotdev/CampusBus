@@ -1,87 +1,23 @@
-import { Trip } from '../types';
-import { apiClient } from './apiClient';
+import type { Trip } from '../types';
 import { locationService } from './locationService';
-import { realtimeService } from './realtimeService';
-import { socketService } from './socketService';
-
-import { isV1Api } from './v1/flag';
-
-const USE_V1 = isV1Api();
-
-const ACTIVE_TRIP_KEY = 'smart_campus_bus_active_trip';
+import { v1TripToUi } from './v1/adapters';
+import type { V1Trip } from './v1/trips';
 
 class TripService {
-  private trips: Trip[] = [];
   private activeTrip: Trip | null = null;
-  private listeners: ((trip: Trip | null) => void)[] = [];
-
-  constructor() {
-    const saved = localStorage.getItem(ACTIVE_TRIP_KEY);
-    if (saved) try { this.activeTrip = JSON.parse(saved); } catch { this.activeTrip = null; }
-    if (!USE_V1) {
-      this.refreshActiveTripFromApi();
-      this.fetchTripHistory();
-    }
-    socketService.on('trip:started', () => this.fetchTripHistory());
-    socketService.on('trip:ended', () => this.fetchTripHistory());
-    socketService.on('trip:stop_arrived', (data: any) => {
-      if (this.activeTrip && this.activeTrip.id === data.tripId) {
-        this.activeTrip = {
-          ...this.activeTrip,
-          currentStopId: data.arrivedStop?.id || this.activeTrip.currentStopId,
-          nextStopId: data.nextStop ? data.nextStop.id : null,
-          completedStopIds: data.completedStopIds || this.activeTrip.completedStopIds,
-        };
-        this.persistActiveTrip();
-        this.notify();
-      }
-    });
-  }
+  private listeners = new Set<(trip: Trip | null) => void>();
 
   public getActiveTrip(): Trip | null { return this.activeTrip; }
-  public getTripHistory(): Trip[] { return [...this.trips]; }
 
   public subscribeActiveTrip(listener: (trip: Trip | null) => void): () => void {
-    this.listeners.push(listener); listener(this.activeTrip);
-    return () => { this.listeners = this.listeners.filter((l) => l !== listener); };
+    this.listeners.add(listener);
+    listener(this.activeTrip);
+    return () => this.listeners.delete(listener);
   }
 
-  public async refreshActiveTripFromApi(): Promise<Trip | null> {
-    if (USE_V1) return this.activeTrip;
-    try {
-      const res = await apiClient.get<{ activeTrip: Trip | null }>('/api/trips/active');
-      this.activeTrip = res.activeTrip; this.persistActiveTrip(); this.notify();
-      return this.activeTrip;
-    } catch { return this.activeTrip; }
-  }
-
-  public async fetchTripHistory(): Promise<Trip[]> {
-    if (USE_V1) return this.trips;
-    try {
-      const res = await apiClient.get<Trip[]>('/api/trips');
-      if (Array.isArray(res)) { this.trips = res; this.notify(); }
-    } catch (err) { console.warn('Could not load trip history:', err); }
-    return this.trips;
-  }
-
-  public adoptV1Trip(v1: { id: string; campusId: string; busId: string; driverId: string; routeId: string; startedAt: string; status: string }): Trip {
-    const trip: Trip = {
-      id: v1.id,
-      collegeId: v1.campusId,
-      busId: v1.busId,
-      driverId: v1.driverId,
-      routeId: v1.routeId,
-      startTime: v1.startedAt,
-      status: v1.status === 'ACTIVE' ? 'IN_PROGRESS' : v1.status === 'COMPLETED' ? 'COMPLETED' : 'CANCELLED',
-      currentOccupancy: 0,
-      initialOccupancy: 0,
-      totalLocationsLogged: 0,
-      syncedLocationsCount: 0,
-      queuedLocationsCount: 0,
-      distanceCoveredKm: 0,
-    };
+  public adoptV1Trip(record: V1Trip): Trip {
+    const trip = v1TripToUi(record);
     this.activeTrip = trip;
-    this.persistActiveTrip();
     this.notify();
     return trip;
   }
@@ -89,82 +25,12 @@ class TripService {
   public clearActiveTrip(): void {
     locationService.stopTracking();
     this.activeTrip = null;
-    localStorage.removeItem(ACTIVE_TRIP_KEY);
     this.notify();
   }
 
-  public async startTrip(busId: string, driverId: string, routeId: string, collegeId = 'college_apex', useSimulation = false): Promise<Trip> {
-    if (USE_V1) {
-      throw new Error('Use tripsV1.start for v1 trips');
-    }
-    try {
-      const res = await apiClient.post<{ success: boolean; trip: any; bus: any }>('/api/trips/start', { busId, routeId, collegeId });
-      const st = res.trip;
-      const newTrip: Trip = {
-        id: st.id, collegeId: st.college_id || collegeId, busId: st.bus_id || busId, driverId: st.driver_id || driverId,
-        routeId: st.route_id || routeId, startTime: st.start_time || new Date().toISOString(), status: 'IN_PROGRESS',
-        currentOccupancy: 0, initialOccupancy: 0, totalLocationsLogged: 0, syncedLocationsCount: 0,
-        queuedLocationsCount: 0, distanceCoveredKm: 0,
-        currentStopId: st.current_stop_id || null,
-        nextStopId: st.next_stop_id || null,
-        completedStopIds: st.completed_stop_ids || [],
-        stopArrivals: st.stop_arrivals || [],
-      };
-      this.activeTrip = newTrip; this.trips.unshift(newTrip); this.persistActiveTrip(); this.notify();
-      await locationService.startTracking(newTrip.id, busId, driverId, useSimulation);
-      return newTrip;
-    } catch (err: any) {
-      if (err.status === 409 || err.status === 400 || err.status === 404) throw err;
-      const fb: Trip = { id: 'trip_' + Date.now().toString(), collegeId, busId, driverId, routeId,
-        startTime: new Date().toISOString(), status: 'IN_PROGRESS', currentOccupancy: 0,
-        initialOccupancy: 0, totalLocationsLogged: 0, syncedLocationsCount: 0, queuedLocationsCount: 0, distanceCoveredKm: 0 };
-      this.activeTrip = fb; this.trips.unshift(fb); this.persistActiveTrip(); this.notify();
-      await locationService.startTracking(fb.id, busId, driverId, useSimulation);
-      return fb;
-    }
+  private notify() {
+    for (const listener of this.listeners) listener(this.activeTrip);
   }
-
-  public async updateOccupancy(deltaOrAbsolute: number, isAbsolute = false): Promise<number> {
-    if (!this.activeTrip) return 0;
-    if (USE_V1) {
-      const bus = realtimeService.getBusById(this.activeTrip.busId);
-      const cap = bus?.capacity || 45;
-      let nc = isAbsolute ? deltaOrAbsolute : this.activeTrip.currentOccupancy + deltaOrAbsolute;
-      nc = Math.max(0, Math.min(cap, nc));
-      this.activeTrip.currentOccupancy = nc; this.persistActiveTrip(); this.notify();
-      return nc;
-    }
-    try {
-      const res = await apiClient.post<{ currentOccupancy: number; capacity: number }>('/api/trips/occupancy',
-        { delta: isAbsolute ? undefined : deltaOrAbsolute, absoluteCount: isAbsolute ? deltaOrAbsolute : undefined });
-      this.activeTrip.currentOccupancy = res.currentOccupancy; this.persistActiveTrip(); this.notify();
-      return res.currentOccupancy;
-    } catch {
-      const bus = realtimeService.getBusById(this.activeTrip.busId);
-      const cap = bus?.capacity || 45;
-      let nc = isAbsolute ? deltaOrAbsolute : this.activeTrip.currentOccupancy + deltaOrAbsolute;
-      nc = Math.max(0, Math.min(cap, nc));
-      this.activeTrip.currentOccupancy = nc; this.persistActiveTrip(); this.notify();
-      return nc;
-    }
-  }
-
-  public async endTrip(): Promise<boolean> {
-    if (!this.activeTrip) return false;
-    if (!USE_V1) {
-      try { await apiClient.post('/api/trips/end', { tripId: this.activeTrip.id }); } catch { /* offline */ }
-    }
-    locationService.stopTracking();
-    const et = { ...this.activeTrip, status: 'COMPLETED' as const, endTime: new Date().toISOString() };
-    this.trips = this.trips.map((t) => (t.id === et.id ? et : t));
-    this.activeTrip = null; localStorage.removeItem(ACTIVE_TRIP_KEY); this.notify();
-    return true;
-  }
-
-  private persistActiveTrip(): void {
-    if (this.activeTrip) localStorage.setItem(ACTIVE_TRIP_KEY, JSON.stringify(this.activeTrip));
-    else localStorage.removeItem(ACTIVE_TRIP_KEY);
-  }
-  private notify(): void { this.listeners.forEach((l) => l(this.activeTrip)); }
 }
+
 export const tripService = new TripService();

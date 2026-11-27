@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
-import { buildPgConnection } from '../../../../../server/db/tls';
+import { buildPgConnection } from './tls';
 
 export async function createPostgresPool(env: NodeJS.ProcessEnv = process.env): Promise<pg.Pool> {
   const url = env.DATABASE_URL;
@@ -20,8 +20,27 @@ export async function createPostgresPool(env: NodeJS.ProcessEnv = process.env): 
   return pool;
 }
 
+export async function withTransaction<T>(pool: pg.Pool, execute: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await execute(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function applyV1Schema(pool: pg.Pool): Promise<void> {
-  await pool.query(loadSchemaSql());
+  await withTransaction(pool, async client => {
+    // One v1 migrator per database, including concurrent Render starts.
+    await client.query('SELECT pg_advisory_xact_lock(476201, 1)');
+    await client.query(loadSchemaSql());
+  });
 }
 
 function loadSchemaSql(): string {

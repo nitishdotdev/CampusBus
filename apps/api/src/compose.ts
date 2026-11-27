@@ -4,7 +4,7 @@ import { LiveService } from './domain/live';
 import { TelemetryIngestService } from './domain/telemetry/ingest';
 import { TripService } from './domain/trips';
 import type {
-  BusRepository, CampusRepository, EmailSender, EmailTokenRepository,
+  BusRepository, CampusRepository, ComplaintRepository, EmailSender, EmailTokenRepository,
   EmergencyAlertRepository, LiveEmitter, NotificationRepository,
   RefreshTokenRepository, RouteRepository, ScheduleRepository,
   TelemetryRepository, TripRepository, UserRepository, VehicleLocationRepository,
@@ -13,6 +13,7 @@ import { ConsoleEmailSender } from './infra/email/stub';
 
 export interface AppRepositories {
   campuses: CampusRepository;
+  complaints?: ComplaintRepository;
   users: UserRepository;
   refreshTokens: RefreshTokenRepository;
   emailTokens: EmailTokenRepository;
@@ -42,6 +43,7 @@ export function createServices(
   });
   const extraRepos = {
     campuses: repos.campuses,
+    complaints: repos.complaints,
     schedules: repos.schedules,
     notifications: repos.notifications,
     alerts: repos.alerts,

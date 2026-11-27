@@ -1,14 +1,17 @@
+import type { Freshness } from './telemetry/freshness';
 export type Role = 'STUDENT' | 'DRIVER' | 'ADMIN';
 
 export interface CampusDTO {
   id: string; name: string; shortCode: string; city: string;
   lat: number; lng: number; zoom: number; timezone: string;
+  dispatchPhone?: string | null; gpsIntervalSeconds?: number;
 }
 export interface CampusRepository {
   list(): Promise<CampusDTO[]>;
   findById(id: string): Promise<CampusDTO | null>;
   findByCode(shortCode: string): Promise<CampusDTO | null>;
   create(c: Omit<CampusDTO, 'id'>): Promise<CampusDTO>;
+  updateSettings?(campusId: string, values: { name: string; dispatchPhone: string | null; gpsIntervalSeconds: number }): Promise<CampusDTO | null>;
 }
 export type UserStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'DISABLED';
 export type TripStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
@@ -26,6 +29,9 @@ export interface UserDTO {
 export interface BusDTO {
   id: string; campusId: string; number: string; capacity: number;
   status: 'ACTIVE' | 'MAINTENANCE' | 'OFFLINE'; driverId?: string | null; routeId?: string | null;
+  model?: string | null; plateNumber?: string | null; driverName?: string | null;
+  currentOccupancy?: number | null;
+  activeTrip?: { id: string; routeId: string; mode: TripMode; freshness: Freshness; nextStopId?: string; completedStopIds?: string[] } | null;
 }
 export interface RouteDTO {
   id: string; campusId: string; code: string; name: string; color: string;
@@ -35,6 +41,10 @@ export interface StopDTO { id: string; name: string; lat: number; lng: number; o
 export interface TripDTO {
   id: string; campusId: string; busId: string; driverId: string; routeId: string;
   status: TripStatus; mode: TripMode; startedAt: Date; endedAt?: Date | null;
+  currentOccupancy?: number | null;
+  completedStopIds?: string[];
+  nextStopId?: string | null;
+  totalLocationsLogged?: number;
 }
 export interface GeoPoint { lat: number; lng: number }
 export interface TelemetryRecord {
@@ -64,7 +74,7 @@ export interface UserRepository {
   create(u: { campusId: string; email: string; passwordHash: string; name: string; role: Role; status: UserStatus; phone?: string }): Promise<UserDTO>;
   updateStatus(campusId: string, id: string, status: UserStatus): Promise<boolean>;
   verifyEmail(campusId: string, id: string, at: Date): Promise<boolean>;
-  updatePassword(campusId: string, id: string, hash: string): Promise<boolean>;
+  updatePassword(campusId: string, id: string, hash: string, expectedHash?: string): Promise<boolean>;
   list(campusId: string, opts: { role?: Role; status?: UserStatus; page?: number; pageSize?: number }): Promise<Page<UserDTO>>;
   assignTransport(campusId: string, id: string, busId: string | null, routeId: string | null): Promise<boolean>;
 }
@@ -72,6 +82,7 @@ export interface RefreshTokenRepository {
   /** Create a refresh token. familyId groups rotated tokens for theft detection. */
   create(t: { userId: string; campusId: string; tokenHash: string; familyId: string; expiresAt: Date; previousId?: string }): Promise<string>;
   find(tokenHash: string): Promise<{ id: string; userId: string; campusId: string; familyId: string; expiresAt: Date; revokedAt: Date | null; previousId: string | null } | null>;
+  rotate?(tokenId: string, at: Date, successor: { userId: string; campusId: string; familyId: string; tokenHash: string; expiresAt: Date }): Promise<'rotated' | 'reused' | 'expired'>;
   /** Revoke one token (used = normal rotation). */
   revoke(id: string, at: Date): Promise<void>;
   /** Revoke every live token in a family (theft detected). */
@@ -99,6 +110,7 @@ export interface BusRepository {
   delete(campusId: string, id: string): Promise<boolean>;
   assignDriver(campusId: string, id: string, driverId: string | null): Promise<BusDTO | null>;
   assignRoute(campusId: string, id: string, routeId: string | null): Promise<BusDTO | null>;
+  assign?(campusId: string, id: string, assignment: { driverId: string | null; routeId: string | null }): Promise<BusDTO | null>;
 }
 export interface RouteRepository {
   findById(campusId: string, id: string): Promise<RouteDTO | null>;
@@ -110,7 +122,8 @@ export interface RouteRepository {
 export interface TripRepository {
   findById(campusId: string, id: string): Promise<TripDTO | null>;
   findActiveByBus(campusId: string, busId: string): Promise<TripDTO | null>;
-  start(t: { campusId: string; busId: string; driverId: string; routeId: string; mode: TripMode; startedAt: Date }): Promise<TripDTO>;
+  start(t: { campusId: string; busId: string; driverId: string; routeId: string; mode: TripMode; startedAt: Date; verifyAssignment?: boolean }): Promise<TripDTO>;
+  updateOccupancy?(campusId: string, id: string, driverId: string, delta: number): Promise<TripDTO | null>;
   end(campusId: string, id: string, endedAt: Date, status?: 'COMPLETED' | 'CANCELLED'): Promise<TripDTO | null>;
   list(campusId: string, opts: { driverId?: string; busId?: string; status?: TripStatus; page?: number; pageSize?: number }): Promise<Page<TripDTO>>;
 }
@@ -130,7 +143,7 @@ export interface LiveEmitter { emitLocation(campusId: string, busId: string, pay
 export type ScheduleDirection = 'TO_CAMPUS' | 'FROM_CAMPUS';
 export interface ScheduleDTO {
   id: string; campusId: string; routeId: string; busId: string;
-  direction: ScheduleDirection; daysOfWeek: number[]; departTime: string; active: boolean;
+  direction: ScheduleDirection; daysOfWeek: number[]; departTime: string; arriveTime?: string | null; active: boolean;
 }
 export type NotificationKind = 'ANNOUNCEMENT' | 'DELAY' | 'ROUTE_CHANGE' | 'EMERGENCY';
 export type NotificationPriority = 'NORMAL' | 'HIGH' | 'URGENT';
@@ -165,4 +178,27 @@ export interface EmergencyAlertRepository {
   create(a: Omit<EmergencyAlertDTO, 'id' | 'createdAt'>): Promise<EmergencyAlertDTO>;
   acknowledge(campusId: string, id: string, byUserId: string, at: Date): Promise<EmergencyAlertDTO | null>;
   resolve(campusId: string, id: string, byUserId: string, at: Date): Promise<EmergencyAlertDTO | null>;
+}
+
+export type ComplaintStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+export type ComplaintCategory = 'DRIVER_BEHAVIOR' | 'VEHICLE_CONDITION' | 'SCHEDULE_ISSUE' | 'CLEANLINESS' | 'SAFETY' | 'OTHER';
+export type ComplaintPriority = 'LOW' | 'NORMAL' | 'HIGH';
+
+export interface NewComplaint {
+  campusId: string; studentId: string;
+  title: string; description: string; category: ComplaintCategory; priority: ComplaintPriority;
+  tripId?: string; busId?: string; routeId?: string;
+}
+
+export interface Complaint extends NewComplaint {
+  id: string; studentName: string; status: ComplaintStatus;
+  adminResponse: string | null; respondedAt: Date | null; resolvedAt: Date | null; closedAt: Date | null;
+  createdAt: Date; updatedAt: Date;
+}
+
+export interface ComplaintRepository {
+  list(campusId: string, studentId: string | null, options: { page?: number; pageSize?: number }): Promise<Page<Complaint>>;
+  find(campusId: string, id: string, studentId: string | null): Promise<Complaint | null>;
+  create(body: NewComplaint): Promise<Complaint>;
+  update(campusId: string, id: string, actorId: string, patch: Partial<Pick<Complaint, 'status' | 'priority'>> & { adminResponse?: string }): Promise<Complaint | null>;
 }

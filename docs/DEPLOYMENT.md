@@ -1,136 +1,40 @@
-# CampusBus Deployment Guide
+# Deployment
 
-## Stack
-| Layer | Provider | Notes |
-|-------|----------|-------|
-| Frontend | Vercel | Vite SPA. Production must set `VITE_USE_V1_API=true` and `VITE_API_V1_URL`. |
-| Backend API | Render | `apps/api/src/server.ts` compiled by `npm run api:build`. |
-| Database | Neon PostgreSQL | Required `DATABASE_URL`. MongoDB is not used by the running V1 API. |
+## Observed and declared configuration
 
-Do not guess hostnames. Use the actual Vercel production origin for `CORS_ORIGIN` and the actual Render origin for `VITE_API_V1_URL`.
+The repository's `render.yaml` declares an Express web service named `campusmove-api`. Public health and campus directory requests responded at `https://campusmove-nahp.onrender.com`. The unsuffixed Render hostname returned a Render routing 404. `https://campus-move-one.vercel.app` returned `DEPLOYMENT_NOT_FOUND`. The alternate `campusmove.vercel.app` served an older Supabase frontend. The GitHub preview integration points at the Vercel project `campus-bus`. Its public domain `campus-bus.vercel.app` served a Flutter build, and the pull request preview failed. The actual Render service settings, database inventory, and intended Vercel project configuration require dashboard confirmation.
 
----
+## Render settings for the reviewed release
 
-## One-time setup checklist
+| Field | Value |
+| --- | --- |
+| Root directory | Repository root |
+| Build command | `npm ci && npm run api:build` |
+| Start command | `npm run api:start` |
+| Health check | `/healthz` |
+| Runtime | Node.js 22.12+ or 24 and `NODE_ENV=production` |
+| `DATABASE_URL` | Existing confirmed Neon PostgreSQL connection, set through managed secrets |
+| `DATABASE_SSL_MODE` | `verify`. Supply a private CA only when required by the confirmed host. |
+| `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET` | Distinct existing secrets, at least 32 characters. Rotating them requires reauthentication. |
+| `CORS_ORIGIN` | Exact verified Vercel HTTPS origin. List approved preview or custom origins explicitly if required. |
+| `BOOTSTRAP_SECRET` | Leave unset unless explicitly authorizing initial HTTP provisioning. |
+| `SIMULATION_MODE` | Leave unset or set `off`. |
 
-### 1. Neon PostgreSQL
-1. Create a Neon project and database.
-2. Copy the pooled or direct connection string into Render as `DATABASE_URL`.
-3. The API applies `apps/api/src/infra/postgres/schema.sql` on startup.
-4. Optional: set `DATABASE_SSL_MODE=verify` on Render if you pin a CA.
+Use the established Render service and existing database after [staging the migration](DATABASE.md). Do not create a second production database to work around configuration drift. The repository only includes an email delivery placeholder. Leave email verification disabled until a real delivery adapter and the user-facing verification workflow are ready. Campus administrators can reset managed driver and student passwords.
 
-### 2. Render (Backend API)
-1. Create a **Web Service** connected to this repository.
-2. Render reads `render.yaml` for build/start commands (`npm ci && npm run api:build`, `npm run api:start`).
-3. Set these secret env vars in the Render dashboard:
-   - `DATABASE_URL` — Neon connection string
-   - `ACCESS_TOKEN_SECRET` — `openssl rand -hex 32`
-   - `REFRESH_TOKEN_SECRET` — `openssl rand -hex 32` (must differ)
-   - `BOOTSTRAP_SECRET` — `openssl rand -hex 16` (temporary, campus + first admin)
-   - `CORS_ORIGIN` — the actual Vercel frontend origin, e.g. `https://campus-move-one.vercel.app`
-4. Deploy. Confirm `/healthz` returns `{"status":"ok"}`.
-5. Confirm `GET /api/v1/campuses` returns JSON (an empty array is valid before bootstrap).
+## Vercel settings for the reviewed release
 
-### 3. Bootstrap the first campus
-Preferred: trusted one-time CLI against the same `DATABASE_URL` (idempotent on short code). Do not commit the secret.
+Set framework to Vite, use `npm run build`, and publish `dist` on the verified frontend project. Set `VITE_API_V1_URL` to `https://campusmove-nahp.onrender.com` if the dashboard confirms that service is the intended backend. Use the exact public origin without an API path. Remove obsolete `VITE_USE_V1_API`, `VITE_API_URL`, and `VITE_SOCKET_URL` values. Only public values belong in Vite variables. The browser assets and router are published by Vercel. The API bundle stays in Render.
 
-```bash
-DATABASE_URL='postgresql://...' npm run api:bootstrap -- \
-  --name="Apex State University" \
-  --short-code=ASU \
-  --city="Los Angeles" \
-  --lat=34.0537 \
-  --lng=-118.2570 \
-  --timezone=America/Los_Angeles \
-  --admin-email=admin@yourcampus.edu \
-  --admin-password='<unique-admin-password>' \
-  --admin-name="Campus Admin"
+## Initial provisioning
+
+The provisioning CLI can set up an empty database. Supply valid campus coordinates, an IANA time zone and a unique short code. Provide `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, and `BOOTSTRAP_ADMIN_PASSWORD` through an ignored environment file or a secret-managed runner.
+
+```sh
+npm run api:bootstrap -- --name="Campus name" --short-code=ABC \
+  --lat=28.46 --lng=77.03 --timezone=Asia/Kolkata
 ```
 
-HTTP alternative after the Render service is live:
+## Release validation
 
-```bash
-curl -X POST "$RENDER_API_ORIGIN/api/v1/campuses" \
-  -H "Content-Type: application/json" \
-  -H "x-bootstrap-secret: $BOOTSTRAP_SECRET" \
-  -d '{
-    "name": "Apex State University",
-    "shortCode": "ASU",
-    "city": "Los Angeles",
-    "lat": 34.0537,
-    "lng": -118.2570,
-    "zoom": 15,
-    "timezone": "America/Los_Angeles"
-  }'
-```
-
-POST `/api/v1/campuses` is not public. It requires `x-bootstrap-secret` matching `BOOTSTRAP_SECRET`. Copy the `id` from the response. Signup cannot succeed until at least one campus exists. GET `/api/v1/campuses` is public and returns `[]` only when no campuses exist.
-
-### 4. Provision the first administrator
-Do not register an admin through the public signup form. Use the CLI above, the one-time bootstrap route, then remove `BOOTSTRAP_SECRET`.
-
-```bash
-curl -X POST "$RENDER_API_ORIGIN/api/v1/auth/bootstrap-admin" \
-  -H "Content-Type: application/json" \
-  -H "x-bootstrap-secret: $BOOTSTRAP_SECRET" \
-  -d '{
-    "campusId": "<id from step 3>",
-    "email": "admin@yourcampus.edu",
-    "password": "<unique-admin-password>",
-    "name": "Campus Admin"
-  }'
-```
-
-Alternatively, from a trusted host with `DATABASE_URL` set:
-
-```bash
-ADMIN_PASSWORD='<unique-admin-password>' npm run bootstrap:admin -- \
-  --campus-id '<id from step 3>' \
-  --email 'admin@yourcampus.edu' \
-  --name 'Campus Admin'
-```
-
-Then blank or delete `BOOTSTRAP_SECRET` in Render. The route refuses a second administrator.
-
-### 5. Working accounts by role
-- **Student**: public V1 registration (`POST /api/v1/auth/register`, role `STUDENT`) then `POST /api/v1/auth/login`.
-- **Driver**: created by an administrator via `POST /api/v1/users/drivers`. Public driver signup stays `PENDING` until approved.
-- **Administrator**: bootstrap only. Sign in through the same V1 login API and land on `/admin`.
-
-Do not seed shared demo credentials. Legacy sample accounts are not V1 accounts.
-
-### 6. Vercel (Frontend)
-1. Import the repository into Vercel.
-2. Set env vars in the Vercel dashboard (not only `vercel.json`):
-   - `VITE_USE_V1_API` = `true` (also present in `vercel.json`)
-   - `VITE_API_V1_URL` = Render origin with **no** `/api/v1` suffix
-3. Production builds fail if `VITE_API_V1_URL` is missing or invalid.
-4. `vercel.json` already configures SPA rewrites and security headers.
-
----
-
-## Smoke test after deploy
-
-```bash
-curl "$RENDER_API_ORIGIN/healthz"
-curl "$RENDER_API_ORIGIN/api/v1/campuses"
-```
-
-Login from the Vercel app using the campus selector. A missing campus directory, empty campus list, and connectivity/CORS failure show distinct messages.
-
----
-
-## Windows 7 / Chrome 109
-
-The production frontend is built for `chrome109` with Tailwind CSS 3.4.x. Windows 7 is an unsupported, insecure operating system. Upgrade the OS and browser for production account usage whenever possible.
-
-Remaining Chrome 109 limits:
-- Modern CSS such as `dvh` is avoided on auth pages; layout uses `min-h-screen`.
-- Leaflet maps and Socket.IO remain usable if the browser can load the production bundle.
-- Google Fonts and unpkg Leaflet CSS require network access.
-
----
-
-## Rollback
-- Render: Manual Deploy of a previous build.
-- Frontend: keep `VITE_USE_V1_API=true`. Do not silently fall back to `/api/auth/*` in production.
+After approving and deploying both revisions, confirm the public API and browser CORS contract, sign in with an approved account for each role and verify a representative workflow. Record the rendered Vercel and Render deployment identifiers. Do not infer production readiness from a successful local build.

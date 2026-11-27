@@ -1,4 +1,8 @@
 import type pg from 'pg';
+import { PgComplaintRepository } from './complaints';
+import { withTransaction } from './pool';
+import { recordStopArrival } from './stopProgress';
+import { computeFreshness } from '../../domain/telemetry/freshness';
 import { DomainError } from '../../domain/errors';
 import type {
   AlertStatus, BusDTO, BusRepository, CampusDTO, CampusRepository,
@@ -23,11 +27,16 @@ const toUser = (d: any): UserDTO => ({
   phone: d.phone ?? null,
 });
 
+const userProjection = `SELECT u.id, u.campus_id, u.email, u.name, u.role, u.status, u.email_verified_at, u.phone,
+  CASE WHEN u.role = 'DRIVER' THEN b.id ELSE u.assigned_bus_id END AS assigned_bus_id,
+  CASE WHEN u.role = 'DRIVER' THEN b.route_id ELSE u.assigned_route_id END AS assigned_route_id
+  FROM v1.users u LEFT JOIN v1.buses b ON u.role = 'DRIVER' AND b.campus_id = u.campus_id AND b.driver_id = u.id`;
+
 export class PgUserRepository implements UserRepository {
   constructor(private p: pg.Pool) {}
   async findById(campusId: string, id: string) {
     if (!isValidId(id) || !isValidId(campusId)) return null;
-    const r = await this.p.query('SELECT * FROM v1.users WHERE id = $1 AND campus_id = $2', [id, campusId]);
+    const r = await this.p.query(`${userProjection} WHERE u.id = $1 AND u.campus_id = $2`, [id, campusId]);
     return r.rows[0] ? toUser(r.rows[0]) : null;
   }
   async findByEmail(campusId: string, email: string) {
@@ -64,30 +73,31 @@ export class PgUserRepository implements UserRepository {
     );
     return (r.rowCount ?? 0) > 0;
   }
-  async updatePassword(campusId: string, id: string, hash: string) {
+  async updatePassword(campusId: string, id: string, hash: string, expectedHash?: string) {
     if (!isValidId(id) || !isValidId(campusId)) return false;
     const r = await this.p.query(
-      'UPDATE v1.users SET password_hash = $3, updated_at = NOW() WHERE id = $1 AND campus_id = $2',
-      [id, campusId, hash],
+      'UPDATE v1.users SET password_hash = $3, updated_at = NOW() WHERE id = $1 AND campus_id = $2 AND ($4::varchar IS NULL OR password_hash = $4)',
+      [id, campusId, hash, expectedHash ?? null],
     );
     return (r.rowCount ?? 0) > 0;
   }
   async list(campusId: string, opts: Parameters<UserRepository['list']>[1]) {
     const { page, pageSize, skip } = pageOpts(opts);
     const params: unknown[] = [campusId];
-    let where = 'campus_id = $1';
-    if (opts.role) { params.push(opts.role); where += ` AND role = $${params.length}`; }
-    if (opts.status) { params.push(opts.status); where += ` AND status = $${params.length}`; }
+    let where = 'u.campus_id = $1';
+    if (opts.role) { params.push(opts.role); where += ` AND u.role = $${params.length}`; }
+    if (opts.status) { params.push(opts.status); where += ` AND u.status = $${params.length}`; }
     const [docs, total] = await Promise.all([
-      this.p.query(`SELECT * FROM v1.users WHERE ${where} ORDER BY created_at DESC OFFSET $${params.length + 1} LIMIT $${params.length + 2}`, [...params, skip, pageSize]),
-      this.p.query(`SELECT COUNT(*)::int AS n FROM v1.users WHERE ${where}`, params),
+      this.p.query(`${userProjection} WHERE ${where} ORDER BY u.created_at DESC, u.id OFFSET $${params.length + 1} LIMIT $${params.length + 2}`, [...params, skip, pageSize]),
+      this.p.query(`SELECT COUNT(*)::int AS n FROM v1.users u WHERE ${where}`, params),
     ]);
     return { items: docs.rows.map(toUser), total: total.rows[0].n, page, pageSize };
   }
   async assignTransport(campusId: string, id: string, busId: string | null, routeId: string | null) {
     if (!isValidId(id) || !isValidId(campusId)) return false;
     const r = await this.p.query(
-      'UPDATE v1.users SET assigned_bus_id = $3, assigned_route_id = $4, updated_at = NOW() WHERE id = $1 AND campus_id = $2',
+      `UPDATE v1.users SET assigned_bus_id = $3, assigned_route_id = $4, updated_at = NOW()
+       WHERE id = $1 AND campus_id = $2 AND role = 'STUDENT'`,
       [id, campusId, busId, routeId],
     );
     return (r.rowCount ?? 0) > 0;
@@ -111,6 +121,29 @@ export class PgRefreshTokenRepository implements RefreshTokenRepository {
     if (!d) return null;
     return { id: d.id, userId: d.user_id, campusId: d.campus_id, familyId: d.family_id, expiresAt: d.expires_at, revokedAt: d.revoked_at ?? null, previousId: d.previous_id ?? null };
   }
+  async rotate(tokenId: string, at: Date, successor: Parameters<NonNullable<RefreshTokenRepository['rotate']>>[2]) {
+    return withTransaction(this.p, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(476202, hashtext($1))', [successor.userId]);
+      const current = await client.query(
+        'SELECT revoked_at, expires_at FROM v1.refresh_tokens WHERE id = $1 AND user_id = $2 AND family_id = $3 FOR UPDATE',
+        [tokenId, successor.userId, successor.familyId],
+      );
+      const token = current.rows[0];
+      if (!token || token.expires_at < at) return 'expired' as const;
+      if (token.revoked_at) {
+        await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE family_id = $1 AND revoked_at IS NULL', [successor.familyId, at]);
+        return 'reused' as const;
+      }
+      await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE id = $1', [tokenId, at]);
+      await client.query(
+        `INSERT INTO v1.refresh_tokens (id, user_id, campus_id, token_hash, family_id, previous_id, expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [newId(), successor.userId, successor.campusId, successor.tokenHash, successor.familyId, tokenId, successor.expiresAt],
+      );
+      return 'rotated' as const;
+    });
+  }
+
   async revoke(id: string, at: Date) {
     await this.p.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE id = $1', [id, at]);
   }
@@ -118,7 +151,10 @@ export class PgRefreshTokenRepository implements RefreshTokenRepository {
     await this.p.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE family_id = $1 AND revoked_at IS NULL', [familyId, at]);
   }
   async revokeAll(userId: string, at: Date) {
-    await this.p.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL', [userId, at]);
+    await withTransaction(this.p, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(476202, hashtext($1))', [userId]);
+      await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL', [userId, at]);
+    });
   }
   async purgeExpired(cutoff: Date) {
     const r = await this.p.query('DELETE FROM v1.refresh_tokens WHERE expires_at < $1', [cutoff]);
@@ -148,21 +184,39 @@ export class PgEmailTokenRepository implements EmailTokenRepository {
 }
 
 const toBus = (d: any): BusDTO => ({
+  model: d.model ?? null, plateNumber: d.plate_number ?? null, driverName: d.driver_name ?? null,
+  currentOccupancy: d.current_occupancy ?? null,
+  activeTrip: d.active_trip_id ? {
+    id: d.active_trip_id, routeId: d.active_trip_route_id, mode: d.active_trip_mode,
+    nextStopId: d.next_stop_id ?? undefined, completedStopIds: d.completed_stop_ids,
+    freshness: computeFreshness(new Date(), d.captured_at ? {
+      tripId: d.location_trip_id, capturedAt: d.captured_at, receivedAt: d.received_at,
+    } : null, { id: d.active_trip_id }).state,
+  } : null,
   id: d.id, campusId: d.campus_id, number: d.number, capacity: d.capacity, status: d.status,
   driverId: d.driver_id ?? null, routeId: d.route_id ?? null,
 });
+
+const busProjection = `SELECT b.*, t.id AS active_trip_id, t.route_id AS active_trip_route_id, t.mode AS active_trip_mode,
+  t.current_occupancy, u.name AS driver_name, loc.trip_id AS location_trip_id, loc.captured_at, loc.received_at,
+  (SELECT stop_id FROM v1.trip_stops WHERE trip_id = t.id AND arrived_at IS NULL ORDER BY stop_order LIMIT 1) AS next_stop_id,
+  ARRAY(SELECT stop_id FROM v1.trip_stops WHERE trip_id = t.id AND arrived_at IS NOT NULL ORDER BY stop_order) AS completed_stop_ids
+  FROM v1.buses b
+  LEFT JOIN v1.users u ON u.id = b.driver_id AND u.campus_id = b.campus_id AND u.role = 'DRIVER'
+  LEFT JOIN v1.trips t ON t.campus_id = b.campus_id AND t.active_bus_key = b.id AND t.status = 'ACTIVE'
+  LEFT JOIN v1.vehicle_locations loc ON loc.bus_id = b.id AND loc.campus_id = b.campus_id AND loc.trip_id = t.id`;
 
 export class PgBusRepository implements BusRepository {
   constructor(private p: pg.Pool) {}
   async findById(campusId: string, id: string) {
     if (!isValidId(id) || !isValidId(campusId)) return null;
-    const r = await this.p.query('SELECT * FROM v1.buses WHERE id = $1 AND campus_id = $2', [id, campusId]);
+    const r = await this.p.query(`${busProjection} WHERE b.id = $1 AND b.campus_id = $2`, [id, campusId]);
     return r.rows[0] ? toBus(r.rows[0]) : null;
   }
   async list(campusId: string, opts: { page?: number; pageSize?: number }) {
     const { page, pageSize, skip } = pageOpts(opts);
     const [docs, total] = await Promise.all([
-      this.p.query('SELECT * FROM v1.buses WHERE campus_id = $1 ORDER BY number ASC OFFSET $2 LIMIT $3', [campusId, skip, pageSize]),
+      this.p.query(`${busProjection} WHERE b.campus_id = $1 ORDER BY b.number ASC OFFSET $2 LIMIT $3`, [campusId, skip, pageSize]),
       this.p.query('SELECT COUNT(*)::int AS n FROM v1.buses WHERE campus_id = $1', [campusId]),
     ]);
     return { items: docs.rows.map(toBus), total: total.rows[0].n, page, pageSize };
@@ -170,9 +224,9 @@ export class PgBusRepository implements BusRepository {
   async create(b: Omit<BusDTO, 'id'>) {
     try {
       const r = await this.p.query(
-        `INSERT INTO v1.buses (id, campus_id, number, capacity, status, driver_id, route_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [newId(), b.campusId, b.number, b.capacity, b.status, b.driverId ?? null, b.routeId ?? null],
+        `INSERT INTO v1.buses (id, campus_id, number, capacity, status, driver_id, route_id, model, plate_number)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [newId(), b.campusId, b.number, b.capacity, b.status, b.driverId ?? null, b.routeId ?? null, b.model ?? null, b.plateNumber ?? null],
       );
       return toBus(r.rows[0]);
     } catch (e) {
@@ -188,38 +242,89 @@ export class PgBusRepository implements BusRepository {
     if (patch.number !== undefined) add('number', patch.number);
     if (patch.capacity !== undefined) add('capacity', patch.capacity);
     if (patch.status !== undefined) add('status', patch.status);
-    if (patch.driverId !== undefined) add('driver_id', patch.driverId);
-    if (patch.routeId !== undefined) add('route_id', patch.routeId);
+    if (patch.model !== undefined) add('model', patch.model);
+    if (patch.plateNumber !== undefined) add('plate_number', patch.plateNumber);
     vals.push(id, campusId);
-    const r = await this.p.query(
-      `UPDATE v1.buses SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND campus_id = $${vals.length} RETURNING *`,
-      vals,
-    );
-    return r.rows[0] ? toBus(r.rows[0]) : null;
-  }
-  async delete(campusId: string, id: string) {
-    if (!isValidId(id) || !isValidId(campusId)) return false;
-    const r = await this.p.query('DELETE FROM v1.buses WHERE id = $1 AND campus_id = $2', [id, campusId]);
-    return (r.rowCount ?? 0) > 0;
-  }
-  async assignDriver(campusId: string, id: string, driverId: string | null) {
     try {
-      const r = await this.p.query(
-        'UPDATE v1.buses SET driver_id = $3, updated_at = NOW() WHERE id = $1 AND campus_id = $2 RETURNING *',
-        [id, campusId, driverId],
-      );
-      return r.rows[0] ? toBus(r.rows[0]) : null;
-    } catch (e) {
-      if (isUniqueViolation(e, 'buses_driver_unique')) throw new DomainError(409, 'DRIVER_ALREADY_ASSIGNED');
-      throw e;
+      return await withTransaction(this.p, async client => {
+        const current = await this.lockBus(client, campusId, id);
+        if (!current) return null;
+        if (patch.status && patch.status !== current.status) await this.assertNoActiveTrip(client, campusId, id);
+        const result = await client.query(
+          `UPDATE v1.buses SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND campus_id = $${vals.length} RETURNING *`,
+          vals,
+        );
+        return toBus(result.rows[0]);
+      });
+    } catch (error) {
+      if (isUniqueViolation(error, 'buses_campus_number_key')) throw new DomainError(409, 'BUS_NUMBER_TAKEN');
+      throw error;
     }
   }
+
+  async delete(campusId: string, id: string) {
+    return withTransaction(this.p, async client => {
+      if (!await this.lockBus(client, campusId, id)) return false;
+      await this.assertNoActiveTrip(client, campusId, id);
+      await client.query('DELETE FROM v1.buses WHERE id = $1 AND campus_id = $2', [id, campusId]);
+      return true;
+    });
+  }
+
+  async assignDriver(campusId: string, id: string, driverId: string | null) {
+    return this.assignFields(campusId, id, { driverId });
+  }
+
   async assignRoute(campusId: string, id: string, routeId: string | null) {
-    const r = await this.p.query(
-      'UPDATE v1.buses SET route_id = $3, updated_at = NOW() WHERE id = $1 AND campus_id = $2 RETURNING *',
-      [id, campusId, routeId],
-    );
-    return r.rows[0] ? toBus(r.rows[0]) : null;
+    return this.assignFields(campusId, id, { routeId });
+  }
+
+  async assign(campusId: string, id: string, assignment: { driverId: string | null; routeId: string | null }) {
+    return this.assignFields(campusId, id, assignment);
+  }
+
+  private async assignFields(campusId: string, id: string, changes: { driverId?: string | null; routeId?: string | null }) {
+    try {
+      return await withTransaction(this.p, async client => {
+        const current = await this.lockBus(client, campusId, id);
+        if (!current) return null;
+        const driverId = changes.driverId === undefined ? current.driver_id : changes.driverId;
+        const routeId = changes.routeId === undefined ? current.route_id : changes.routeId;
+        if (driverId === current.driver_id && routeId === current.route_id) return toBus(current);
+        await this.assertNoActiveTrip(client, campusId, id);
+        if (driverId) {
+          const driver = await client.query(
+            'SELECT role, status FROM v1.users WHERE id = $1 AND campus_id = $2 FOR SHARE',
+            [driverId, campusId],
+          );
+          if (!driver.rows[0]) throw new DomainError(404, 'DRIVER_NOT_FOUND');
+          if (driver.rows[0].role !== 'DRIVER') throw new DomainError(400, 'INVALID_DRIVER');
+          if (driver.rows[0].status !== 'ACTIVE') throw new DomainError(400, 'DRIVER_NOT_ACTIVE');
+        }
+        if (routeId) {
+          const route = await client.query('SELECT id FROM v1.routes WHERE id = $1 AND campus_id = $2 FOR KEY SHARE', [routeId, campusId]);
+          if (!route.rowCount) throw new DomainError(404, 'ROUTE_NOT_FOUND');
+        }
+        const result = await client.query(
+          'UPDATE v1.buses SET driver_id = $3, route_id = $4, updated_at = NOW() WHERE id = $1 AND campus_id = $2 RETURNING *',
+          [id, campusId, driverId, routeId],
+        );
+        return toBus(result.rows[0]);
+      });
+    } catch (error) {
+      if (isUniqueViolation(error, 'buses_driver_unique')) throw new DomainError(409, 'DRIVER_ALREADY_ASSIGNED');
+      throw error;
+    }
+  }
+
+  private async lockBus(client: pg.PoolClient, campusId: string, id: string) {
+    const { rows } = await client.query('SELECT * FROM v1.buses WHERE id = $1 AND campus_id = $2 FOR UPDATE', [id, campusId]);
+    return rows[0];
+  }
+
+  private async assertNoActiveTrip(client: pg.PoolClient, campusId: string, id: string) {
+    const trip = await client.query("SELECT id FROM v1.trips WHERE campus_id = $1 AND active_bus_key = $2 AND status = 'ACTIVE'", [campusId, id]);
+    if (trip.rowCount) throw new DomainError(409, 'BUS_HAS_ACTIVE_TRIP');
   }
 }
 
@@ -292,6 +397,7 @@ export class PgRouteRepository implements RouteRepository {
       await client.query('BEGIN');
       const sets: string[] = ['updated_at = NOW()'];
       const vals: unknown[] = [];
+      if (patch.code) { vals.push(patch.code); sets.push(`code = $${vals.length}`); }
       if (patch.name) { vals.push(patch.name); sets.push(`name = $${vals.length}`); }
       if (patch.color) { vals.push(patch.color); sets.push(`color = $${vals.length}`); }
       vals.push(id, campusId);
@@ -313,6 +419,7 @@ export class PgRouteRepository implements RouteRepository {
       return this.findById(campusId, id);
     } catch (e) {
       await client.query('ROLLBACK');
+      if (isUniqueViolation(e, 'routes_campus_code_key')) throw new DomainError(409, 'ROUTE_CODE_TAKEN');
       throw e;
     } finally {
       client.release();
@@ -326,15 +433,25 @@ export class PgRouteRepository implements RouteRepository {
 }
 
 const toTrip = (d: any): TripDTO => ({
+  currentOccupancy: d.current_occupancy ?? null,
+  completedStopIds: d.completed_stop_ids,
+  nextStopId: d.next_stop_id ?? null,
+  totalLocationsLogged: d.total_locations_logged,
   id: d.id, campusId: d.campus_id, busId: d.bus_id, driverId: d.driver_id, routeId: d.route_id,
   status: d.status, mode: d.mode, startedAt: d.started_at, endedAt: d.ended_at ?? null,
 });
+
+const tripProjection = `SELECT t.*,
+  ARRAY(SELECT stop_id FROM v1.trip_stops WHERE trip_id = t.id AND arrived_at IS NOT NULL ORDER BY stop_order) AS completed_stop_ids,
+  (SELECT stop_id FROM v1.trip_stops WHERE trip_id = t.id AND arrived_at IS NULL ORDER BY stop_order LIMIT 1) AS next_stop_id,
+  (SELECT COUNT(*)::int FROM v1.telemetry WHERE trip_id = t.id) AS total_locations_logged
+  FROM v1.trips t`;
 
 export class PgTripRepository implements TripRepository {
   constructor(private p: pg.Pool) {}
   async findById(campusId: string, id: string) {
     if (!isValidId(id) || !isValidId(campusId)) return null;
-    const r = await this.p.query('SELECT * FROM v1.trips WHERE id = $1 AND campus_id = $2', [id, campusId]);
+    const r = await this.p.query(`${tripProjection} WHERE t.id = $1 AND t.campus_id = $2`, [id, campusId]);
     return r.rows[0] ? toTrip(r.rows[0]) : null;
   }
   async findActiveByBus(campusId: string, busId: string) {
@@ -344,17 +461,53 @@ export class PgTripRepository implements TripRepository {
   }
   async start(t: Parameters<TripRepository['start']>[0]) {
     try {
-      const r = await this.p.query(
-        `INSERT INTO v1.trips (id, campus_id, bus_id, driver_id, route_id, status, mode, started_at, active_bus_key, active_driver_key)
-         VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$7,$3,$4) RETURNING *`,
-        [newId(), t.campusId, t.busId, t.driverId, t.routeId, t.mode, t.startedAt],
-      );
-      return toTrip(r.rows[0]);
-    } catch (e) {
-      if (isUniqueViolation(e)) throw new DomainError(409, 'BUS_OR_DRIVER_HAS_ACTIVE_TRIP');
-      throw e;
+      return await withTransaction(this.p, async client => {
+        if (t.verifyAssignment) {
+          const { rows: [bus] } = await client.query(
+            'SELECT driver_id, route_id, status FROM v1.buses WHERE id = $1 AND campus_id = $2 FOR UPDATE',
+            [t.busId, t.campusId],
+          );
+          if (!bus || bus.driver_id !== t.driverId) throw new DomainError(403, 'NOT_ASSIGNED_TO_BUS');
+          if (bus.status !== 'ACTIVE') throw new DomainError(409, 'BUS_NOT_IN_SERVICE');
+          if (bus.route_id !== t.routeId) throw new DomainError(409, 'BUS_ASSIGNMENT_CHANGED');
+          const account = await client.query(
+            "SELECT id FROM v1.users WHERE id = $1 AND campus_id = $2 AND status = 'ACTIVE' AND role = 'DRIVER' FOR SHARE",
+            [t.driverId, t.campusId],
+          );
+          if (!account.rowCount) throw new DomainError(403, 'ACCOUNT_NOT_ACTIVE');
+        }
+        const result = await client.query(
+          `INSERT INTO v1.trips (id, campus_id, bus_id, driver_id, route_id, status, mode, started_at, active_bus_key, active_driver_key, current_occupancy)
+           VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$7,$3,$4,0) RETURNING *`,
+          [newId(), t.campusId, t.busId, t.driverId, t.routeId, t.mode, t.startedAt],
+        );
+        const id = result.rows[0].id;
+        await client.query(
+          `INSERT INTO v1.trip_stops (trip_id, stop_id, stop_order, name, lat, lng)
+           SELECT $1, id, stop_order, name, lat, lng FROM v1.stops WHERE route_id = $2`,
+          [id, t.routeId],
+        );
+        const fresh = await client.query(`${tripProjection} WHERE t.id = $1`, [id]);
+        return toTrip(fresh.rows[0]);
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new DomainError(409, 'BUS_OR_DRIVER_HAS_ACTIVE_TRIP');
+      throw error;
     }
   }
+  async updateOccupancy(campusId: string, id: string, driverId: string, delta: number) {
+    const result = await this.p.query(
+      `UPDATE v1.trips t SET current_occupancy = LEAST(b.capacity, GREATEST(0, COALESCE(t.current_occupancy, 0) + $4))
+       FROM v1.buses b, v1.users u
+       WHERE t.id = $1 AND t.campus_id = $2 AND t.driver_id = $3 AND t.status = 'ACTIVE'
+         AND b.id = t.bus_id AND b.campus_id = t.campus_id AND b.driver_id = t.driver_id
+         AND u.id = t.driver_id AND u.campus_id = t.campus_id AND u.status = 'ACTIVE' AND u.role = 'DRIVER'
+       RETURNING t.id`,
+      [id, campusId, driverId, delta],
+    );
+    return result.rowCount ? this.findById(campusId, id) : null;
+  }
+
   async end(campusId: string, id: string, endedAt: Date, status: 'COMPLETED' | 'CANCELLED' = 'COMPLETED') {
     if (!isValidId(id) || !isValidId(campusId)) return null;
     const r = await this.p.query(
@@ -362,7 +515,7 @@ export class PgTripRepository implements TripRepository {
        WHERE id = $1 AND campus_id = $2 AND status = 'ACTIVE' RETURNING *`,
       [id, campusId, status, endedAt],
     );
-    return r.rows[0] ? toTrip(r.rows[0]) : null;
+    return r.rows[0] ? this.findById(campusId, id) : null;
   }
   async list(campusId: string, opts: Parameters<TripRepository['list']>[1]) {
     const { page, pageSize, skip } = pageOpts(opts);
@@ -372,7 +525,7 @@ export class PgTripRepository implements TripRepository {
     if (opts.busId) { params.push(opts.busId); where += ` AND bus_id = $${params.length}`; }
     if (opts.status) { params.push(opts.status); where += ` AND status = $${params.length}`; }
     const [docs, total] = await Promise.all([
-      this.p.query(`SELECT * FROM v1.trips WHERE ${where} ORDER BY started_at DESC OFFSET $${params.length + 1} LIMIT $${params.length + 2}`, [...params, skip, pageSize]),
+      this.p.query(`${tripProjection} WHERE ${where} ORDER BY started_at DESC, id OFFSET $${params.length + 1} LIMIT $${params.length + 2}`, [...params, skip, pageSize]),
       this.p.query(`SELECT COUNT(*)::int AS n FROM v1.trips WHERE ${where}`, params),
     ]);
     return { items: docs.rows.map(toTrip), total: total.rows[0].n, page, pageSize };
@@ -389,7 +542,13 @@ const toLoc = (d: any): VehicleLocationDTO => ({
 export class PgVehicleLocationRepository implements VehicleLocationRepository {
   constructor(private p: pg.Pool) {}
   async applyIfNewer(loc: VehicleLocationDTO) {
-    const r = await this.p.query(
+    return withTransaction(this.p, async client => {
+      const active = await client.query(
+        "SELECT id FROM v1.trips WHERE id = $1 AND campus_id = $2 AND bus_id = $3 AND status = 'ACTIVE' FOR UPDATE",
+        [loc.tripId, loc.campusId, loc.busId],
+      );
+      if (!active.rowCount) return false;
+      const r = await client.query(
       `INSERT INTO v1.vehicle_locations
          (bus_id, campus_id, trip_id, lat, lng, accuracy_m, speed_mps, speed_source, heading_deg, captured_at, received_at, mode)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
@@ -401,7 +560,10 @@ export class PgVehicleLocationRepository implements VehicleLocationRepository {
        RETURNING bus_id`,
       [loc.busId, loc.campusId, loc.tripId, loc.location.lat, loc.location.lng, loc.accuracyM, loc.speedMps, loc.speedSource, loc.headingDeg, loc.capturedAt, loc.receivedAt, loc.mode],
     );
-    return (r.rowCount ?? 0) > 0;
+      if (!r.rowCount) return false;
+      await recordStopArrival(client, loc);
+      return true;
+    });
   }
   async getByBus(campusId: string, busId: string) {
     if (!isValidId(busId) || !isValidId(campusId)) return null;
@@ -462,7 +624,7 @@ export class PgTelemetryRepository implements TelemetryRepository {
 
 const toSched = (d: any): ScheduleDTO => ({
   id: d.id, campusId: d.campus_id, routeId: d.route_id, busId: d.bus_id,
-  direction: d.direction, daysOfWeek: d.days_of_week, departTime: d.depart_time, active: d.active ?? true,
+  direction: d.direction, daysOfWeek: d.days_of_week, departTime: d.depart_time, arriveTime: d.arrive_time ?? null, active: d.active ?? true,
 });
 
 export class PgScheduleRepository implements ScheduleRepository {
@@ -487,9 +649,9 @@ export class PgScheduleRepository implements ScheduleRepository {
   }
   async create(s: Omit<ScheduleDTO, 'id'>) {
     const r = await this.p.query(
-      `INSERT INTO v1.schedules (id, campus_id, route_id, bus_id, direction, days_of_week, depart_time, active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [newId(), s.campusId, s.routeId, s.busId, s.direction, s.daysOfWeek, s.departTime, s.active],
+      `INSERT INTO v1.schedules (id, campus_id, route_id, bus_id, direction, days_of_week, depart_time, active, arrive_time)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [newId(), s.campusId, s.routeId, s.busId, s.direction, s.daysOfWeek, s.departTime, s.active, s.arriveTime ?? null],
     );
     return toSched(r.rows[0]);
   }
@@ -503,6 +665,7 @@ export class PgScheduleRepository implements ScheduleRepository {
     if (patch.direction !== undefined) add('direction', patch.direction);
     if (patch.daysOfWeek !== undefined) add('days_of_week', patch.daysOfWeek);
     if (patch.departTime !== undefined) add('depart_time', patch.departTime);
+    if (patch.arriveTime !== undefined) add('arrive_time', patch.arriveTime);
     if (patch.active !== undefined) add('active', patch.active);
     vals.push(id, campusId);
     const r = await this.p.query(
@@ -605,6 +768,7 @@ export class PgEmergencyAlertRepository implements EmergencyAlertRepository {
 const toCampus = (d: any): CampusDTO => ({
   id: d.id, name: d.name, shortCode: d.short_code, city: d.city ?? '',
   lat: Number(d.lat), lng: Number(d.lng), zoom: d.zoom ?? 15, timezone: d.timezone ?? 'UTC',
+  dispatchPhone: d.dispatch_phone ?? null, gpsIntervalSeconds: d.gps_interval_seconds,
 });
 
 export class PgCampusRepository implements CampusRepository {
@@ -622,6 +786,13 @@ export class PgCampusRepository implements CampusRepository {
     const r = await this.p.query('SELECT * FROM v1.campuses WHERE short_code = $1', [shortCode.toUpperCase()]);
     return r.rows[0] ? toCampus(r.rows[0]) : null;
   }
+  async updateSettings(campusId: string, values: { name: string; dispatchPhone: string | null; gpsIntervalSeconds: number }) {
+    const { rows } = await this.p.query(
+      'UPDATE v1.campuses SET name = $2, dispatch_phone = $3, gps_interval_seconds = $4 WHERE id = $1 RETURNING *',
+      [campusId, values.name, values.dispatchPhone, values.gpsIntervalSeconds],
+    );
+    return rows[0] ? toCampus(rows[0]) : null;
+  }
   async create(c: Omit<CampusDTO, 'id'>) {
     const r = await this.p.query(
       `INSERT INTO v1.campuses (id, name, short_code, city, lat, lng, zoom, timezone)
@@ -635,6 +806,7 @@ export class PgCampusRepository implements CampusRepository {
 export function createPostgresRepositories(pool: pg.Pool) {
   return {
     campuses: new PgCampusRepository(pool),
+    complaints: new PgComplaintRepository(pool),
     users: new PgUserRepository(pool),
     schedules: new PgScheduleRepository(pool),
     notifications: new PgNotificationRepository(pool),

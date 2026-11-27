@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const mapView = readFileSync(new URL('../src/components/map/MapView.tsx', import.meta.url), 'utf8');
 const locationService = readFileSync(new URL('../src/services/locationService.ts', import.meta.url), 'utf8');
+const liveOverlay = readFileSync(new URL('../src/hooks/useLiveBuses.ts', import.meta.url), 'utf8');
 const studentDashboard = readFileSync(new URL('../src/pages/student/StudentDashboard.tsx', import.meta.url), 'utf8');
 const telemetry = readFileSync(new URL('../src/services/v1/telemetry.ts', import.meta.url), 'utf8');
 const driverDashboard = readFileSync(new URL('../src/pages/driver/DriverDashboard.tsx', import.meta.url), 'utf8');
@@ -18,15 +19,16 @@ describe('Leaflet OSM map and live GPS path', () => {
     expect(mapView).toMatch(/L\.tileLayer\(/);
   });
 
-  it('driver GPS posts telemetryV1 when VITE_USE_V1_API is on and a trip is active', () => {
-    expect(locationService).toMatch(/telemetryV1/);
-    expect(locationService).toMatch(/if \(USE_V1\)/);
-    expect(locationService).toMatch(/if \(!this\.currentTripId\) return/);
+  it('scopes queued GPS fixes to the authenticated driver and the original trip', () => {
+    expect(locationService).toMatch(/getAll\(50, driverId\)/);
+    expect(locationService).toMatch(/item.tripId === tripId/);
+    expect(locationService).toMatch(/telemetryV1.sendBatch/);
     expect(telemetry).toMatch(/\/api\/v1\/telemetry/);
   });
 
   it('student live map overlays socketV1 bus positions', () => {
-    expect(studentDashboard).toMatch(/socketV1/);
+    expect(studentDashboard).toMatch(/useLiveBuses/);
+    expect(liveOverlay).toMatch(/socketV1/);
     expect(studentDashboard).toMatch(/MapView/);
   });
 
@@ -35,22 +37,19 @@ describe('Leaflet OSM map and live GPS path', () => {
     expect(telemetry).toMatch(/lat:\s*number/);
     expect(telemetry).toMatch(/lng:\s*number/);
     expect(telemetry).not.toMatch(/location:\s*\{\s*lat/);
-    expect(locationService).toMatch(/tripId:\s*this\.currentTripId/);
-    expect(locationService).toMatch(/lat:\s*loc\.lat/);
-    expect(locationService).toMatch(/lng:\s*loc\.lng/);
   });
 
   it('driver dashboard starts GPS only after tripsV1.start succeeds and stops on end', () => {
     expect(driverDashboard).toMatch(/tripsV1\.start/);
     expect(driverDashboard).toMatch(/locationService\.startTracking/);
-    expect(driverDashboard).toMatch(/locationService\.stopTracking/);
+    expect(driverDashboard).toMatch(/tripService\.clearActiveTrip/);
     expect(driverDashboard).not.toMatch(/lastLocation:\s*\{\s*lat:\s*34\.0537/);
   });
 
-  it('admin directory and assignments use v1 endpoints when VITE_USE_V1_API is on', () => {
+  it('admin directory and assignments use v1 endpoints', () => {
     expect(adminDirectory).toMatch(/adminV1/);
     expect(adminDirectory).toMatch(/createDriver/);
-    expect(adminAssignments).toMatch(/busesV1\.assignDriver/);
+    expect(adminAssignments).toMatch(/busesV1\.assign\(/);
     expect(adminAssignments).toMatch(/adminV1/);
   });
 });

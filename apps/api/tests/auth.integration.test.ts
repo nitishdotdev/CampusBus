@@ -1,9 +1,9 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHarness, MONGO_URI, type Harness } from './harness';
+import { createHarness, id, PG_TEST_URL, type Harness } from './harness';
 
 // Single harness for all auth tests — avoids 5× connection overhead on FerretDB
-describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
+describe.skipIf(!PG_TEST_URL)('Auth integration (single harness)', () => {
   let h: Harness;
   beforeAll(async () => { h = await createHarness(); });
   afterAll(async () => { await h.close(); });
@@ -75,7 +75,7 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
     });
     it('PENDING driver → 403', async () => {
       const { hashPassword } = await import('../src/auth/passwords');
-      await h.models.User.create({
+      await h.services.repos.users.create({
         campusId: campus(), email: 'pend@t.test', passwordHash: await hashPassword('Password1!'),
         name: 'Pending Driver', role: 'DRIVER', status: 'PENDING',
       });
@@ -83,7 +83,7 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
     });
     it('DISABLED account → 403', async () => {
       await reg('dis@t.test');
-      await h.models.User.updateOne({ email: 'dis@t.test', campusId: campus() }, { status: 'DISABLED' });
+      await h.pool.query("UPDATE v1.users SET status = 'DISABLED' WHERE email = $1 AND campus_id = $2", ['dis@t.test', campus()]);
       expect((await login('dis@t.test')).status).toBe(403);
     });
     it('missing required field → 400 not 401', async () => {
@@ -91,10 +91,10 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
     });
     it('login persists a hashed refresh token in the DB', async () => {
       await reg('rt@t.test');
-      await login('rt@t.test');
-      const dbToken: any = await (h.models as any).RefreshToken.findOne({ revokedAt: null }).lean();
-      expect(dbToken).not.toBeNull();
-      expect(dbToken.tokenHash).toMatch(/^[a-f0-9]{64}$/);
+      const loggedIn = await login('rt@t.test');
+      const { rows: [dbToken] } = await h.pool.query('SELECT token_hash FROM v1.refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL', [loggedIn.body.user.userId]);
+      expect(dbToken).toBeDefined();
+      expect(dbToken.token_hash).toMatch(/^[a-f0-9]{64}$/);
     });
   });
 
@@ -116,7 +116,7 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       await reg('la@t.test');
       const lr = await login('la@t.test');
       await api().post('/api/v1/auth/logout-all').set('Authorization', `Bearer ${lr.body.tokens.accessToken}`).send({});
-      const alive: any[] = await (h.models as any).RefreshToken.find({ userId: lr.body.user.userId, revokedAt: null }).lean();
+      const { rows: alive } = await h.pool.query('SELECT id FROM v1.refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL', [lr.body.user.userId]);
       expect(alive).toHaveLength(0);
     });
   });
@@ -141,7 +141,7 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       const hashes = [mkHash(), mkHash(), mkHash()];
       await Promise.all(hashes.map(raw => repos.refreshTokens.create({ userId: h.seed.driver1, campusId: campus(), tokenHash: crypto.createHash('sha256').update(raw).digest('hex'), familyId: 'fam_theft', expiresAt: new Date(Date.now() + 86400_000) })));
       await repos.refreshTokens.revokeFamily('fam_theft', new Date());
-      const alive: any[] = await (h.models as any).RefreshToken.find({ familyId: 'fam_theft', revokedAt: null }).lean();
+      const { rows: alive } = await h.pool.query('SELECT id FROM v1.refresh_tokens WHERE family_id = $1 AND revoked_at IS NULL', ['fam_theft']);
       expect(alive).toHaveLength(0);
     });
     it('purge removes only expired tokens', async () => {
@@ -160,23 +160,34 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
     });
   });
 
+  it('rotates a refresh token at most once when concurrent requests arrive', async () => {
+    await reg('rotate@t.test');
+    const signedIn = await login('rotate@t.test');
+    const refresh = () => api().post('/api/v1/auth/refresh').send({ refreshToken: signedIn.body.refreshToken });
+    const responses = await Promise.all([refresh(), refresh()]);
+    expect(responses.map(item => item.status).sort()).toEqual([200, 401]);
+    expect(responses.find(item => item.status === 401)?.body.error).toBe('REFRESH_TOKEN_REUSE');
+    const live = await h.pool.query('SELECT id FROM v1.refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL', [signedIn.body.user.userId]);
+    expect(live.rows).toHaveLength(0);
+  });
+
   // ── Password hashing ──────────────────────────────────────────────────────
   describe('password hashing', () => {
     it('new accounts get Argon2id hashes', async () => {
       await reg('argon@t.test');
-      const u: any = await h.models.User.findOne({ email: 'argon@t.test' }).select('+passwordHash').lean();
-      expect(u.passwordHash).toMatch(/^\$argon2id\$/);
+      const u = await h.services.repos.users.findByEmail(campus(), 'argon@t.test');
+      expect(u?.passwordHash).toMatch(/^\$argon2id\$/);
     });
     it('bcrypt hash is silently migrated to Argon2id on successful login', async () => {
       const bcrypt = await import('bcryptjs');
       const bcryptHash = await bcrypt.hash('Password1!', 6);
-      await h.models.User.create({ campusId: campus(), email: 'bcrypt@t.test', passwordHash: bcryptHash, name: 'B', role: 'STUDENT', status: 'ACTIVE' });
+      await h.services.repos.users.create({ campusId: campus(), email: 'bcrypt@t.test', passwordHash: bcryptHash, name: 'B', role: 'STUDENT', status: 'ACTIVE' });
       expect((await login('bcrypt@t.test')).status).toBe(200);
-      const after: any = await h.models.User.findOne({ email: 'bcrypt@t.test' }).select('+passwordHash').lean();
-      expect(after.passwordHash).toMatch(/^\$argon2id\$/);
+      const after = await h.services.repos.users.findByEmail(campus(), 'bcrypt@t.test');
+      expect(after?.passwordHash).toMatch(/^\$argon2id\$/);
     });
     it('unknown hash format always rejected', async () => {
-      await h.models.User.create({ campusId: campus(), email: 'badalg@t.test', passwordHash: 'plain:pw', name: 'X', role: 'STUDENT', status: 'ACTIVE' });
+      await h.services.repos.users.create({ campusId: campus(), email: 'badalg@t.test', passwordHash: 'plain:pw', name: 'X', role: 'STUDENT', status: 'ACTIVE' });
       expect((await login('badalg@t.test')).status).toBe(401);
     });
   });
@@ -184,10 +195,8 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
   // ── Admin bootstrap ───────────────────────────────────────────────────────
   describe('admin bootstrap', () => {
     it('creates first admin; second call refused', async () => {
-      const mongoose = await import('mongoose');
-      const freshCampus = new mongoose.Types.ObjectId().toString();
-      await h.models.Campus.create({
-        _id: freshCampus, name: 'Fresh Campus', shortCode: `F${freshCampus.slice(-6)}`,
+      const { id: freshCampus } = await h.services.repos.campuses.create({
+        name: 'Fresh Campus', shortCode: `F${id().slice(-6)}`,
         city: 'X', lat: 1, lng: 2, zoom: 15, timezone: 'UTC',
       });
       const first = await h.services.auth.bootstrapAdmin(freshCampus, 'admin@t.test', 'Password1!', 'Admin');
@@ -203,16 +212,16 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
   describe('email verification and password reset', () => {
     it('correct OTP marks emailVerifiedAt; reuse is rejected', async () => {
       await reg('verify@t.test');
-      const u: any = await h.models.User.findOne({ email: 'verify@t.test' }).lean();
+      const u = await h.services.repos.users.findByEmail(campus(), 'verify@t.test');
       const crypto = await import('crypto');
       const otp = '112233';
-      await h.services.repos.emailTokens.upsert({ userId: String(u._id), campusId: campus(), purpose: 'VERIFY_EMAIL', tokenHash: crypto.createHash('sha256').update(otp).digest('hex'), expiresAt: new Date(Date.now() + 3_600_000) });
-      const tok = h.token({ id: String(u._id), campusId: campus(), role: 'STUDENT' });
+      await h.services.repos.emailTokens.upsert({ userId: u!.id, campusId: campus(), purpose: 'VERIFY_EMAIL', tokenHash: crypto.createHash('sha256').update(otp).digest('hex'), expiresAt: new Date(Date.now() + 3_600_000) });
+      const tok = h.token({ id: u!.id, campusId: campus(), role: 'STUDENT' });
       expect((await api().post('/api/v1/auth/verify-email').set('Authorization', `Bearer ${tok}`).send({ otp: '999999' })).status).toBe(400);
       expect((await api().post('/api/v1/auth/verify-email').set('Authorization', `Bearer ${tok}`).send({ otp })).status).toBe(204);
       expect((await api().post('/api/v1/auth/verify-email').set('Authorization', `Bearer ${tok}`).send({ otp })).status).toBe(400); // reuse
-      const after: any = await h.models.User.findOne({ email: 'verify@t.test' }).lean();
-      expect(after.emailVerifiedAt).not.toBeNull();
+      const after = await h.services.repos.users.findByEmail(campus(), 'verify@t.test');
+      expect(after?.emailVerifiedAt).toBeInstanceOf(Date);
     });
     it('password reset: valid OTP changes hash, old password fails, all refresh tokens revoked', async () => {
       await reg('reset@t.test');
@@ -223,7 +232,7 @@ describe.skipIf(!MONGO_URI)('Auth integration (single harness)', () => {
       await h.services.repos.emailTokens.upsert({ userId, campusId: campus(), purpose: 'RESET_PASSWORD', tokenHash: crypto.createHash('sha256').update(otp).digest('hex'), expiresAt: new Date(Date.now() + 1_200_000) });
       expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'weak' })).status).toBe(400);
       expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'NewPass2!' })).status).toBe(204);
-      const alive: any[] = await (h.models as any).RefreshToken.find({ userId, revokedAt: null }).lean();
+      const { rows: alive } = await h.pool.query('SELECT id FROM v1.refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
       expect(alive).toHaveLength(0);
       expect((await login('reset@t.test')).status).toBe(401);
       expect((await login('reset@t.test', 'NewPass2!')).status).toBe(200);

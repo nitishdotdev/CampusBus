@@ -1,85 +1,54 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Send, AlertCircle, Loader } from 'lucide-react';
-import { apiClient } from '../../services/apiClient';
+import {
+  complaintCategories, complaintError, complaintPriorities, complaintStatuses, complaintsV1,
+  type Complaint, type ComplaintInput,
+} from '../../services/v1/complaints';
 
-interface Complaint {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  status: string;
-  priority: string;
-  admin_response?: string;
-  created_at: string;
-  responded_at?: string;
-}
-
-const CATEGORIES = ['DRIVER_BEHAVIOR', 'VEHICLE_CONDITION', 'SCHEDULE_ISSUE', 'CLEANLINESS', 'SAFETY', 'OTHER'];
+const emptyComplaint: ComplaintInput = { title: '', description: '', category: 'OTHER', priority: 'NORMAL' };
 
 export function StudentComplaints() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    category: 'OTHER',
-    priority: 'NORMAL',
-  });
+  const [formData, setFormData] = useState(emptyComplaint);
+  const [notice, setNotice] = useState('');
+  const [reload, setReload] = useState(0);
 
-  // Fetch real complaints from API
   useEffect(() => {
-    const fetchComplaints = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const response = await apiClient.get<any[]>('/api/complaints');
-        setComplaints(response || []);
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load complaints');
-      } finally {
-        setLoading(false);
-      }
-    };
+    let active = true;
+    setLoading(true);
+    setError(null);
+    void complaintsV1.list()
+      .then(items => { if (active) setComplaints(items); })
+      .catch(() => { if (active) setError('Failed to load complaints.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [reload]);
 
-    fetchComplaints();
-  }, []);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = event.target;
+    setFormData(previous => ({ ...previous, [name]: value }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (submitting) return;
+    setError(null);
+    setNotice('');
     if (!formData.title.trim() || !formData.description.trim()) {
-      alert('Please fill in all fields');
+      setError('Enter a title and description.');
       return;
     }
-
+    setSubmitting(true);
     try {
-      setSubmitting(true);
-      await apiClient.post<any[]>('/api/complaints', {
-        title: formData.title,
-        description: formData.description,
-        category: formData.category,
-        priority: formData.priority,
-      });
-
-      // Refresh complaints list
-      const response = await apiClient.get<any[]>('/api/complaints');
-      setComplaints(response || []);
-
-      // Clear form
-      setFormData({ title: '', description: '', category: 'OTHER', priority: 'NORMAL' });
-      alert('Thank you! Your feedback has been submitted.');
-    } catch (err: any) {
-      alert(err?.message || 'Failed to submit complaint');
+      const created = await complaintsV1.submit(formData);
+      setComplaints(previous => [created, ...previous]);
+      setFormData(emptyComplaint);
+      setNotice('Your feedback was submitted.');
+    } catch (error) {
+      setError(complaintError(error, 'Failed to submit complaint. Your draft is still here.'));
     } finally {
       setSubmitting(false);
     }
@@ -101,7 +70,7 @@ export function StudentComplaints() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-100 p-4 md:p-8">
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -116,14 +85,15 @@ export function StudentComplaints() {
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Submit Your Feedback</h2>
 
+          {notice && <p role="status" className="mb-4 text-sm text-green-800">{notice}</p>}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label htmlFor="complaint-title" className="block text-sm font-semibold text-gray-700 mb-2">
                 Title *
               </label>
               <input
                 type="text"
-                name="title"
+                id="complaint-title" name="title" required maxLength={160}
                 value={formData.title}
                 onChange={handleChange}
                 placeholder="Brief summary of your feedback"
@@ -133,11 +103,11 @@ export function StudentComplaints() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label htmlFor="complaint-description" className="block text-sm font-semibold text-gray-700 mb-2">
                 Description *
               </label>
               <textarea
-                name="description"
+                id="complaint-description" name="description" required maxLength={4000}
                 value={formData.description}
                 onChange={handleChange}
                 placeholder="Please provide details about your experience"
@@ -149,30 +119,30 @@ export function StudentComplaints() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="complaint-category" className="block text-sm font-semibold text-gray-700 mb-2">
                   Category
                 </label>
                 <select
-                  name="category"
+                  id="complaint-category" name="category"
                   value={formData.category}
                   onChange={handleChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                   disabled={submitting}
                 >
-                  {CATEGORIES.map((cat) => (
+                  {(Object.keys(complaintCategories) as ComplaintInput['category'][]).map((cat) => (
                     <option key={cat} value={cat}>
-                      {cat.replace(/_/g, ' ')}
+                      {complaintCategories[cat]}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="complaint-priority" className="block text-sm font-semibold text-gray-700 mb-2">
                   Priority
                 </label>
                 <select
-                  name="priority"
+                  id="complaint-priority" name="priority"
                   value={formData.priority}
                   onChange={handleChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -220,6 +190,7 @@ export function StudentComplaints() {
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2 mb-6">
               <AlertCircle className="w-5 h-5" />
               {error}
+            <button type="button" onClick={() => setReload(n => n + 1)} className="ml-auto underline">Retry history</button>
             </div>
           )}
 
@@ -236,7 +207,7 @@ export function StudentComplaints() {
                         {complaint.title}
                       </h3>
                       <p className="text-sm text-gray-500">
-                        {new Date(complaint.created_at).toLocaleDateString()}
+                        {new Date(complaint.createdAt).toLocaleDateString()}
                       </p>
                     </div>
                     <span
@@ -244,18 +215,18 @@ export function StudentComplaints() {
                         complaint.status
                       )}`}
                     >
-                      {complaint.status}
+                      {complaintStatuses[complaint.status]}
                     </span>
                   </div>
 
                   <p className="text-gray-700 mb-3">{complaint.description}</p>
 
-                  {complaint.admin_response && (
+                  {complaint.adminResponse && (
                     <div className="bg-blue-50 border-l-4 border-blue-500 p-3 rounded">
                       <p className="text-sm font-semibold text-blue-900 mb-1">
                         Admin Response:
                       </p>
-                      <p className="text-sm text-blue-800">{complaint.admin_response}</p>
+                      <p className="text-sm text-blue-800">{complaint.adminResponse}</p>
                     </div>
                   )}
                 </div>

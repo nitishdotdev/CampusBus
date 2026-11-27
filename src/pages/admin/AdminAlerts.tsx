@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
-import { adminService } from '../../services/adminService';
 import { NotificationCategory, NotificationPriority } from '../../types';
 import { notificationsV1, alertsV1 } from '../../services/v1/notifications';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 import {
   ShieldAlert,
   Send,
@@ -17,7 +15,7 @@ import {
 } from 'lucide-react';
 
 export const AdminAlerts: React.FC = () => {
-  const { emergencyAlerts, notifications, routes } = useApp();
+  const { emergencyAlerts, notifications, routes, refreshData } = useApp();
 
   // Announcement Form State
   const [title, setTitle] = useState('');
@@ -26,53 +24,45 @@ export const AdminAlerts: React.FC = () => {
   const [priority, setPriority] = useState<NotificationPriority>('NORMAL');
   const [selectedRouteId, setSelectedRouteId] = useState('');
   const [publishedSuccess, setPublishedSuccess] = useState(false);
+  const [error, setError] = useState('');
+  const [pending, setPending] = useState(false);
 
-  const handleBroadcast = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim() || !message.trim()) return;
-    if (USE_V1) {
-      const kindMap: Record<string, 'ANNOUNCEMENT' | 'DELAY' | 'ROUTE_CHANGE' | 'EMERGENCY'> = {
-        ANNOUNCEMENT: 'ANNOUNCEMENT', DELAY: 'DELAY',
-        ROUTE_CHANGE: 'ROUTE_CHANGE', EMERGENCY: 'EMERGENCY',
-      };
-      const prioMap: Record<string, 'NORMAL' | 'HIGH' | 'URGENT'> = {
-        LOW: 'NORMAL', MEDIUM: 'NORMAL', HIGH: 'HIGH', URGENT: 'URGENT', CRITICAL: 'URGENT',
-      };
-      await notificationsV1.broadcast({
-        kind: kindMap[category as string] ?? 'ANNOUNCEMENT',
-        priority: prioMap[priority as string] ?? 'NORMAL',
-        title: title.trim(),
-        body: message.trim(),
-        routeId: selectedRouteId || undefined,
-      });
-    } else {
-      adminService.broadcastNotification({
-        collegeId: 'college_apex',
-        title: title.trim(),
-        message: message.trim(),
-        category,
-        priority,
-        routeId: selectedRouteId || undefined,
-      });
+  const perform = async (action: () => Promise<unknown>) => {
+    if (pending) return false;
+    setError('');
+    setPending(true);
+    try {
+      await action();
+      await refreshData();
+      return true;
+    } catch {
+      setError('Could not save the update. Check your connection and try again.');
+      return false;
+    } finally {
+      setPending(false);
     }
-    setTitle('');
-    setMessage('');
-    setPublishedSuccess(true);
-    setTimeout(() => setPublishedSuccess(false), 4000);
   };
 
-  const handleAcknowledge = async (id: string) => {
-    if (USE_V1) await alertsV1.acknowledge(id);
-    else adminService.acknowledgeAlert(id, 'Admin Dispatch Center');
+  const handleBroadcast = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!title.trim() || !message.trim()) return;
+    const kind = category === 'DELAY' || category === 'ROUTE_CHANGE' || category === 'EMERGENCY' ? category : 'ANNOUNCEMENT';
+    const severity = priority === 'EMERGENCY' ? 'URGENT' : priority === 'HIGH' ? 'HIGH' : 'NORMAL';
+    if (await perform(() => notificationsV1.broadcast({
+      kind, priority: severity, title: title.trim(), body: message.trim(), routeId: selectedRouteId || undefined,
+    }))) {
+      setTitle('');
+      setMessage('');
+      setPublishedSuccess(true);
+    }
   };
 
-  const handleResolve = async (id: string) => {
-    if (USE_V1) await alertsV1.resolve(id);
-    else adminService.resolveAlert(id, 'Response unit on-scene. Incident secured.');
-  };
+  const handleAcknowledge = (id: string) => perform(() => alertsV1.acknowledge(id));
+  const handleResolve = (id: string) => perform(() => alertsV1.resolve(id));
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
       <div>
         <h2 className="text-xl font-bold text-slate-900">Alerts, Incidents & Broadcast Center</h2>
         <p className="text-xs text-slate-500">
@@ -104,11 +94,11 @@ export const AdminAlerts: React.FC = () => {
 
           <form onSubmit={handleBroadcast} className="space-y-3.5">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Advisory Title *</label>
+              <label htmlFor="advisory-title" className="block text-xs font-bold text-slate-700 mb-1">Advisory Title *</label>
               <input
                 type="text"
                 required
-                value={title}
+                id="advisory-title" value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. 15-Minute Heavy Traffic Delay on South Connector"
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
@@ -117,9 +107,9 @@ export const AdminAlerts: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
+                <label htmlFor="advisory-category" className="block text-xs font-bold text-slate-700 mb-1">Category</label>
                 <select
-                  value={category}
+                  id="advisory-category" value={category}
                   onChange={(e) => setCategory(e.target.value as NotificationCategory)}
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
                 >
@@ -131,9 +121,9 @@ export const AdminAlerts: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Priority Level</label>
+                <label htmlFor="advisory-priority" className="block text-xs font-bold text-slate-700 mb-1">Priority Level</label>
                 <select
-                  value={priority}
+                  id="advisory-priority" value={priority}
                   onChange={(e) => setPriority(e.target.value as NotificationPriority)}
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold"
                 >
@@ -149,7 +139,7 @@ export const AdminAlerts: React.FC = () => {
                 Affects Specific Line (Optional)
               </label>
               <select
-                value={selectedRouteId}
+                aria-label="Target route" value={selectedRouteId}
                 onChange={(e) => setSelectedRouteId(e.target.value)}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
               >
@@ -163,11 +153,11 @@ export const AdminAlerts: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Advisory Message *</label>
+              <label htmlFor="advisory-message" className="block text-xs font-bold text-slate-700 mb-1">Advisory Message *</label>
               <textarea
                 rows={3}
                 required
-                value={message}
+                id="advisory-message" value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder="Provide details, detour instructions, or estimated resolution times..."
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"
@@ -176,7 +166,7 @@ export const AdminAlerts: React.FC = () => {
 
             <button
               id="broadcast-advisory-button"
-              type="submit"
+              type="submit" disabled={pending}
               className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Send className="w-4 h-4" />

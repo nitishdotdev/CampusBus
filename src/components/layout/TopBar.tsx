@@ -57,7 +57,7 @@ export const TopBar: React.FC<{ onOpenMobileMenu?: () => void }> = () => {
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Notifications */}
           <Link
-            to={role === 'ADMIN' ? '/admin/alerts' : role === 'DRIVER' ? '/driver' : '/student/notifications'}
+            to={role === 'ADMIN' ? '/admin/alerts' : role === 'DRIVER' ? '/driver/notifications' : '/student/notifications'}
             className="relative p-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
             title="Notifications"
             aria-label="Notifications"

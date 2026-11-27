@@ -1,5 +1,7 @@
 import type { EmailSender } from '../../domain/types';
+
+/** Local placeholder. A configured delivery adapter is required for email-based recovery. */
 export class ConsoleEmailSender implements EmailSender {
-  async sendVerification(to: string, name: string, token: string) { console.info(`[email stub] VERIFY_EMAIL to=${to} name=${name} token=${token}`); }
-  async sendPasswordReset(to: string, name: string, token: string) { console.info(`[email stub] RESET_PASSWORD to=${to} name=${name} token=${token}`); }
+  async sendVerification() { console.warn('[email] Verification delivery is not configured.'); }
+  async sendPasswordReset() { console.warn('[email] Password reset delivery is not configured.'); }
 }

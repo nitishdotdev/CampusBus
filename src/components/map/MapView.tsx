@@ -26,8 +26,8 @@ export const MapView: React.FC<MapViewProps> = ({
   driverLocation,
   onSelectBus,
   onSelectStop,
-  center = [34.0537, -118.257],
-  zoom = 15,
+  center = [0, 0],
+  zoom = 4,
   heightClass = 'h-[500px]',
   className = '',
 }) => {
@@ -44,7 +44,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const [tileError, setTileError] = useState(false);
 
-  const activeBusCount = buses.filter((b) => b.status === 'ACTIVE').length;
+  const hasLiveTracking = buses.some(bus => bus.lastLocation && bus.trackingStatus === 'LIVE' && !bus.isSimulated);
 
   // Selected bus and route for progression styling
   const selectedBus = buses.find((b) => b.id === selectedBusId);
@@ -57,7 +57,7 @@ export const MapView: React.FC<MapViewProps> = ({
     // Standard OpenStreetMap tiles (free, public geographic streets & labels, NO API key required)
     const tileUrl =
       (import.meta as any).env?.VITE_MAP_TILE_URL ||
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+      'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     const attribution =
       (import.meta as any).env?.VITE_MAP_ATTRIBUTION ||
       '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors';
@@ -82,7 +82,7 @@ export const MapView: React.FC<MapViewProps> = ({
       setTileError(true);
     });
 
-    tileLayer.on('load', () => {
+    tileLayer.on('tileload', () => {
       setTileError(false);
     });
 
@@ -223,11 +223,13 @@ export const MapView: React.FC<MapViewProps> = ({
         iconAnchor,
       });
 
-      const marker = L.marker([stop.lat, stop.lng], { icon: stopIcon }).addTo(map);
-      marker.bindTooltip(
-        `<div class="text-xs font-semibold text-slate-900">${stop.name}${isNext ? ' (Next Stop)' : isCompleted ? ' (Arrived)' : ''}</div>`,
-        { direction: 'top', offset: [0, -8] }
-      );
+      const marker = L.marker([stop.lat, stop.lng], { icon: stopIcon, title: stop.name, alt: stop.name, keyboard: Boolean(onSelectStop) }).addTo(map);
+      const label = document.createElement('div');
+      label.className = 'text-xs font-semibold text-slate-900';
+      label.textContent = stop.name + (isNext ? ' (Next stop)' : isCompleted ? ' (Arrived)' : '');
+      marker.getElement()?.setAttribute('aria-label', stop.name);
+      marker.getElement()?.setAttribute('role', onSelectStop ? 'button' : 'img');
+      marker.bindTooltip(label, { direction: 'top', offset: [0, -8] });
 
       marker.on('click', () => {
         if (onSelectStop) onSelectStop(stop);
@@ -296,7 +298,7 @@ export const MapView: React.FC<MapViewProps> = ({
             isSelected ? 'ring-2 ring-blue-500 ring-offset-1 scale-110' : ''
           }" style="background-color: ${routeColor};">
             <span class="w-1.5 h-1.5 rounded-full ${statusColor}"></span>
-            <span>${bus.busNumber}</span>
+            <span data-bus-number></span>
           </div>
           <div class="w-7 h-7 rounded-full bg-white shadow-lg border-2 border-slate-800 flex items-center justify-center ${
             isSelected ? 'scale-115 ring-2 ring-blue-400' : ''
@@ -310,9 +312,12 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       `;
 
+      const iconContent = document.createElement('div');
+      iconContent.innerHTML = busIconHtml;
+      iconContent.querySelector('[data-bus-number]')!.textContent = bus.busNumber;
       const customIcon = L.divIcon({
         className: 'bus-marker-wrapper',
-        html: busIconHtml,
+        html: iconContent,
         iconSize: [52, 50],
         iconAnchor: [26, 42],
       });
@@ -320,24 +325,21 @@ export const MapView: React.FC<MapViewProps> = ({
       if (busMarkersRef.current[bus.id]) {
         busMarkersRef.current[bus.id].setLatLng([lat, lng]).setIcon(customIcon);
       } else {
-        const marker = L.marker([lat, lng], { icon: customIcon, zIndexOffset: 200 }).addTo(map);
+        const marker = L.marker([lat, lng], { icon: customIcon, title: bus.busNumber, alt: bus.busNumber, zIndexOffset: 200, keyboard: Boolean(onSelectBus) }).addTo(map);
         marker.on('click', () => {
           if (onSelectBus) onSelectBus(bus);
         });
         busMarkersRef.current[bus.id] = marker;
       }
 
-      // Detailed tooltip
-      const nextStopText = bus.nextStop?.stopName || 'In Transit';
-      const etaText = bus.nextStop?.etaMinutes ? `${bus.nextStop.etaMinutes} min` : 'Calculating';
-      busMarkersRef.current[bus.id].bindTooltip(
-        `<div class="p-1 text-xs">
-          <div class="font-bold text-slate-900">${bus.busNumber} (${bus.status})</div>
-          <div class="text-[11px] text-slate-600">Next: <strong>${nextStopText}</strong> (${etaText})</div>
-          <div class="text-[10px] text-slate-400">Speed: ${bus.speedKmh || 0} km/h</div>
-        </div>`,
-        { direction: 'top', offset: [0, -20] }
-      );
+      const label = document.createElement('div');
+      label.className = 'p-1 text-xs font-bold text-slate-900';
+      const speed = bus.speedKmh != null ? ` · ${bus.speedKmh} km/h` : '';
+      const tracking = bus.isSimulated ? 'Simulated' : bus.trackingStatus === 'LIVE' ? 'Live' : 'Last reported';
+      label.textContent = `${bus.busNumber} · ${tracking}${speed}`;
+      busMarkersRef.current[bus.id].getElement()?.setAttribute('aria-label', bus.busNumber);
+      busMarkersRef.current[bus.id].getElement()?.setAttribute('role', onSelectBus ? 'button' : 'img');
+      busMarkersRef.current[bus.id].bindTooltip(label, { direction: 'top', offset: [0, -20] });
     });
   }, [buses, routes, selectedBusId, onSelectBus]);
 
@@ -452,15 +454,15 @@ export const MapView: React.FC<MapViewProps> = ({
 
   return (
     <div
-      className={`relative w-full ${heightClass} ${className} rounded-2xl overflow-hidden border border-slate-200 shadow-sm min-h-[240px]`}
+      className={`relative w-full ${heightClass} ${className} rounded-2xl overflow-hidden border border-slate-200 shadow-sm min-h-[160px]`}
     >
-      <div ref={mapContainerRef} className="w-full h-full z-0" />
+      <div ref={mapContainerRef} role="region" aria-label="Campus transit map" className="w-full h-full z-0" />
 
       {/* Network / Tile loading notice banner */}
       {tileError && (
-        <div className="absolute top-3 right-3 z-10 bg-amber-500/90 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-md flex items-center gap-1.5 backdrop-blur-xs">
+        <div className="absolute top-3 right-3 z-10 max-w-[8.5rem] sm:max-w-none bg-amber-100 text-amber-950 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-md flex items-center gap-1.5 backdrop-blur-xs">
           <AlertCircle className="w-3.5 h-3.5" />
-          <span>Offline map cache active</span>
+          <span>Background map unavailable</span>
         </div>
       )}
 
@@ -468,7 +470,7 @@ export const MapView: React.FC<MapViewProps> = ({
       <div className="absolute top-3 left-3 z-10 bg-white/95 backdrop-blur-xs p-2.5 rounded-xl border border-slate-200 shadow-xs flex flex-col gap-1.5 text-[11px] text-slate-700 max-w-[210px]">
         <div className="font-bold text-slate-900 border-b border-slate-100 pb-1 flex items-center justify-between gap-2">
           <span>Campus Transit Fleet</span>
-          {activeBusCount > 0 && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
+          {hasLiveTracking && <span className="w-2 h-2 rounded-full bg-emerald-500" aria-label="Live tracking available" />}
         </div>
         {routes.slice(0, 5).map((r) => (
           <div key={r.id} className="flex items-center gap-2">

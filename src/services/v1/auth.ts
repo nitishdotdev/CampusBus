@@ -6,6 +6,7 @@ export type V1Status = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'DISABLED';
 export interface V1Campus {
   id: string; name: string; shortCode: string; city: string;
   lat: number; lng: number; zoom: number; timezone: string;
+  dispatchPhone?: string | null; gpsIntervalSeconds?: number;
 }
 
 export interface V1SessionUser {
@@ -33,6 +34,10 @@ export function formatCampusFetchError(err: unknown): string {
 }
 
 // ── Campus list (public) ──────────────────────────────────────────────────────
+export function updateCampusSettings(values: { name: string; dispatchPhone: string | null; gpsIntervalSeconds: number }) {
+  return v1Client.patch<V1Campus>('/api/v1/campuses/settings', values);
+}
+
 export async function listCampuses(): Promise<V1Campus[]> {
   return v1Client.get<V1Campus[]>('/api/v1/campuses');
 }
@@ -83,7 +88,8 @@ export async function logoutV1(): Promise<void> {
 
 export async function getMeV1(): Promise<V1SessionUser | null> {
   try {
-    return await v1Client.get<V1SessionUser>('/api/v1/users/me');
+    const { id, ...user } = await v1Client.get<Omit<V1SessionUser, 'userId'> & { id: string }>('/api/v1/users/me');
+    return { ...user, userId: id };
   } catch {
     return null;
   }

@@ -1,30 +1,28 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../../store/AppContext';
-import { adminService } from '../../services/adminService';
+import { alertsV1 } from '../../services/v1/notifications';
 import { BusStatusBadge } from '../../components/common/StatusBadges';
 import { EmptyState } from '../../components/common/States';
 import { Bus as BusIcon, Navigation, ShieldAlert, Users, Activity, CheckCircle2, ArrowRight } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
-  const { currentCollege, buses, routes, emergencyAlerts, trips, isLoadingData } = useApp();
+  const { currentCollege, buses, routes, emergencyAlerts, refreshData, isLoadingData } = useApp();
 
-  const activeBuses = buses.filter((b) => b.status === 'ACTIVE');
-  const maintenanceBuses = buses.filter((b) => b.status === 'MAINTENANCE');
-  const offlineBuses = buses.filter((b) => b.status === 'OFFLINE' || b.status === 'IDLE');
-  const activeAlerts = emergencyAlerts.filter((a) => a.status === 'ACTIVE');
-  const activeTrips = trips.filter((t) => t.status === 'IN_PROGRESS');
+  const activeBuses = buses.filter(bus => bus.activeTripId);
+  const available = buses.filter(bus => bus.operationalStatus === 'ACTIVE' && !bus.activeTripId);
+  const live = activeBuses.filter(bus => bus.trackingStatus === 'LIVE' && !bus.isSimulated);
+  const activeAlerts = emergencyAlerts.filter(alert => alert.status === 'ACTIVE');
+  const [error, setError] = React.useState('');
 
-  const totalCapacity = activeBuses.reduce((acc, b) => acc + b.capacity, 0);
-  const currentTotalRiders = activeBuses.reduce((acc, b) => acc + b.currentOccupancy, 0);
-  const avgOccupancyRate = totalCapacity > 0 ? Math.round((currentTotalRiders / totalCapacity) * 100) : 0;
-
-  const handleAcknowledgeAlert = (alertId: string) => {
-    adminService.acknowledgeAlert(alertId, 'Admin Dispatch Center');
-  };
-
-  const handleResolveAlert = (alertId: string) => {
-    adminService.resolveAlert(alertId, 'Incident cleared.');
+  const updateAlert = async (id: string, action: 'acknowledge' | 'resolve') => {
+    setError('');
+    try {
+      await alertsV1[action](id);
+      await refreshData();
+    } catch {
+      setError('Could not update the alert. Refresh to check its current status.');
+    }
   };
 
   if (isLoadingData) {
@@ -38,6 +36,7 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
@@ -74,8 +73,8 @@ export const AdminDashboard: React.FC = () => {
                 <div className="text-slate-500 text-[11px] mt-0.5">Driver: {alert.driverName} • {new Date(alert.timestamp).toLocaleTimeString()}</div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <button onClick={() => handleAcknowledgeAlert(alert.id)} className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold rounded-lg text-xs cursor-pointer">Acknowledge</button>
-                <button onClick={() => handleResolveAlert(alert.id)} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs cursor-pointer">Resolve</button>
+                <button onClick={() => void updateAlert(alert.id, 'acknowledge')} className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold rounded-lg text-xs cursor-pointer">Acknowledge</button>
+                <button onClick={() => void updateAlert(alert.id, 'resolve')} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs cursor-pointer">Resolve</button>
               </div>
             </div>
           ))}
@@ -86,27 +85,27 @@ export const AdminDashboard: React.FC = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase">Active Buses</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase">Available vehicles</span>
             <span className="p-2 rounded-lg bg-blue-50 text-blue-600"><BusIcon className="w-4 h-4" /></span>
           </div>
           <div className="text-2xl sm:text-3xl font-black text-blue-600 mt-2 font-mono">
-            {activeBuses.length}<span className="text-sm font-semibold text-slate-400">/{buses.length}</span>
+            {available.length}<span className="text-sm font-semibold text-slate-600">/{buses.length}</span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            {buses.length === 0 ? 'No buses configured' : `${Math.round((activeBuses.length / (buses.length || 1)) * 100)}% fleet active`}
+            {buses.length === 0 ? 'No buses configured' : `${buses.filter(bus => bus.operationalStatus === 'MAINTENANCE').length} in maintenance`}
           </p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase">Occupancy</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase">Live tracking</span>
             <span className="p-2 rounded-lg bg-emerald-50 text-emerald-600"><Users className="w-4 h-4" /></span>
           </div>
           <div className="text-2xl sm:text-3xl font-black text-emerald-600 mt-2 font-mono">
-            {currentTotalRiders}<span className="text-sm font-semibold text-slate-400">/{totalCapacity}</span>
+            {live.length}<span className="text-sm font-semibold text-slate-600">/{activeBuses.length}</span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            {totalCapacity === 0 ? 'No active buses' : `${avgOccupancyRate}% load`}
+            {activeBuses.length ? `${activeBuses.length - live.length} with limited tracking` : 'No active trips'}
           </p>
         </div>
 
@@ -115,7 +114,7 @@ export const AdminDashboard: React.FC = () => {
             <span className="text-xs font-semibold text-slate-500 uppercase">Active Trips</span>
             <span className="p-2 rounded-lg bg-amber-50 text-amber-600"><Activity className="w-4 h-4" /></span>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-amber-600 mt-2 font-mono">{activeTrips.length}</div>
+          <div className="text-2xl sm:text-3xl font-black text-amber-600 mt-2 font-mono">{activeBuses.length}</div>
           <p className="text-[11px] text-slate-500 mt-1">{routes.filter((r) => r.status === 'LIVE').length} routes live</p>
         </div>
 
@@ -136,7 +135,7 @@ export const AdminDashboard: React.FC = () => {
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-bold text-slate-900">Fleet Status</h3>
-            <p className="text-xs text-slate-500">Current bus positions and assignments</p>
+            <p className="text-xs text-slate-500">Vehicle availability and tracking</p>
           </div>
           <Link to="/admin/buses" className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1">Manage <ArrowRight className="w-3.5 h-3.5" /></Link>
         </div>
@@ -146,7 +145,7 @@ export const AdminDashboard: React.FC = () => {
             <EmptyState title="No buses configured" description="Add buses to the fleet to start tracking them." icon={BusIcon} actionLabel="Add Bus" onAction={() => {}} />
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" role="region" tabIndex={0} aria-label="Fleet status table">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
@@ -168,7 +167,7 @@ export const AdminDashboard: React.FC = () => {
                           <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs">{bus.busNumber.split('-')[1] || bus.busNumber}</div>
                           <div>
                             <div>{bus.busNumber}</div>
-                            <div className="text-[10px] text-slate-400">{bus.model}</div>
+                            <div className="text-[10px] text-slate-600">{bus.model}</div>
                           </div>
                         </div>
                       </td>
@@ -179,16 +178,16 @@ export const AdminDashboard: React.FC = () => {
                             <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: route.color }} />
                             <span>{route.code}</span>
                           </div>
-                        ) : <span className="text-slate-400">Unassigned</span>}
+                        ) : <span className="text-slate-600">Unassigned</span>}
                       </td>
-                      <td className="py-3.5 px-4 font-mono">{bus.currentOccupancy}/{bus.capacity}</td>
+                      <td className="py-3.5 px-4 font-mono">{bus.hasOccupancy ? `${bus.currentOccupancy}/${bus.capacity}` : 'Unavailable'}</td>
                       <td className="py-3.5 px-4">
                         <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${bus.gpsStatus === 'GPS_ACTIVE' ? 'text-emerald-700' : 'text-amber-700'}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${bus.gpsStatus === 'GPS_ACTIVE' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
                           {bus.gpsStatus === 'GPS_ACTIVE' ? 'Active' : bus.gpsStatus === 'LOCATION_STALE' ? 'Stale' : 'Unavailable'}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 font-mono">{bus.speedKmh || 0} km/h</td>
+                      <td className="py-3.5 px-4 font-mono">{bus.speedKmh == null ? 'Unavailable' : `${bus.speedKmh} km/h`}</td>
                     </tr>
                   );
                 })}

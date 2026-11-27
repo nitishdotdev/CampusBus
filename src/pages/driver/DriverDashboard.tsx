@@ -1,15 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../store/AppContext';
-import { apiClient } from '../../services/apiClient';
 import { tripService } from '../../services/tripService';
-import { adminService } from '../../services/adminService';
-import { socketService } from '../../services/socketService';
-import { tripsV1 } from '../../services/v1/trips';
+import { tripsV1, type V1Trip } from '../../services/v1/trips';
 import { alertsV1 } from '../../services/v1/notifications';
 import { locationService } from '../../services/locationService';
 import { GPSStatusBadge, NetworkStatusBadge } from '../../components/common/StatusBadges';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
 import {
   Play,
@@ -39,122 +35,29 @@ import { EmptyState } from '../../components/common/States';
 export const DriverDashboard: React.FC = () => {
   const {
     currentUser,
+    currentCollege,
     activeTrip,
     buses,
     routes,
     locationState,
+    refreshData,
+    isLoadingData,
     toggleSimulatedOffline,
   } = useApp();
 
-  const [assignment, setAssignment] = useState<any>(null);
   const [tripError, setTripError] = useState<string | null>(null);
+  const [tripBusy, setTripBusy] = useState(false);
+  const assignedBus = buses.find(bus => bus.id === activeTrip?.busId) ??
+    buses.find(bus => bus.currentDriverId === currentUser?.id);
+  const assignedRoute = routes.find(route => route.id === (activeTrip?.routeId ?? assignedBus?.currentRouteId));
 
-  // Fetch driver assignments from backend API
-  useEffect(() => {
-    let isMounted = true;
-    const loadAssignment = async () => {
-      try {
-        if (USE_V1) {
-          const assigned = buses.find((b) => b.currentDriverId === currentUser?.id);
-          if (isMounted) {
-            setAssignment(assigned
-              ? { busId: assigned.id, busNumber: assigned.busNumber, busCapacity: assigned.capacity, routeId: assigned.currentRouteId, currentOccupancy: assigned.currentOccupancy }
-              : null);
-          }
-          return;
-        }
-        const res = await apiClient.get<any>('/api/driver/assignments');
-        if (isMounted) {
-          setAssignment(res?.assignment || null);
-        }
-      } catch (err) {
-        console.warn('Could not load driver assignment:', err);
-      }
-    };
-    loadAssignment();
-
-    const unsubBus = socketService.on('bus:updated', () => {
-      loadAssignment();
-    });
-    const unsubTripStart = socketService.on('trip:started', () => {
-      loadAssignment();
-    });
-    const unsubTripEnd = socketService.on('trip:ended', () => {
-      loadAssignment();
-    });
-    const unsubConn = socketService.on('connection:status', (status: any) => {
-      if (status?.isConnected) {
-        loadAssignment();
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      unsubBus();
-      unsubTripStart();
-      unsubTripEnd();
-      unsubConn();
-    };
-  }, [activeTrip, buses, currentUser?.id]);
-
-  // Determine driver's assigned bus and route strictly from database
-  const assignedBus =
-    buses.find((b) => b.id === activeTrip?.busId) ||
-    (assignment?.busId ? buses.find((b) => b.id === assignment.busId) : null) ||
-    buses.find((b) => b.currentDriverId === currentUser?.id) ||
-    (assignment?.busId
-      ? ({
-          id: assignment.busId,
-          collegeId: currentUser?.collegeId || '',
-          busNumber: assignment.busNumber || 'Assigned Bus',
-          plateNumber: '',
-          model: 'Campus Shuttle',
-          capacity: assignment.busCapacity || 45,
-          currentOccupancy: assignment.currentOccupancy || 0,
-          status: activeTrip ? 'ACTIVE' : 'IDLE',
-          currentRouteId: assignment.routeId,
-          currentDriverId: currentUser?.id,
-          lastLocation: locationState.lastLocation ?? undefined,
-          gpsStatus: locationState.gpsStatus,
-          networkStatus: locationState.networkStatus,
-          etaConfidence: 'OFFLINE',
-          lastSyncTimestamp: locationState.lastSyncTime || new Date().toISOString(),
-        } as any)
-      : null);
-
-  const assignedRoute =
-    routes.find((r) => r.id === (activeTrip?.routeId || assignment?.routeId || assignedBus?.currentRouteId)) ||
-    (assignment?.routeId
-      ? ({
-          id: assignment.routeId,
-          collegeId: currentUser?.collegeId || '',
-          code: assignment.routeCode || 'RT',
-          name: assignment.routeName || 'Assigned Line',
-          description: '',
-          color: '#2563EB',
-          status: 'LIVE',
-          scheduleHours: '6:00 AM - 10:00 PM',
-          frequencyMinutes: 15,
-          stops: assignment.stops || [],
-          pathCoordinates: [],
-        } as any)
-      : null);
-
-  const [useSimulatedGps, setUseSimulatedGps] = useState(false);
   const [showStartTripModal, setShowStartTripModal] = useState(false);
   const [showEndTripConfirm, setShowEndTripConfirm] = useState(false);
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [showGpsHelpModal, setShowGpsHelpModal] = useState(false);
-  const [emergencyReason, setEmergencyReason] = useState('Mechanical issue / curb stop');
+  const [emergencyReason, setEmergencyReason] = useState('Mechanical breakdown / safe curb stop');
   const [emergencySent, setEmergencySent] = useState(false);
-  const [tripSummary, setTripSummary] = useState<any>(null);
-
-  // Auto-prompt GPS permission walkthrough if permission required
-  useEffect(() => {
-    if (locationState.gpsStatus === 'GPS_PERMISSION_REQUIRED') {
-      setShowGpsHelpModal(true);
-    }
-  }, [locationState.gpsStatus]);
+  const [tripSummary, setTripSummary] = useState<V1Trip | null>(null);
 
   // Time elapsed in active trip
   const [tripElapsedMins, setTripElapsedMins] = useState(0);
@@ -167,7 +70,7 @@ export const DriverDashboard: React.FC = () => {
     const updateElapsed = () => {
       const start = new Date(activeTrip.startTime).getTime();
       const now = Date.now();
-      setTripElapsedMins(Math.max(1, Math.floor((now - start) / (60 * 1000))));
+      setTripElapsedMins(Math.max(0, Math.floor((now - start) / (60 * 1000))));
     };
     updateElapsed();
     const interval = setInterval(updateElapsed, 30000);
@@ -175,80 +78,85 @@ export const DriverDashboard: React.FC = () => {
   }, [activeTrip]);
 
   const handleStartTrip = async () => {
+    if (!assignedBus || !assignedRoute || !currentUser || tripBusy) return;
+    setTripBusy(true);
     setShowStartTripModal(false);
     setTripError(null);
     try {
-      if (!assignedBus) { setTripError('No bus assigned.'); return; }
-      if (USE_V1) {
-        const { trip } = await tripsV1.start(assignedBus.id);
-        const adopted = tripService.adoptV1Trip(trip);
-        await locationService.startTracking(adopted.id, assignedBus.id, currentUser?.id || '', false);
-      } else {
-        if (!assignedRoute) { setTripError('No route assigned.'); return; }
-        await tripService.startTrip(
-          assignedBus.id,
-          currentUser?.id || 'driver_marcus',
-          assignedRoute.id,
-          currentUser?.collegeId || 'college_apex',
-          useSimulatedGps
-        );
-      }
-    } catch (err: any) {
-      setTripError(err.message || err.data?.error || 'Vehicle or driver conflict: Cannot start trip while another is active.');
+      const { trip } = await tripsV1.start(assignedBus.id);
+      tripService.adoptV1Trip(trip);
+      locationService.startTracking(trip.id, assignedBus.id, currentUser.id);
+      await refreshData();
+    } catch (error) {
+      setTripError(error instanceof Error && error.message === 'BUS_OR_DRIVER_HAS_ACTIVE_TRIP'
+        ? 'This driver or bus already has an active trip.' : 'Could not start the trip. Check the assignment and connection.');
+    } finally {
+      setTripBusy(false);
     }
   };
 
   const handleEndTrip = async () => {
+    if (!activeTrip || tripBusy) return;
     setShowEndTripConfirm(false);
-    if (USE_V1 && activeTrip?.id) {
-      await tripsV1.end(activeTrip.id);
-      locationService.stopTracking();
+    setTripBusy(true);
+    setTripError(null);
+    try {
+      const { trip } = await tripsV1.end(activeTrip.id);
       tripService.clearActiveTrip();
-      setTripSummary({ message: 'Trip ended.' } as any);
-    } else {
-      const summary = await tripService.endTrip();
-      setTripSummary(summary);
+      void locationService.attemptSyncQueuedLocations();
+      setTripSummary(trip);
+      await refreshData();
+    } catch {
+      setTripError('Could not end the trip. Refresh to check the current trip status.');
+    } finally {
+      setTripBusy(false);
     }
   };
 
-  const handleOccupancyChange = (delta: number) => {
-    tripService.updateOccupancy(delta, false);
+  const handleOccupancyChange = async (delta: number) => {
+    if (!activeTrip || tripBusy) return;
+    setTripBusy(true);
+    setTripError(null);
+    try {
+      const { trip } = await tripsV1.updateOccupancy(activeTrip.id, delta);
+      tripService.adoptV1Trip(trip);
+      await refreshData();
+    } catch {
+      setTripError('Could not update passenger occupancy. Refresh to confirm the current count.');
+    } finally {
+      setTripBusy(false);
+    }
   };
 
   const handleSendEmergency = async () => {
-    if (!assignedBus || !assignedRoute) return;
-
-    const location = locationState.lastLocation
-      ? { lat: locationState.lastLocation.lat, lng: locationState.lastLocation.lng }
-      : assignedBus.lastLocation
-        ? { lat: assignedBus.lastLocation.lat, lng: assignedBus.lastLocation.lng }
-        : { lat: 0, lng: 0 };
-
-    if (USE_V1) {
+    if (!assignedBus || tripBusy) return;
+    setTripBusy(true);
+    setTripError(null);
+    try {
+      const fix = locationState.lastLocation;
       await alertsV1.raise({
         busId: assignedBus.id,
         tripId: activeTrip?.id,
         message: emergencyReason,
-        location,
+        location: fix && locationState.gpsStatus === 'GPS_ACTIVE' ? { lat: fix.lat, lng: fix.lng } : undefined,
       });
-    } else {
-      await adminService.triggerEmergencyAlert({
-        collegeId: currentUser?.collegeId || 'college_apex',
-        tripId: activeTrip?.id || 'manual_' + Date.now(),
-        busId: assignedBus.id,
-        busNumber: assignedBus.busNumber,
-        driverId: currentUser?.id || 'driver_marcus',
-        driverName: currentUser?.name || 'Marcus Vance',
-        routeId: assignedRoute.id,
-        routeName: assignedRoute.name,
-        location,
-        reason: emergencyReason,
-      });
+      setEmergencySent(true);
+    } catch {
+      setTripError(currentCollege.dispatchPhone
+        ? `Could not send the alert. Call campus dispatch at ${currentCollege.dispatchPhone} if you need immediate help.`
+        : 'Could not send the alert. Contact campus dispatch by phone if you need immediate help.');
+    } finally {
+      setShowEmergencyModal(false);
+      setTripBusy(false);
     }
-
-    setEmergencySent(true);
-    setShowEmergencyModal(false);
   };
+
+  const retryGps = () => {
+    if (activeTrip && currentUser) locationService.startTracking(activeTrip.id, activeTrip.busId, currentUser.id);
+    setShowGpsHelpModal(false);
+  };
+
+  if (isLoadingData) return <p role="status" className="p-4 text-sm text-slate-600">Loading your assignment…</p>;
 
   if (!assignedBus || !assignedRoute) {
     return (
@@ -294,12 +202,9 @@ export const DriverDashboard: React.FC = () => {
                 <h2 className="text-base font-bold text-slate-900 leading-none">
                   {currentUser?.name || 'Driver'}
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                  CDL ON-DUTY
-                </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Assigned: <strong className="text-slate-800">{assignedBus.busNumber}</strong> ({assignedBus.model.split(' ')[0]}) • Route{' '}
+                Assigned: <strong className="text-slate-800">{assignedBus.busNumber}</strong> · Route{' '}
                 <strong className="text-slate-800">{assignedRoute.code}</strong>
               </p>
             </div>
@@ -309,52 +214,14 @@ export const DriverDashboard: React.FC = () => {
             <span
               className={`text-xs font-bold px-2.5 py-1 rounded-full ${
                 activeTrip
-                  ? 'bg-blue-600 text-white animate-pulse'
+                  ? 'bg-blue-700 text-white'
                   : 'bg-slate-100 text-slate-600'
               }`}
             >
-              {activeTrip ? 'TRIP ACTIVE' : 'TERMINAL READY'}
+              {activeTrip ? 'Trip active' : assignedBus.operationalStatus === 'ACTIVE' ? 'Ready for service' : 'Vehicle unavailable'}
             </span>
           </div>
         </div>
-      </div>
-
-      {/* Driver Assigned Route & Live Bus Map */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Navigation className="w-4 h-4 text-blue-600" />
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              {activeTrip ? 'Active Trip Live Telemetry Map' : 'Assigned Route & Stops'}
-            </h3>
-          </div>
-          <span className="text-[11px] font-semibold text-slate-500">
-            {assignedRoute.stops?.length || 0} stops
-          </span>
-        </div>
-        <MapView
-          buses={[{
-            ...assignedBus,
-            lastLocation: locationState.lastLocation || assignedBus.lastLocation,
-            status: activeTrip ? 'ACTIVE' : 'IDLE',
-            currentStopId: activeTrip?.currentStopId || assignment?.currentStopId || assignedBus.currentStopId,
-            nextStopId: activeTrip?.nextStopId || assignment?.nextStopId || assignedBus.nextStopId,
-            completedStopIds: activeTrip?.completedStopIds || assignment?.completedStopIds || assignedBus.completedStopIds || [],
-          }]}
-          routes={[assignedRoute]}
-          selectedRouteId={assignedRoute.id}
-          driverLocation={
-            locationState.lastLocation
-              ? {
-                  lat: locationState.lastLocation.lat,
-                  lng: locationState.lastLocation.lng,
-                  heading: locationState.lastLocation.heading ?? undefined,
-                  accuracy: locationState.lastLocation.accuracy ?? undefined,
-                }
-              : undefined
-          }
-          heightClass="h-[260px] sm:h-[300px]"
-        />
       </div>
 
       {/* Primary Trip Action Card */}
@@ -372,45 +239,13 @@ export const DriverDashboard: React.FC = () => {
               </p>
             </div>
 
-            {/* GPS Mode Selection (Real vs Demo Simulated) */}
-            <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl max-w-md mx-auto text-left text-xs">
-              <div className="font-bold text-slate-800 mb-1 flex items-center gap-1.5">
-                <Smartphone className="w-4 h-4 text-blue-600" />
-                Location Source
-              </div>
-              <label className="flex items-center gap-2 cursor-pointer mt-2 text-slate-700">
-                <input
-                  type="radio"
-                  name="gpsMode"
-                  checked={!useSimulatedGps}
-                  onChange={() => setUseSimulatedGps(false)}
-                  className="text-blue-600"
-                />
-                <span className="font-medium text-slate-900">Real Browser GPS (navigator.geolocation - Device GPS)</span>
-              </label>
-              {!import.meta.env.PROD && (
-                <label className="flex items-center gap-2 cursor-pointer mt-1.5 text-slate-700">
-                  <input
-                    type="radio"
-                    name="gpsMode"
-                    checked={useSimulatedGps}
-                    onChange={() => setUseSimulatedGps(true)}
-                    className="text-blue-600"
-                  />
-                  <span className="font-medium text-amber-900">
-                    Simulated Demo GPS (Development Mode)
-                  </span>
-                </label>
-              )}
-            </div>
-
             <button
-              id="start-trip-button"
+              id="start-trip-button" disabled={tripBusy || assignedBus.operationalStatus !== 'ACTIVE'}
               onClick={() => setShowStartTripModal(true)}
-              className="w-full sm:w-80 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer"
+              className="w-full sm:w-80 py-4 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer"
             >
               <Play className="w-5 h-5 fill-current" />
-              <span>START CAMPUS TRIP</span>
+              <span>Start trip</span>
             </button>
           </div>
         ) : (
@@ -418,7 +253,7 @@ export const DriverDashboard: React.FC = () => {
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" /> Live Trip In Progress
+                  Trip in progress
                 </span>
                 <h3 className="text-lg font-black text-slate-900 mt-0.5">
                   {assignedRoute.code}: {assignedRoute.name}
@@ -432,17 +267,25 @@ export const DriverDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* End Trip Button */}
+            <button
+              id="end-trip-button" disabled={tripBusy}
+              onClick={() => setShowEndTripConfirm(true)}
+              className="w-full min-h-[52px] py-3.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-bold text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+            >
+              <Square className="w-4 h-4 fill-current text-rose-400" />
+              <span>End trip</span>
+            </button>
             {/* Active Next Stop Target & Progression Card */}
             {(() => {
               const stops = [...(assignedRoute.stops || [])].sort((a, b) => a.sequence - b.sequence);
-              const completedIds = new Set(activeTrip?.completedStopIds || assignment?.completedStopIds || []);
-              const nextStop = stops.find((s) => s.id === (activeTrip?.nextStopId || assignment?.nextStopId))
-                || stops.find((s) => !completedIds.has(s.id));
+              const completedIds = new Set(activeTrip?.completedStopIds || []);
+              const nextStop = stops.find(stop => stop.id === activeTrip?.nextStopId);
 
               let distanceText = '';
               let isApproaching = false;
               let isWithinGeofence = false;
-              if (nextStop && locationState.lastLocation) {
+              if (nextStop && locationState.lastLocation && locationState.gpsStatus === 'GPS_ACTIVE') {
                 const lat1 = (locationState.lastLocation.lat * Math.PI) / 180;
                 const lat2 = (nextStop.lat * Math.PI) / 180;
                 const dLat = ((nextStop.lat - locationState.lastLocation.lat) * Math.PI) / 180;
@@ -478,7 +321,7 @@ export const DriverDashboard: React.FC = () => {
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Next Eligible Stop</div>
                         <div className="text-sm font-black text-slate-900">
-                          {nextStop ? nextStop.name : (completedCount === totalCount && totalCount > 0 ? 'All Stops Completed' : 'End of Line')}
+                          {nextStop ? nextStop.name : (completedCount === totalCount && totalCount > 0 ? 'All Stops Completed' : 'Next stop unavailable')}
                         </div>
                       </div>
                     </div>
@@ -526,13 +369,17 @@ export const DriverDashboard: React.FC = () => {
                 </div>
                 <GPSStatusBadge
                   status={locationState.gpsStatus}
-                  lastUpdateText={locationState.lastLocation ? '3s ago' : undefined}
+                  lastUpdateText={locationState.lastLocation?.accuracy != null ? `±${Math.round(locationState.lastLocation.accuracy)} m` : undefined}
                 />
                 <div className="text-[11px] text-slate-500 mt-1.5 font-mono">
                   {locationState.lastLocation
                     ? `${locationState.lastLocation.lat.toFixed(5)}, ${locationState.lastLocation.lng.toFixed(5)}`
                     : 'Awaiting first coordinates...'}
                 </div>
+                {locationState.errorMessage && <p role="status" className="mt-2 text-xs text-amber-900">{locationState.errorMessage}</p>}
+                {locationState.gpsStatus !== 'GPS_ACTIVE' && (
+                  <button type="button" onClick={retryGps} className="min-h-11 text-xs font-semibold text-blue-700 underline">Retry GPS</button>
+                )}
               </div>
 
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
@@ -549,7 +396,7 @@ export const DriverDashboard: React.FC = () => {
                       {locationState.queuedCount} location pings queued offline
                     </span>
                   ) : (
-                    <span className="text-emerald-700">All coordinates synced to server</span>
+                    <span className="text-emerald-700">No location readings queued</span>
                   )}
                 </div>
               </div>
@@ -583,17 +430,46 @@ export const DriverDashboard: React.FC = () => {
               </div>
             )}
 
-            {/* End Trip Button */}
-            <button
-              id="end-trip-button"
-              onClick={() => setShowEndTripConfirm(true)}
-              className="w-full min-h-[52px] py-3.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-bold text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
-            >
-              <Square className="w-4 h-4 fill-current text-rose-400" />
-              <span>END TRIP & RETURN TO TERMINAL</span>
-            </button>
           </div>
         )}
+      </div>
+
+      {/* Driver Assigned Route & Live Bus Map */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Navigation className="w-4 h-4 text-blue-600" />
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              {activeTrip ? 'Trip route and device position' : 'Assigned Route & Stops'}
+            </h3>
+          </div>
+          <span className="text-[11px] font-semibold text-slate-500">
+            {assignedRoute.stops?.length || 0} stops
+          </span>
+        </div>
+        <MapView center={[currentCollege.centerLocation.lat, currentCollege.centerLocation.lng]} zoom={currentCollege.defaultZoom}
+          buses={[{
+            ...assignedBus,
+            lastLocation: locationState.lastLocation || assignedBus.lastLocation,
+            status: activeTrip ? 'ACTIVE' : 'IDLE',
+            currentStopId: activeTrip?.currentStopId || assignedBus.currentStopId,
+            nextStopId: activeTrip?.nextStopId || assignedBus.nextStopId,
+            completedStopIds: activeTrip?.completedStopIds || assignedBus.completedStopIds || [],
+          }]}
+          routes={[assignedRoute]}
+          selectedRouteId={assignedRoute.id}
+          driverLocation={
+            locationState.lastLocation
+              ? {
+                  lat: locationState.lastLocation.lat,
+                  lng: locationState.lastLocation.lng,
+                  heading: locationState.lastLocation.heading ?? undefined,
+                  accuracy: locationState.lastLocation.accuracy ?? undefined,
+                }
+              : undefined
+          }
+          heightClass={activeTrip ? "h-[260px] sm:h-[300px]" : "h-[200px] sm:h-[240px]"}
+        />
       </div>
 
       {/* Tactile Passenger Occupancy Control */}
@@ -634,7 +510,7 @@ export const DriverDashboard: React.FC = () => {
         <div className="grid grid-cols-4 gap-2 pt-2">
           <button
             id="occupancy-minus-5"
-            disabled={occupancy <= 0}
+            disabled={!activeTrip || tripBusy || occupancy <= 0}
             onClick={() => handleOccupancyChange(-5)}
             className="h-14 sm:h-16 min-h-[56px] bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 shadow-xs flex items-center justify-center"
           >
@@ -642,7 +518,7 @@ export const DriverDashboard: React.FC = () => {
           </button>
           <button
             id="occupancy-minus-1"
-            disabled={occupancy <= 0}
+            disabled={!activeTrip || tripBusy || occupancy <= 0}
             onClick={() => handleOccupancyChange(-1)}
             className="h-14 sm:h-16 min-h-[56px] bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-1 shadow-xs"
           >
@@ -650,7 +526,7 @@ export const DriverDashboard: React.FC = () => {
           </button>
           <button
             id="occupancy-plus-1"
-            disabled={occupancy >= capacity}
+            disabled={!activeTrip || tripBusy || occupancy >= capacity}
             onClick={() => handleOccupancyChange(1)}
             className="h-14 sm:h-16 min-h-[56px] bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-1 shadow-xs"
           >
@@ -658,7 +534,7 @@ export const DriverDashboard: React.FC = () => {
           </button>
           <button
             id="occupancy-plus-5"
-            disabled={occupancy >= capacity}
+            disabled={!activeTrip || tripBusy || occupancy >= capacity}
             onClick={() => handleOccupancyChange(5)}
             className="h-14 sm:h-16 min-h-[56px] bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 shadow-xs flex items-center justify-center"
           >
@@ -719,7 +595,7 @@ export const DriverDashboard: React.FC = () => {
             </div>
             <div>
               <strong>GPS Source:</strong>{' '}
-              {useSimulatedGps ? 'Simulated Demo Coordinates' : 'Browser Geolocation API (Device GPS)'}
+              Device location
             </div>
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
@@ -736,7 +612,7 @@ export const DriverDashboard: React.FC = () => {
             <button
               id="confirm-start-trip-btn"
               onClick={handleStartTrip}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer shadow-xs"
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg cursor-pointer shadow-xs"
             >
               Start Tracking Now
             </button>
@@ -750,7 +626,7 @@ export const DriverDashboard: React.FC = () => {
         onClose={() => setShowEndTripConfirm(false)}
         onConfirm={handleEndTrip}
         title="End Campus Trip?"
-        message="This will stop GPS tracking, flush any pending offline location pings, and set vehicle status back to Idle."
+        message="GPS tracking will stop. Queued location readings will sync when a connection is available."
         confirmLabel="End Trip"
         cancelLabel="Keep Running"
       />
@@ -783,7 +659,7 @@ export const DriverDashboard: React.FC = () => {
               Cancel
             </button>
             <button
-              id="confirm-emergency-btn"
+              id="confirm-emergency-btn" disabled={tripBusy}
               onClick={handleSendEmergency}
               className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg cursor-pointer shadow-xs"
             >
@@ -808,12 +684,8 @@ export const DriverDashboard: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-3 pt-2 text-slate-700">
                 <div>
-                  <span className="text-slate-500">Distance Covered:</span>{' '}
-                  <strong>{tripSummary.distanceCoveredKm} km</strong>
-                </div>
-                <div>
                   <span className="text-slate-500">Logged Pings:</span>{' '}
-                  <strong>{tripSummary.syncedLocationsCount}</strong>
+                  <strong>{tripSummary.totalLocationsLogged ?? 'Unavailable'}</strong>
                 </div>
                 <div>
                   <span className="text-slate-500">Vehicle:</span>{' '}
@@ -874,30 +746,18 @@ export const DriverDashboard: React.FC = () => {
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
             <strong className="text-slate-800">Desktop / Laptop Chrome or Firefox:</strong>
             <p className="text-slate-600">
-              Click the lock/settings icon next to the URL address bar and change <strong>Location</strong> from &ldquo;Ask&rdquo; or &ldquo;Block&rdquo; to <strong>Allow</strong>, then reload.
+              Click the lock/settings icon next to the URL address bar and set <strong>Location</strong> to <strong>Allow</strong>, then retry GPS.
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2">
             <button
               type="button"
-              onClick={() => {
-                if ('geolocation' in navigator) {
-                  navigator.geolocation.getCurrentPosition(
-                    () => {
-                      setShowGpsHelpModal(false);
-                    },
-                    (err) => {
-                      console.warn('Geolocation permission error:', err);
-                    },
-                    { enableHighAccuracy: true, timeout: 10000 }
-                  );
-                }
-              }}
+              onClick={retryGps}
               className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
             >
               <Radio className="w-4 h-4" />
-              <span>Prompt Device GPS Permission</span>
+              <span>Retry GPS</span>
             </button>
 
             <button

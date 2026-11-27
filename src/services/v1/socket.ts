@@ -1,75 +1,81 @@
 import { io, type Socket } from 'socket.io-client';
 import { readViteV1Env, resolveV1ApiBase } from './apiBase';
-import { v1Token } from './client';
+import { refreshV1Session, v1Token } from './client';
 
-const getSocketBase = (): string => resolveV1ApiBase(readViteV1Env((import.meta as any).env));
+const getSocketBase = (): string => resolveV1ApiBase(readViteV1Env(import.meta.env));
 
-export interface BusLocationPayload {
-  busId: string; campusId: string; tripId: string;
-  location: { lat: number; lng: number };
+interface LocationFix {
+  lat: number; lng: number;
   accuracyM: number | null; speedMps: number | null;
   headingDeg: number | null; capturedAt: string; receivedAt: string;
-  freshness: 'LIVE' | 'STALE' | 'UNAVAILABLE' | 'ENDED';
+  mode: 'REAL' | 'SIMULATED';
+}
+export type TrackingFreshness = 'LIVE' | 'STALE' | 'DRIVER_OFFLINE' | 'TRIP_ENDED' | 'UNAVAILABLE';
+export interface BusLocationPayload extends Omit<LocationFix, 'lat' | 'lng'> {
+  busId: string; tripId: string;
+  location: { lat: number; lng: number };
+  freshness: TrackingFreshness;
 }
 
 type LocationListener = (payload: BusLocationPayload) => void;
+type PositionMessage = LocationFix & { busId: string; tripId: string; freshness: TrackingFreshness };
+type SnapshotMessage = { busId: string; tripId: string | null; position: LocationFix | null; freshness: TrackingFreshness };
 
 class SocketV1Service {
   private socket: Socket | null = null;
   private listeners = new Map<string, Set<LocationListener>>();
-  private subscribedBusIds = new Set<string>();
 
   connect(): void {
-    if (this.socket?.connected) return;
-    const token = v1Token.getAccess();
-    if (!token) return;
+    if (this.socket || !v1Token.getAccess()) return;
 
-    this.socket = io(getSocketBase(), {
+    const socket = io(getSocketBase(), {
       path: '/socket.io/',
-      auth: { token },
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionDelay: 1000,
+      auth: callback => callback({ token: v1Token.getAccess() }),
+      transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
     });
+    this.socket = socket;
 
-    this.socket.on('connect', () => {
-      console.info('[socketV1] connected');
-      // Resubscribe after reconnect
-      for (const busId of this.subscribedBusIds) {
-        this.socket!.emit('subscribe:bus', { busId });
-      }
+    socket.on('connect', () => {
+      for (const busId of this.listeners.keys()) socket.emit('subscribe:bus', { busId });
+    });
+    socket.on('bus:location', ({ busId, tripId, freshness, ...fix }: PositionMessage) => {
+      this.deliver(busId, tripId, freshness, fix);
+    });
+    socket.on('bus:snapshot', ({ busId, tripId, position, freshness }: SnapshotMessage) => {
+      if (position && tripId && freshness !== 'TRIP_ENDED') this.deliver(busId, tripId, freshness, position);
     });
 
-    this.socket.on('bus:location', (payload: BusLocationPayload) => {
-      const set = this.listeners.get(payload.busId);
-      if (set) for (const fn of set) fn(payload);
+    const reconnect = async () => {
+      if (await refreshV1Session() && this.socket === socket && !socket.connected) socket.connect();
+    };
+    socket.on('disconnect', reason => {
+      if (reason === 'io server disconnect') void reconnect();
     });
-
-    this.socket.on('bus:snapshot', (payload: BusLocationPayload) => {
-      const set = this.listeners.get(payload.busId);
-      if (set) for (const fn of set) fn(payload);
-    });
-
-    this.socket.on('connect_error', (err) => {
-      console.warn('[socketV1] connect_error', err.message);
+    socket.on('connect_error', error => {
+      if (error.message === 'UNAUTHENTICATED') void reconnect();
     });
   }
 
-  subscribeTobus(busId: string, fn: LocationListener): () => void {
-    if (!this.listeners.has(busId)) this.listeners.set(busId, new Set());
-    this.listeners.get(busId)!.add(fn);
-    this.subscribedBusIds.add(busId);
-
-    if (this.socket?.connected) {
-      this.socket.emit('subscribe:bus', { busId });
+  private deliver(busId: string, tripId: string, freshness: TrackingFreshness, { lat, lng, ...fix }: LocationFix) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    for (const listener of this.listeners.get(busId) ?? []) {
+      listener({ busId, tripId, freshness, location: { lat, lng }, ...fix });
     }
+  }
 
+  subscribeTobus(busId: string, listener: LocationListener): () => void {
+    let listeners = this.listeners.get(busId);
+    if (!listeners) {
+      listeners = new Set();
+      this.listeners.set(busId, listeners);
+      if (this.socket?.connected) this.socket.emit('subscribe:bus', { busId });
+    }
+    listeners.add(listener);
     return () => {
-      this.listeners.get(busId)?.delete(fn);
-      if (this.listeners.get(busId)?.size === 0) {
+      listeners.delete(listener);
+      if (listeners.size === 0 && this.listeners.get(busId) === listeners) {
         this.listeners.delete(busId);
-        this.subscribedBusIds.delete(busId);
         this.socket?.emit('unsubscribe:bus', { busId });
       }
     };
@@ -78,7 +84,7 @@ class SocketV1Service {
   disconnect(): void {
     this.socket?.disconnect();
     this.socket = null;
-    this.subscribedBusIds.clear();
+    this.listeners.clear();
   }
 }
 

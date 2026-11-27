@@ -1,40 +1,23 @@
-# Database
+# PostgreSQL, migration and rollback
 
-## Current schema (Implemented: `server/db/schema.sql`, `005-add-schedules-complaints.sql`)
-PostgreSQL tables: `colleges`, `users`, `routes`, `stops`, `buses`, `trips`, `locations`, `emergency_alerts`, `notifications`, `schedules`, `complaints`. All string primary keys (`VARCHAR(64)`), `college_id` on every table.
+The active API uses the `v1` schema in PostgreSQL. Tables for campus, accounts, tokens, operations, and GPS are defined in [schema.sql](../apps/api/src/infra/postgres/schema.sql). The default workflow and the integration harness use the same repositories. Keep test and production databases separate.
 
-Notable constraints (verified):
-- `users.email` UNIQUE (global, not per college); `role` CHECK in STUDENT/DRIVER/ADMIN.
-- Partial unique indexes: one active trip per bus, one active trip per driver.
-- Indexes on `college_id`, `stops.route_id`, `trips.bus_id/driver_id`, `locations.trip_id/recorded_at`.
+## Upgrade an existing v1 database
 
-Gaps: `locations` has no uniqueness on a client event id and no retention; the latest position lives on `buses` (`last_location_lat/lng`) rather than a dedicated table; `schedules` and `complaints` are in a separate migration file that `migrate.ts` may not apply (to be checked against a Postgres instance, not yet verified).
+1. Confirm the target service and database from the hosting dashboards. Record the active application revision, database branch, and a backup or point-in-time recovery marker. Take a schema and row-count inventory for both `v1` and any historical schemas without copying private records into logs.
+2. Restore to a staging database or use an isolated provider branch. Configure `DATABASE_URL`, any private CA, and `DATABASE_SSL_MODE=verify` in the runner's secret store.
+3. Run `NODE_ENV=production npm run db:migrate` twice. The migrator runs in a transaction under a PostgreSQL advisory lock. This release adds complaint storage, trip stop snapshots, occupancy, optional bus metadata, and campus settings, and optional schedule arrival times. It does not drop or reset rows.
+4. Compare row counts, primary keys, assignment relationships, and login for existing accounts. Start a new trip, verify GPS and stop advancement, end it, and validate complaint ownership and resolution. Stop snapshots apply to newly started trips. Plan the rollout between shifts if existing active trips need uninterrupted stop tracking.
+5. After review and deployment approval, apply the same migration to the confirmed production database. Verify health, campus list, CORS and one authorized account per role.
 
-The file-backed store holds the same entities in `.data/database.json` and is development-only.
+Existing `v1` IDs remain stable. New optional metadata can be null. Existing trip passenger counts remain unknown until there is recorded data. The service never imports old records implicitly.
 
-## Existing Mongoose stub (`server/db/mongodb.ts`)
-Unused and incomplete (string foreign keys, embedded stops, no indexes). It will be replaced, not extended.
+## Legacy data decision
 
-## MongoDB models (Implemented in `apps/api/src/infra/mongo/models`; not used by the running app)
-Models are bound to a connection (`createModels(conn)`), indexes are created by `ensureIndexes`. Ten collections: `users`, `buses`, `routes` (stops embedded, GeoJSON points), `schedules`, `trips`, `vehiclelocations`, `telemetries`, `notifications`, `emergencyalerts`, `auditevents`.
+A deployed v1 service was observed, but database inventory access was unavailable. Any data in the older non-v1 schema needs a separately staged import with explicit campus, user, vehicle, route and record ID mappings. The v1 schema uses compact identifiers, different relationships and campus-scoped email uniqueness. Do not copy historical complaints, assignments or trips into v1 without reconciling those relationships. Retain the historical implementation and schema reference until inventory and parity have been verified.
 
-| Collection | Constraints and indexes (all verified by `models-persistence.integration.test.ts`) |
-|---|---|
-| users | unique `{campusId, email}` (email lower-cased; per-campus, unlike the legacy global unique); `{campusId, role, status}`; `passwordHash` not selected by default; status PENDING/ACTIVE/REJECTED/DISABLED |
-| buses | unique `{campusId, number}`; unique sparse `driverId` (a driver drives one bus); capacity integer 1..200 |
-| routes | unique `{campusId, code}`; stop `order` unique within a route; stop coordinates validated; colour `#rrggbb` |
-| schedules | time `HH:MM`, days 0..6, direction enum; `{campusId, routeId, departTime}` |
-| trips | unique sparse `activeBusKey` and `activeDriverKey`, set only while ACTIVE; `{campusId, startedAt:-1}`, `{driverId, startedAt:-1}`, `{busId, startedAt:-1}` |
-| vehiclelocations | unique `busId` (one latest position per bus) |
-| telemetries | unique `{tripId, eventId}`; `{tripId, capturedAt}`; `{busId, capturedAt:-1}`; `{receivedAt}` for retention |
-| notifications / emergencyalerts / auditevents | enum and length validation; `{campusId, createdAt:-1}`, `{campusId, status, createdAt:-1}`, `{campusId, at:-1}` |
+## Rollback
 
-Design choices and why:
-- **No TTL index, no partial index, no transactions.** Retention uses an explicit purge; active-trip uniqueness uses the sparse-key pattern; every write that must be atomic is a single-document operation. This keeps the code portable and testable on any MongoDB-compatible engine.
-- Pagination: `page` / `pageSize` with `pageSize` clamped to 1..100.
-- Every repository query takes `campusId` from the authenticated principal.
+Revert the application to the previously healthy Render and Vercel revisions. Leave additive database objects in place so records created during the release are preserved. Verify old entry points and row counts on staging first. Use a backup restore only for a verified data incident through the database provider's recovery workflow, with explicit reconciliation of writes since the restore point. Do not drop the v1 schema or the newly written complaints.
 
-Not yet implemented: user/route/bus/schedule CRUD repositories and HTTP routes, refresh tokens collection, audit writing, notification delivery.
-
-## What the tests ran against
-All Mongo tests in this repository were run in the sandbox against **FerretDB 1.24 (a MongoDB wire-protocol server backed by PostgreSQL), not MongoDB**, because MongoDB binaries cannot be downloaded there. CI is configured with a real `mongo:7` service, but CI has not run yet. Treat "verified on real MongoDB" as **not yet established**.
+The local TLS suite checks a dedicated private CA and rejects identity and chain mismatches. Local PostgreSQL tests create uniquely named child databases and clean up those databases. A caller-supplied database name is never used as the drop target.

@@ -22,8 +22,7 @@ import {
 
 const NAV_LINKS = [
   { href: '#home', label: 'Home' },
-  { href: '#features', label: 'Routes' },
-  { href: '#features', label: 'Live Tracking' },
+  { href: '#features', label: 'Features' },
   { href: '#about', label: 'About' },
 ] as const;
 
@@ -85,13 +84,6 @@ const STEPS = [
   },
 ] as const;
 
-const HIGHLIGHTS = [
-  { icon: Bus, title: 'Live GPS Tracking', body: 'Follow buses from authenticated driver devices.' },
-  { icon: Radio, title: 'Role-Based Access', body: 'Separate student, driver, and admin workspaces.' },
-  { icon: ShieldCheck, title: 'Campus Alerts', body: 'Emergency SOS and broadcast notifications.' },
-  { icon: Leaf, title: 'Smarter Commutes', body: 'Plan routes and skip unnecessary waiting.' },
-] as const;
-
 const TONE_ICON: Record<string, string> = {
   blue: 'bg-blue-50 text-blue-600',
   green: 'bg-emerald-50 text-emerald-600',
@@ -103,13 +95,13 @@ const TONE_ICON: Record<string, string> = {
 const AppPreview: React.FC = () => (
   <div className="relative mx-auto w-full max-w-[420px]">
     <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20">
-      <span className="inline-flex items-center rounded-full bg-white/90 backdrop-blur px-3 py-1 text-[11px] font-semibold text-slate-500 border border-slate-200 shadow-sm">
-        App preview — not live tracking
+      <span className="inline-flex items-center rounded-full bg-white/90 backdrop-blur px-3 py-1 text-[11px] font-semibold text-slate-600 border border-slate-200 shadow-sm">
+        Illustrative app preview
       </span>
     </div>
 
     <div className="relative pt-6">
-      <div className="relative mx-auto w-[250px] sm:w-[270px] rounded-[2.4rem] border-[10px] border-slate-900 bg-slate-900 shadow-[0_30px_60px_-20px_rgba(15,23,42,0.45)]">
+      <div className="relative mx-auto w-[250px] sm:w-[270px] rounded-[2.4rem] border-[10px] border-slate-900 bg-slate-900 shadow-md">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-slate-900 rounded-b-2xl z-10" />
         <div className="rounded-[1.7rem] overflow-hidden bg-[#f4f7fb] aspect-[9/19] flex flex-col">
           <div className="px-4 pt-7 pb-3 flex items-center justify-between">
@@ -119,24 +111,24 @@ const AppPreview: React.FC = () => (
               </span>
               <span className="text-[11px] font-extrabold text-slate-900">CampusBus</span>
             </div>
-            <Bell className="w-4 h-4 text-slate-400" aria-hidden="true" />
+            <Bell className="w-4 h-4 text-slate-600" aria-hidden="true" />
           </div>
           <div className="px-4">
             <p className="text-[15px] font-extrabold text-slate-900 leading-tight">Good Morning, Student!</p>
-            <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+            <p className="text-[10px] text-slate-600 mt-1 leading-snug">
               Find your bus, track in real-time, and reach your destination.
             </p>
-            <div className="mt-3 h-8 rounded-xl bg-white border border-slate-200 flex items-center px-3 text-[10px] text-slate-400 gap-2">
+            <div className="mt-3 h-8 rounded-xl bg-white border border-slate-200 flex items-center px-3 text-[10px] text-slate-600 gap-2">
               <span className="w-3 h-3 rounded-full border border-slate-300" />
               Search for a route or stop…
             </div>
           </div>
           <div className="px-4 mt-3 space-y-2 flex-1">
             {[
-              { name: 'Route 1', path: 'Main Gate → Hostels', color: 'bg-blue-500' },
-              { name: 'Route 2', path: 'Academic Block → Hostels', color: 'bg-emerald-500' },
-              { name: 'Route 3', path: 'Library → Hostels', color: 'bg-violet-500' },
-              { name: 'Route 4', path: 'Mess → Main Gate', color: 'bg-orange-400' },
+              { name: 'Route 1', path: 'Main Gate → Hostels', color: 'bg-blue-700' },
+              { name: 'Route 2', path: 'Academic Block → Hostels', color: 'bg-emerald-700' },
+              { name: 'Route 3', path: 'Library → Hostels', color: 'bg-violet-700' },
+              { name: 'Route 4', path: 'Mess → Main Gate', color: 'bg-orange-800' },
             ].map((route) => (
               <div key={route.name} className={`${route.color} text-white rounded-xl px-3 py-2 flex items-center gap-2`}>
                 <span className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center">
@@ -144,12 +136,12 @@ const AppPreview: React.FC = () => (
                 </span>
                 <div>
                   <div className="text-[11px] font-bold leading-none">{route.name}</div>
-                  <div className="text-[9px] text-white/80 mt-0.5">{route.path}</div>
+                  <div className="text-[9px] text-white mt-0.5">{route.path}</div>
                 </div>
               </div>
             ))}
           </div>
-          <div className="mt-auto grid grid-cols-4 border-t border-slate-200 bg-white px-2 py-2.5 text-[8px] font-semibold text-slate-400">
+          <div className="mt-auto grid grid-cols-4 border-t border-slate-200 bg-white px-2 py-2.5 text-[8px] font-semibold text-slate-600">
             {[
               { label: 'Home', Icon: Bus, active: true },
               { label: 'Live Map', Icon: Navigation, active: false },
@@ -165,31 +157,6 @@ const AppPreview: React.FC = () => (
         </div>
       </div>
 
-      <div className="hidden sm:block absolute right-0 top-16 w-[180px] rounded-2xl bg-white border border-slate-200 shadow-xl p-3">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-            <Bus className="w-4 h-4" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="text-[11px] font-bold text-slate-800">Campus map</div>
-            <div className="text-[10px] text-slate-500">Illustrative preview</div>
-          </div>
-        </div>
-        <div className="h-36 rounded-xl overflow-hidden relative bg-[#dbeafe]">
-          <svg viewBox="0 0 180 144" className="w-full h-full" aria-hidden="true">
-            <rect width="180" height="144" fill="#dbeafe" />
-            <path d="M0 40h180M0 90h180M40 0v144M110 0v144" stroke="#bfdbfe" strokeWidth="8" />
-            <path d="M20 110 C 50 90, 80 40, 150 30" fill="none" stroke="#3b82f6" strokeWidth="3" strokeDasharray="6 6" />
-            <circle cx="48" cy="96" r="7" fill="#2563eb" />
-            <circle cx="132" cy="38" r="6" fill="#2563eb" />
-            <circle cx="90" cy="64" r="9" fill="#1d4ed8" />
-          </svg>
-          <div className="absolute bottom-2 left-2 right-2 rounded-lg bg-white/95 border border-slate-200 px-2 py-1.5">
-            <div className="text-[9px] font-semibold text-slate-500">Next Stop</div>
-            <div className="text-[11px] font-bold text-slate-800">Academic Block</div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 );
@@ -304,7 +271,7 @@ export const LandingPage: React.FC = () => {
       <main>
         <section id="home" className="relative overflow-hidden">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(59,130,246,0.10),_transparent_55%)] pointer-events-none" />
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 lg:pt-20 pb-16 lg:pb-24 grid lg:grid-cols-2 gap-10 lg:gap-12 items-center">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 lg:pt-20 pb-16 lg:pb-24 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             <div className="landing-fade-up">
               <div className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-blue-100 bg-blue-50/70 px-3 py-1 text-[11px] sm:text-xs font-semibold text-blue-700">
                 <span>Smart Transport</span>
@@ -313,7 +280,7 @@ export const LandingPage: React.FC = () => {
                 <span className="text-blue-300">·</span>
                 <span>Better Tomorrow</span>
               </div>
-              <h1 className="mt-5 text-[2.35rem] sm:text-5xl lg:text-[3.5rem] font-extrabold tracking-tight leading-[1.08] text-slate-900">
+              <h1 className="mt-5 text-[2.35rem] sm:text-5xl lg:text-[3rem] xl:text-[3.5rem] font-extrabold tracking-tight leading-[1.08] text-slate-900">
                 Your Campus
                 <br />
                 Bus, <span className="text-blue-600">Smarter</span>
@@ -335,40 +302,10 @@ export const LandingPage: React.FC = () => {
                   View Routes
                 </Link>
               </div>
-              <div className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-5">
-                <div className="flex items-start gap-2.5">
-                  <span className="mt-0.5 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                    <MapPin className="w-4 h-4" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <div className="text-sm font-bold text-slate-800">Live Tracking</div>
-                    <div className="text-xs text-slate-500">See buses in real-time</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="mt-0.5 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <div className="text-sm font-bold text-slate-800">Safe & Reliable</div>
-                    <div className="text-xs text-slate-500">Verified drivers & routes</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="mt-0.5 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                    <Zap className="w-4 h-4" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <div className="text-sm font-bold text-slate-800">Easy Access</div>
-                    <div className="text-xs text-slate-500">Book & ride with ease</div>
-                  </div>
-                </div>
-              </div>
             </div>
 
-            <div className="relative landing-fade-up-delay">
-              <div className="absolute -inset-8 bg-blue-100/40 blur-3xl rounded-full pointer-events-none" />
-              <div className="relative rounded-[2rem] overflow-hidden shadow-[0_24px_60px_-24px_rgba(37,99,235,0.45)] ring-1 ring-blue-100">
+            <div className="relative min-w-0">
+              <div className="relative rounded-[2rem] overflow-hidden shadow-sm ring-1 ring-blue-100">
                 <img
                   src="/images/campus-bus.jpg"
                   alt="Blue campus shuttle bus ready for student transport"
@@ -389,7 +326,7 @@ export const LandingPage: React.FC = () => {
         </section>
 
         <section id="features" className="py-16 sm:py-20 lg:py-24">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             <div>
               <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">Why CampusBus?</h2>
               <p className="mt-3 text-slate-500 max-w-md">
@@ -448,23 +385,6 @@ export const LandingPage: React.FC = () => {
           </div>
         </section>
 
-        <section aria-label="Product highlights" className="border-y border-slate-100 bg-white">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
-            {HIGHLIGHTS.map((item) => {
-              const Icon = item.icon;
-              return (
-                <div key={item.title} className="flex items-center gap-3 px-4 py-4 lg:py-2">
-                  <Icon className="w-6 h-6 text-blue-600 shrink-0" aria-hidden="true" />
-                  <div>
-                    <div className="font-extrabold text-slate-900">{item.title}</div>
-                    <div className="text-xs text-slate-500">{item.body}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
         <section className="px-4 sm:px-6 py-12 sm:py-16">
           <div className="max-w-6xl mx-auto relative overflow-hidden rounded-[1.75rem] bg-[#071433] text-white px-6 sm:px-12 py-12 sm:py-14">
             <div className="absolute inset-0 opacity-30 pointer-events-none bg-[radial-gradient(ellipse_at_right,_rgba(59,130,246,0.35),_transparent_55%)]" />
@@ -518,7 +438,7 @@ export const LandingPage: React.FC = () => {
               </Link>
             </nav>
           </div>
-          <div className="mt-8 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-slate-500">
+          <div className="mt-8 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-slate-300">
             <p>© {new Date().getFullYear()} CampusBus. All rights reserved.</p>
             <p>Campus bus tracking for students, drivers, and administrators.</p>
           </div>

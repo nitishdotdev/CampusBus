@@ -1,8 +1,7 @@
 /**
  * API v1 client.
  * - Access token held in memory (never localStorage).
- * - Refresh token held in memory (ideal: HttpOnly cookie from server; until backend
- *   sets cookies, stored here in memory so it clears on tab close).
+ * - Refresh token is scoped to this tab to support reloads on split-origin deployments.
  * - On 401, attempts one silent refresh before propagating the error.
  */
 
@@ -19,15 +18,22 @@ export class ApiV1Error extends Error {
 
 // ── Token store (in-memory only) ─────────────────────────────────────────────
 let _accessToken: string | null = null;
-let _refreshToken: string | null = null;
+const refreshStorageKey = 'campusbus_refresh';
+let _refreshToken: string | null = typeof window === 'undefined' ? null : window.sessionStorage.getItem(refreshStorageKey);
+function storeRefresh(token: string | null) {
+  _refreshToken = token;
+  if (typeof window === 'undefined') return;
+  if (token) window.sessionStorage.setItem(refreshStorageKey, token);
+  else window.sessionStorage.removeItem(refreshStorageKey);
+}
 let _refreshPromise: Promise<boolean> | null = null;
 
 export const v1Token = {
   setAccess: (t: string | null) => { _accessToken = t; },
-  setRefresh: (t: string | null) => { _refreshToken = t; },
+  setRefresh: storeRefresh,
   getAccess: () => _accessToken,
   getRefresh: () => _refreshToken,
-  clear: () => { _accessToken = null; _refreshToken = null; },
+  clear: () => { _accessToken = null; storeRefresh(null); },
 };
 
 // ── Low-level fetch ────────────────────────────────────────────────────────────
@@ -58,31 +64,40 @@ async function rawRequest<T>(
 
 // ── Silent refresh ─────────────────────────────────────────────────────────────
 async function doRefresh(): Promise<boolean> {
-  if (!_refreshToken) return false;
+  const refreshToken = _refreshToken;
+  if (!refreshToken) return false;
   try {
     const data = await rawRequest<{ tokens: { accessToken: string; expiresIn: number }; refreshToken?: string }>(
       '/api/v1/auth/refresh',
-      { method: 'POST', body: JSON.stringify({ refreshToken: _refreshToken }) },
+      { method: 'POST', body: JSON.stringify({ refreshToken }) },
       false,
     );
+    if (refreshToken !== _refreshToken) return false;
     _accessToken = data.tokens.accessToken;
-    if (data.refreshToken) _refreshToken = data.refreshToken;
+    if (data.refreshToken) storeRefresh(data.refreshToken);
     return true;
-  } catch {
-    v1Token.clear();
+  } catch (error) {
+    if (refreshToken === _refreshToken && error instanceof ApiV1Error && [401, 403].includes(error.status)) {
+      v1Token.clear();
+    }
     return false;
   }
 }
 
+export function refreshV1Session(): Promise<boolean> {
+  _refreshPromise ??= doRefresh().finally(() => { _refreshPromise = null; });
+  return _refreshPromise;
+}
+
 // ── Public request with auto-refresh ─────────────────────────────────────────
 async function request<T>(path: string, options: RequestInit, withAuth = true): Promise<T> {
+  const sentToken = _accessToken;
   try {
     return await rawRequest<T>(path, options, withAuth);
   } catch (err) {
     if (err instanceof ApiV1Error && err.status === 401 && withAuth) {
       // Deduplicate concurrent refresh attempts
-      _refreshPromise ??= doRefresh().finally(() => { _refreshPromise = null; });
-      const ok = await _refreshPromise;
+      const ok = (_accessToken && _accessToken !== sentToken) || await refreshV1Session();
       if (ok) return rawRequest<T>(path, options, withAuth);
     }
     throw err;

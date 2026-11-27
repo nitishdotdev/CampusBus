@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, MapPin, AlertCircle, Loader } from 'lucide-react';
 import { schedulesV1 } from '../../services/v1/notifications';
+import { useApp } from '../../store/AppContext';
 import { dayNameToIndex, v1ScheduleToUi, type UiSchedule } from '../../services/v1/adapters';
 
 type Schedule = UiSchedule;
@@ -11,7 +12,7 @@ export function StudentSchedules() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDay, setSelectedDay] = useState(DAYS[new Date().getDay()]);
+  const [selectedDay, setSelectedDay] = useState(DAYS[(new Date().getDay() + 6) % 7]);
   const [selectedRoute, setSelectedRoute] = useState<string>('');
 
   // Fetch real schedules from API
@@ -34,6 +35,9 @@ export function StudentSchedules() {
   }, [selectedDay, selectedRoute]);
 
   const routes = Array.from(new Set(schedules.map((s) => s.route_id)));
+  const { routes: campusRoutes, buses: campusBuses } = useApp();
+  const routeNameById = new Map(campusRoutes.map((r) => [r.id, r.name]));
+  const busNumberById = new Map(campusBuses.map((b) => [b.id, b.busNumber]));
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
@@ -54,7 +58,7 @@ export function StudentSchedules() {
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Select Day
               </label>
-              <select
+              <select aria-label="Day of week"
                 value={selectedDay}
                 onChange={(e) => setSelectedDay(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -71,15 +75,15 @@ export function StudentSchedules() {
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Filter by Route (Optional)
               </label>
-              <select
+              <select aria-label="Route"
                 value={selectedRoute}
                 onChange={(e) => setSelectedRoute(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">All Routes</option>
-                {routes.map((route) => (
-                  <option key={route} value={route}>
-                    {route}
+                {routes.map((routeId) => (
+                  <option key={routeId} value={routeId}>
+                    {routeNameById.get(routeId) ?? 'Unknown route'}
                   </option>
                 ))}
               </select>
@@ -117,10 +121,10 @@ export function StudentSchedules() {
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-gray-800 mb-1">
-                        Route: {schedule.route_id}
+                        Route: {routeNameById.get(schedule.route_id) ?? 'Unknown route'}
                       </h3>
                       <p className="text-sm text-gray-600">
-                        Bus: <span className="font-semibold">{schedule.bus_id}</span>
+                        Bus: <span className="font-semibold">{busNumberById.get(schedule.bus_id) ?? 'Unknown vehicle'}</span>
                       </p>
                       {schedule.notes && (
                         <p className="text-sm text-blue-600 mt-2">{schedule.notes}</p>

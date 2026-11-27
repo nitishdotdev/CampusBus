@@ -98,7 +98,7 @@ class OfflineQueueService {
     }
   }
 
-  public async getAll(limit: number = 200): Promise<QueuedLocationUpdate[]> {
+  public async getAll(limit = 200, driverId?: string): Promise<QueuedLocationUpdate[]> {
     try {
       const db = await this.initIndexedDb();
       return new Promise<QueuedLocationUpdate[]>((resolve, reject) => {
@@ -111,7 +111,7 @@ class OfflineQueueService {
         req.onsuccess = (e) => {
           const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
           if (cursor && results.length < limit) {
-            results.push(cursor.value);
+            if (!driverId || cursor.value.driverId === driverId) results.push(cursor.value);
             cursor.continue();
           } else {
             resolve(results);
@@ -120,7 +120,7 @@ class OfflineQueueService {
         req.onerror = () => reject(req.error);
       });
     } catch {
-      return [...this.memoryFallback].slice(0, limit);
+      return this.memoryFallback.filter(item => !driverId || item.driverId === driverId).slice(0, limit);
     }
   }
 
@@ -143,7 +143,8 @@ class OfflineQueueService {
     }
   }
 
-  public async getCount(): Promise<number> {
+  public async getCount(driverId?: string): Promise<number> {
+    if (driverId) return (await this.getAll(Infinity, driverId)).length;
     try {
       const db = await this.initIndexedDb();
       return new Promise<number>((resolve, reject) => {

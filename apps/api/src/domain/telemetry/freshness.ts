@@ -21,7 +21,7 @@ export const FRESHNESS_THRESHOLDS = {
  * - active trip, 20 s < age <= 120 s            -> STALE
  * - active trip, age > 120 s                    -> DRIVER_OFFLINE
  */
-export function computeFreshness(now: Date, loc: VehicleLocationDTO | null, activeTrip: TripDTO | null): { state: Freshness; ageMs: number | null } {
+export function computeFreshness(now: Date, loc: Pick<VehicleLocationDTO, 'tripId' | 'capturedAt' | 'receivedAt'> | null, activeTrip: Pick<TripDTO, 'id'> | null): { state: Freshness; ageMs: number | null } {
   if (!loc) return { state: 'UNAVAILABLE', ageMs: null };
   const positionTime = Math.min(loc.capturedAt.getTime(), loc.receivedAt.getTime());
   const ageMs = Math.max(0, now.getTime() - positionTime);
