@@ -68,7 +68,7 @@ export const DriverHistory: React.FC = () => {
               </div>
 
               <div className="text-right shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
-                <div className="text-[11px] text-slate-400">Final passenger count</div>
+                <div className="text-[11px] text-slate-600">Final passenger count</div>
                 <div className="text-sm font-bold text-slate-800 font-mono">
                   {trip.hasOccupancy ? `${trip.currentOccupancy} passengers` : 'Unavailable'}
                 </div>

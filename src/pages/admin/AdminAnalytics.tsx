@@ -48,7 +48,7 @@ export const AdminAnalytics: React.FC = () => {
           {completedTrips.length === 0 ? (
             <p className="text-xs text-slate-500">No completed trips yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" role="region" aria-label="Recent completed trips table" tabIndex={0}>
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
                   <tr>
