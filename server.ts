@@ -8,7 +8,7 @@ import { createServer as createViteServer } from 'vite';
 import { initDatabase, checkDatabaseHealth } from './server/db';
 import { initSocketIO } from './server/socket';
 import { getJwtSecret } from './server/middleware/auth';
-import { resolveAllowedOrigins, buildCorsOptions } from './server/config/cors';
+import { resolveAllowedOrigins, buildCorsOptions } from './apps/api/src/config/cors';
 import authRoutes from './server/routes/auth';
 import collegeRoutes from './server/routes/colleges';
 import scheduleRoutes from "./server/routes/schedules";

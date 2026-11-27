@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { resolveAllowedOrigins, buildCorsOptions } from '../server/config/cors';
+import { resolveAllowedOrigins, buildCorsOptions } from '../apps/api/src/config/cors';
 import { initDatabase, checkDatabaseHealth } from '../server/db';
 import authRoutes from '../server/routes/auth';
 import collegeRoutes from '../server/routes/colleges';

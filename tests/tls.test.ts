@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPgConnection, isPrivateHost } from '../server/db/tls';
+import { buildPgConnection, isPrivateHost } from '../apps/api/src/infra/postgres/tls';
 
 const env = (o: Record<string, string>) => o as unknown as NodeJS.ProcessEnv;
 const PROD = { NODE_ENV: 'production' };

@@ -1,7 +1,7 @@
 import cors from 'cors';
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
-import { buildCorsOptions } from '../../../../server/config/cors';
+import { buildCorsOptions } from '../config/cors';
 import type { AuthService } from '../auth/service';
 import { DomainError } from '../domain/errors';
 import type { LiveService } from '../domain/live';

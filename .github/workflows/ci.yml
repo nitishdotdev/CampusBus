@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
-      # Disposable PostgreSQL for the legacy-store integration tests (schema, schedules/complaints).
+      # Disposable PostgreSQL for the API repository and migration suites.
       postgres:
         image: postgres:16
         env:
@@ -22,16 +22,9 @@ jobs:
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
-      # Real MongoDB for the apps/api integration tests.
-      mongo:
-        image: mongo:7
-        ports: ['27017:27017']
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       CI_REQUIRE_INTEGRATION: '1'
       PG_TEST_URL: postgres://postgres:postgres@localhost:5432/campusmove_test
-      MONGODB_TEST_URI: mongodb://localhost:27017
       PG_TLS_TEST_URL: postgres://postgres:postgres@localhost:54330/postgres
       PG_TLS_TEST_CA_FILE: ${{ github.workspace }}/.tls/ca.crt
       PG_TLS_TEST_WRONG_DNS_URL: postgres://postgres:postgres@db-wrong.test:54330/postgres

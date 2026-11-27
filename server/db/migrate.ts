@@ -1,4 +1,4 @@
-import { buildPgConnection } from './tls';
+import { buildPgConnection } from '../../apps/api/src/infra/postgres/tls';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';

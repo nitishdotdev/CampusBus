@@ -18,8 +18,8 @@ import { createApp } from './http/app';
 import { applyV1Schema } from './infra/postgres/pool';
 import { createPostgresRepositories } from './infra/postgres/repositories';
 import { createGateway } from './realtime/gateway';
-import { resolveAllowedOrigins } from '../../../server/config/cors';
-import { buildPgConnection } from '../../../server/db/tls';
+import { resolveAllowedOrigins } from './config/cors';
+import { buildPgConnection } from './infra/postgres/tls';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) { console.error('FATAL: DATABASE_URL is required'); process.exit(1); }

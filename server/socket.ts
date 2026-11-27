@@ -1,4 +1,4 @@
-import { createOriginCheck } from './config/cors';
+import { createOriginCheck } from '../apps/api/src/config/cors';
 import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { verifyToken } from './middleware/auth';

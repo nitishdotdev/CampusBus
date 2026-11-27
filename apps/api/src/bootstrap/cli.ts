@@ -15,7 +15,7 @@ import { loadTrackingConfig } from '../config/env';
 import { createServices } from '../compose';
 import { applyV1Schema } from '../infra/postgres/pool';
 import { createPostgresRepositories } from '../infra/postgres/repositories';
-import { buildPgConnection } from '../../../../server/db/tls';
+import { buildPgConnection } from '../infra/postgres/tls';
 import { provisionCampus } from './provisionCampus';
 
 function flag(name: string, envName: string, fallback = ''): string {

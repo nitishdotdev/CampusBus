@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import http from 'http';
 import request from 'supertest';
-import { resolveAllowedOrigins, buildCorsOptions } from '../server/config/cors';
+import { resolveAllowedOrigins, buildCorsOptions } from '../apps/api/src/config/cors';
 import { initSocketIO } from '../server/socket';
 
 const APPROVED = 'https://campusmove.example.com';

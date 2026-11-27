@@ -3,7 +3,7 @@
 // Example: PG_TLS_TEST_URL=postgres://postgres@localhost:54330/postgres PG_TLS_TEST_CA_FILE=/tmp/pgtls/certs/ca.crt npm test
 import { describe, it, expect } from 'vitest';
 import { Pool } from 'pg';
-import { buildPgConnection } from '../server/db/tls';
+import { buildPgConnection } from '../apps/api/src/infra/postgres/tls';
 
 const URL_ = process.env.PG_TLS_TEST_URL;
 const CA = process.env.PG_TLS_TEST_CA_FILE;

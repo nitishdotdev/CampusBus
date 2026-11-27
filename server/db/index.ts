@@ -244,7 +244,7 @@ let memoryData: DatabaseData = {
 };
 
 import os from 'os';
-import { buildPgConnection } from './tls';
+import { buildPgConnection } from '../../apps/api/src/infra/postgres/tls';
 
 function getWritableDataDir(): string {
   try {

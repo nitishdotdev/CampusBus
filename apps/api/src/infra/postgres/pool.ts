@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
-import { buildPgConnection } from '../../../../../server/db/tls';
+import { buildPgConnection } from './tls';
 
 export async function createPostgresPool(env: NodeJS.ProcessEnv = process.env): Promise<pg.Pool> {
   const url = env.DATABASE_URL;
