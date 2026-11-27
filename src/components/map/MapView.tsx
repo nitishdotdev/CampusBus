@@ -228,6 +228,7 @@ export const MapView: React.FC<MapViewProps> = ({
       label.className = 'text-xs font-semibold text-slate-900';
       label.textContent = stop.name + (isNext ? ' (Next stop)' : isCompleted ? ' (Arrived)' : '');
       marker.getElement()?.setAttribute('aria-label', stop.name);
+      marker.getElement()?.setAttribute('role', onSelectStop ? 'button' : 'img');
       marker.bindTooltip(label, { direction: 'top', offset: [0, -8] });
 
       marker.on('click', () => {
@@ -337,6 +338,7 @@ export const MapView: React.FC<MapViewProps> = ({
       const tracking = bus.isSimulated ? 'Simulated' : bus.trackingStatus === 'LIVE' ? 'Live' : 'Last reported';
       label.textContent = `${bus.busNumber} · ${tracking}${speed}`;
       busMarkersRef.current[bus.id].getElement()?.setAttribute('aria-label', bus.busNumber);
+      busMarkersRef.current[bus.id].getElement()?.setAttribute('role', onSelectBus ? 'button' : 'img');
       busMarkersRef.current[bus.id].bindTooltip(label, { direction: 'top', offset: [0, -20] });
     });
   }, [buses, routes, selectedBusId, onSelectBus]);

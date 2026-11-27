@@ -91,7 +91,7 @@ export const StudentProfile: React.FC = () => {
                   <div className="text-[11px] text-slate-500">{route.stops.length} stops • Every {route.frequencyMinutes}m</div>
                 </div>
               </div>
-              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">
                 Saved
               </span>
             </div>
