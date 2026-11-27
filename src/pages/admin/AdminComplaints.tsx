@@ -1,74 +1,60 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, AlertCircle, CheckCircle, Clock, Loader } from 'lucide-react';
-import { apiClient } from '../../services/apiClient';
+import { complaintError, complaintStatuses, complaintsV1, type Complaint, type ComplaintStatus } from '../../services/v1/complaints';
 
-interface Complaint {
-  id: string;
-  student_id: string;
-  title: string;
-  description: string;
-  status: string;
-  priority: string;
-  category: string;
-  admin_response?: string;
-  created_at: string;
-}
+const nextStatus: Record<ComplaintStatus, ComplaintStatus[]> = {
+  OPEN: ['IN_PROGRESS', 'RESOLVED'],
+  IN_PROGRESS: ['RESOLVED'],
+  RESOLVED: ['CLOSED'],
+  CLOSED: [],
+};
 
 export function AdminComplaints() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState('ALL');
+  const [filter, setFilter] = useState<ComplaintStatus | 'ALL'>('ALL');
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const [response, setResponse] = useState('');
 
-  // Fetch real complaints from API
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
-    const fetchComplaints = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const params = filter !== 'ALL' ? `?status=${filter}` : '';
-        const res = await apiClient.get<any[]>(`/api/complaints${params}`);
-        setComplaints(res || []);
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load complaints');
-      } finally {
-        setLoading(false);
-      }
-    };
+    let active = true;
+    setLoading(true);
+    setError(null);
+    void complaintsV1.list()
+      .then(items => { if (active) setComplaints(items); })
+      .catch(() => { if (active) setError('Failed to load complaints.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [reload]);
 
-    fetchComplaints();
-  }, [filter]);
-
-  const handleStatusChange = async (id: string, newStatus: string) => {
+  const update = async (id: string, patch: { status?: ComplaintStatus; adminResponse?: string }) => {
+    if (pendingId) return false;
+    setPendingId(id);
+    setError(null);
     try {
-      await apiClient.put<any[]>(`/api/complaints/${id}`, { status: newStatus });
-      const res = await apiClient.get<any[]>('/api/complaints');
-      setComplaints(res || []);
-    } catch (err: any) {
-      alert(err?.message || 'Failed to update status');
+      const record = await complaintsV1.update(id, patch);
+      setComplaints(previous => previous.map(item => item.id === id ? record : item));
+      return true;
+    } catch (error) {
+      setError(complaintError(error, 'Failed to save the complaint update.'));
+      return false;
+    } finally {
+      setPendingId(null);
     }
   };
 
-  const handleResponseSubmit = async (id: string) => {
+  const handleResponseSubmit = async (complaint: Complaint) => {
     if (!response.trim()) {
-      alert('Please enter a response');
+      setError('Enter a response.');
       return;
     }
-
-    try {
-      await apiClient.put<any[]>(`/api/complaints/${id}`, {
-        adminResponse: response,
-        status: 'IN_PROGRESS',
-      });
-
-      const res = await apiClient.get<any[]>('/api/complaints');
-      setComplaints(res || []);
+    const status = complaint.status === 'OPEN' ? 'IN_PROGRESS' : undefined;
+    if (await update(complaint.id, { adminResponse: response, status })) {
       setResponse('');
       setSelectedComplaint(null);
-    } catch (err: any) {
-      alert(err?.message || 'Failed to submit response');
     }
   };
 
@@ -105,6 +91,8 @@ export function AdminComplaints() {
     { label: 'Resolved', value: complaints.filter((c) => c.status === 'RESOLVED').length, color: 'bg-green-500' },
   ];
 
+  const visible = filter === 'ALL' ? complaints : complaints.filter(item => item.status === filter);
+
   return (
     <div className="min-h-screen bg-gray-100 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
@@ -117,9 +105,9 @@ export function AdminComplaints() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {stats.map((stat) => (
-            <div key={stat.label} className={`${stat.color} text-white rounded-lg shadow-md p-6`}>
+            <div key={stat.label} className={`${stat.color} text-white rounded-lg p-4`}>
               <p className="text-sm opacity-90">{stat.label}</p>
               <p className="text-3xl font-bold">{stat.value}</p>
             </div>
@@ -130,22 +118,23 @@ export function AdminComplaints() {
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2 mb-6">
             <AlertCircle className="w-5 h-5" />
             {error}
+            <button type="button" onClick={() => setReload(n => n + 1)} className="ml-auto underline">Refresh</button>
           </div>
         )}
 
         {/* Filter */}
         <div className="mb-6 flex gap-2 flex-wrap">
-          {['ALL', 'OPEN', 'IN_PROGRESS', 'RESOLVED'].map((status) => (
+          {(['ALL', ...Object.keys(complaintStatuses)] as (ComplaintStatus | 'ALL')[]).map((status) => (
             <button
               key={status}
-              onClick={() => setFilter(status)}
+              onClick={() => setFilter(status)} aria-pressed={filter === status}
               className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
                 filter === status
                   ? 'bg-blue-600 text-white'
                   : 'bg-white text-gray-700 hover:bg-gray-50'
               }`}
             >
-              {status}
+              {status === 'ALL' ? 'All' : complaintStatuses[status]}
             </button>
           ))}
         </div>
@@ -156,10 +145,10 @@ export function AdminComplaints() {
             <Loader className="w-12 h-12 text-blue-400 mx-auto animate-spin mb-3" />
             <p className="text-gray-600">Loading complaints...</p>
           </div>
-        ) : complaints.length > 0 ? (
+        ) : visible.length > 0 ? (
           <div className="space-y-4">
-            {complaints.map((complaint) => (
-              <div key={complaint.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+            {visible.map((complaint) => (
+              <div key={complaint.id} className="bg-white rounded-lg p-4 hover:shadow-lg transition-shadow">
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
@@ -169,27 +158,27 @@ export function AdminComplaints() {
                       </h3>
                     </div>
                     <p className="text-sm text-gray-600">
-                      From: <span className="font-semibold">{complaint.student_id}</span>
+                      From: <span className="font-semibold">{complaint.studentName}</span>
                     </p>
                     <p className="text-xs text-gray-500">
-                      {new Date(complaint.created_at).toLocaleDateString()}
+                      {new Date(complaint.createdAt).toLocaleDateString()}
                     </p>
                   </div>
 
                   <div className="flex flex-col gap-2">
                     <span className={`px-3 py-1 rounded-full text-sm font-semibold ${getStatusBg(complaint.status)} text-center`}>
-                      {complaint.status}
+                      {complaintStatuses[complaint.status]}
                     </span>
 
-                    {complaint.status !== 'RESOLVED' && (
+                    {nextStatus[complaint.status].length > 0 && (
                       <select
                         value={complaint.status}
-                        onChange={(e) => handleStatusChange(complaint.id, e.target.value)}
+                        onChange={(e) => void update(complaint.id, { status: e.target.value as ComplaintStatus })}
+                        aria-label={`Status for ${complaint.title}`} disabled={pendingId !== null}
                         className="px-3 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       >
-                        <option value="OPEN">Open</option>
-                        <option value="IN_PROGRESS">In Progress</option>
-                        <option value="RESOLVED">Resolved</option>
+                        <option value={complaint.status}>{complaintStatuses[complaint.status]}</option>
+                        {nextStatus[complaint.status].map(status => <option value={status} key={status}>{complaintStatuses[status]}</option>)}
                       </select>
                     )}
                   </div>
@@ -197,19 +186,19 @@ export function AdminComplaints() {
 
                 <p className="text-gray-700 mb-4">{complaint.description}</p>
 
-                {complaint.admin_response ? (
+                {complaint.adminResponse ? (
                   <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
                     <p className="text-sm font-semibold text-blue-900 mb-1">
                       Your Response:
                     </p>
-                    <p className="text-sm text-blue-800">{complaint.admin_response}</p>
+                    <p className="text-sm text-blue-800">{complaint.adminResponse}</p>
                   </div>
-                ) : (
+                ) : complaint.status !== 'CLOSED' ? (
                   <div>
                     {selectedComplaint?.id === complaint.id ? (
                       <div className="space-y-3">
                         <textarea
-                          value={response}
+                          value={response} maxLength={4000} aria-label="Complaint response"
                           onChange={(e) => setResponse(e.target.value)}
                           placeholder="Enter your response..."
                           rows={3}
@@ -217,7 +206,7 @@ export function AdminComplaints() {
                         ></textarea>
                         <div className="flex gap-2">
                           <button
-                            onClick={() => handleResponseSubmit(complaint.id)}
+                            onClick={() => handleResponseSubmit(complaint)}
                             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                           >
                             Send Response
@@ -245,7 +234,7 @@ export function AdminComplaints() {
                       </button>
                     )}
                   </div>
-                )}
+                ) : null}
               </div>
             ))}
           </div>

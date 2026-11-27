@@ -166,3 +166,26 @@ export interface EmergencyAlertRepository {
   acknowledge(campusId: string, id: string, byUserId: string, at: Date): Promise<EmergencyAlertDTO | null>;
   resolve(campusId: string, id: string, byUserId: string, at: Date): Promise<EmergencyAlertDTO | null>;
 }
+
+export type ComplaintStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+export type ComplaintCategory = 'DRIVER_BEHAVIOR' | 'VEHICLE_CONDITION' | 'SCHEDULE_ISSUE' | 'CLEANLINESS' | 'SAFETY' | 'OTHER';
+export type ComplaintPriority = 'LOW' | 'NORMAL' | 'HIGH';
+
+export interface NewComplaint {
+  campusId: string; studentId: string;
+  title: string; description: string; category: ComplaintCategory; priority: ComplaintPriority;
+  tripId?: string; busId?: string; routeId?: string;
+}
+
+export interface Complaint extends NewComplaint {
+  id: string; studentName: string; status: ComplaintStatus;
+  adminResponse: string | null; respondedAt: Date | null; resolvedAt: Date | null; closedAt: Date | null;
+  createdAt: Date; updatedAt: Date;
+}
+
+export interface ComplaintRepository {
+  list(campusId: string, studentId: string | null, options: { page?: number; pageSize?: number }): Promise<Page<Complaint>>;
+  find(campusId: string, id: string, studentId: string | null): Promise<Complaint | null>;
+  create(body: NewComplaint): Promise<Complaint>;
+  update(campusId: string, id: string, actorId: string, patch: Partial<Pick<Complaint, 'status' | 'priority'>> & { adminResponse?: string }): Promise<Complaint | null>;
+}

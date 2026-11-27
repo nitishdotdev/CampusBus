@@ -1,4 +1,5 @@
 import type pg from 'pg';
+import { PgComplaintRepository } from './complaints';
 import { DomainError } from '../../domain/errors';
 import type {
   AlertStatus, BusDTO, BusRepository, CampusDTO, CampusRepository,
@@ -635,6 +636,7 @@ export class PgCampusRepository implements CampusRepository {
 export function createPostgresRepositories(pool: pg.Pool) {
   return {
     campuses: new PgCampusRepository(pool),
+    complaints: new PgComplaintRepository(pool),
     users: new PgUserRepository(pool),
     schedules: new PgScheduleRepository(pool),
     notifications: new PgNotificationRepository(pool),

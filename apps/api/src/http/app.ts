@@ -7,12 +7,13 @@ import { DomainError } from '../domain/errors';
 import type { LiveService } from '../domain/live';
 import type { TelemetryIngestService } from '../domain/telemetry/ingest';
 import type { TripService } from '../domain/trips';
-import type { BusRepository, CampusRepository, Principal, Role, RouteRepository, TripRepository, UserRepository } from '../domain/types';
+import type { BusRepository, CampusRepository, ComplaintRepository, Principal, Role, RouteRepository, TripRepository, UserRepository } from '../domain/types';
 
 export interface AppDeps {
   ingest: TelemetryIngestService; trips: TripService; live: LiveService; auth: AuthService;
   users: UserRepository; buses: BusRepository; routes: RouteRepository; tripRepo: TripRepository;
   campuses?: CampusRepository;
+  complaints?: ComplaintRepository;
   bootstrapSecret?: string;
   verifyToken: (token: string) => Principal | null; allowedOrigins: string[];
 }
@@ -328,6 +329,66 @@ export function createApp(deps: AppDeps) {
     }));
     app.use('/api/v1/alerts', alr);
   }
+
+  const complaints = deps.complaints;
+  if (complaints) {
+    const router = express.Router();
+    const status = z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']);
+    const priority = z.enum(['LOW', 'NORMAL', 'HIGH']);
+    const text = (max: number) => z.string().trim().min(1).max(max);
+    const input = z.strictObject({
+      title: text(160), description: text(4000),
+      category: z.enum(['DRIVER_BEHAVIOR', 'VEHICLE_CONDITION', 'SCHEDULE_ISSUE', 'CLEANLINESS', 'SAFETY', 'OTHER']).default('OTHER'),
+      priority: priority.default('NORMAL'),
+      tripId: idParam.optional(), busId: idParam.optional(), routeId: idParam.optional(),
+    });
+    const update = z.strictObject({
+      status: status.optional(), priority: priority.optional(), adminResponse: text(4000).optional(),
+    }).refine(body => Object.keys(body).length > 0, 'Provide at least one field');
+    router.use(auth, requireRole('STUDENT', 'ADMIN'), (req, res, next) => {
+      const { campusId, userId, role } = (req as AuthedRequest).principal;
+      void deps.users.findById(campusId, userId).then(user => {
+        if (!user || user.status !== 'ACTIVE' || user.role !== role) {
+          res.status(403).json({ error: 'ACCOUNT_NOT_ACTIVE' });
+        } else next();
+      }).catch(next);
+    });
+    router.get('/', wrap(async (req, res) => {
+      const { campusId, userId, role } = req.principal;
+      res.json(await complaints.list(campusId, role === 'STUDENT' ? userId : null, pageQuery.parse(req.query)));
+    }));
+    router.get('/:id', wrap(async (req, res) => {
+      const { campusId, userId, role } = req.principal;
+      const record = await complaints.find(campusId, idParam.parse(req.params['id']), role === 'STUDENT' ? userId : null);
+      if (!record) throw new DomainError(404, 'COMPLAINT_NOT_FOUND');
+      res.json(record);
+    }));
+    router.post('/', requireRole('STUDENT'), wrap(async (req, res) => {
+      const body = input.parse(req.body);
+      const { campusId, userId } = req.principal;
+      const [bus, route, trip] = await Promise.all([
+        body.busId ? deps.buses.findById(campusId, body.busId) : null,
+        body.routeId ? deps.routes.findById(campusId, body.routeId) : null,
+        body.tripId ? deps.tripRepo.findById(campusId, body.tripId) : null,
+      ]);
+      if ((body.busId && !bus) || (body.routeId && !route) || (body.tripId && !trip)) {
+        throw new DomainError(404, 'TRANSPORT_REFERENCE_NOT_FOUND');
+      }
+      if (trip && ((bus && trip.busId !== bus.id) || (route && trip.routeId !== route.id))) {
+        throw badReq('INCONSISTENT_TRANSPORT_REFERENCE');
+      }
+      res.status(201).json(await complaints.create({ ...body, campusId, studentId: userId }));
+    }));
+    router.patch('/:id', requireRole('ADMIN'), wrap(async (req, res) => {
+      const { campusId, userId } = req.principal;
+      const record = await complaints.update(campusId, idParam.parse(req.params['id']), userId, update.parse(req.body));
+      if (!record) throw new DomainError(404, 'COMPLAINT_NOT_FOUND');
+      res.json(record);
+    }));
+    app.use('/api/v1/complaints', router);
+  }
+
+  app.use('/api', (_req, res) => { res.status(404).json({ error: 'NOT_FOUND' }); });
 
   // ─── Error handler ────────────────────────────────────────────────────────
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
