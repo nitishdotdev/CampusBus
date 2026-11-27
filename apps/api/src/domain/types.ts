@@ -80,7 +80,7 @@ export interface UserRepository {
 }
 export interface RefreshTokenRepository {
   /** Create a refresh token. familyId groups rotated tokens for theft detection. */
-  create(t: { userId: string; campusId: string; tokenHash: string; familyId: string; expiresAt: Date; previousId?: string }): Promise<string>;
+  create(t: { userId: string; campusId: string; tokenHash: string; familyId: string; expiresAt: Date; previousId?: string; expectedPasswordHash?: string }): Promise<string>;
   find(tokenHash: string): Promise<{ id: string; userId: string; campusId: string; familyId: string; expiresAt: Date; revokedAt: Date | null; previousId: string | null } | null>;
   rotate?(tokenId: string, at: Date, successor: { userId: string; campusId: string; familyId: string; tokenHash: string; expiresAt: Date }): Promise<'rotated' | 'reused' | 'expired'>;
   /** Revoke one token (used = normal rotation). */
@@ -97,6 +97,7 @@ export interface EmailTokenRepository {
   upsert(t: { userId: string; campusId: string; purpose: 'VERIFY_EMAIL' | 'RESET_PASSWORD'; tokenHash: string; expiresAt: Date }): Promise<void>;
   find(tokenHash: string, purpose: 'VERIFY_EMAIL' | 'RESET_PASSWORD'): Promise<{ userId: string; campusId: string; expiresAt: Date; usedAt: Date | null } | null>;
   markUsed(tokenHash: string, at: Date): Promise<void>;
+  completePasswordReset(input: { campusId: string; userId: string; tokenHash: string; passwordHash: string; expectedPasswordHash: string; at: Date }): Promise<boolean>;
 }
 export interface EmailSender {
   sendVerification(to: string, name: string, token: string): Promise<void>;

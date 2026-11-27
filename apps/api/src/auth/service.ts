@@ -62,9 +62,16 @@ export const bootstrapAdminSchema = z.object({
 // Simple in-process per-email login rate limiter
 class LoginLimiter {
   private windows = new Map<string, { start: number; count: number }>();
+  private nextSweep = 0;
   constructor(private limit: number, private windowMs: number, private now: () => number = Date.now) {}
   check(key: string): boolean {
     const t = this.now();
+    if (t >= this.nextSweep) {
+      for (const [k, window] of this.windows) {
+        if (t - window.start >= this.windowMs) this.windows.delete(k);
+      }
+      this.nextSweep = t + this.windowMs;
+    }
     const w = this.windows.get(key);
     if (!w || t - w.start >= this.windowMs) { this.windows.set(key, { start: t, count: 1 }); return true; }
     if (w.count >= this.limit) return false;
@@ -77,7 +84,7 @@ export interface AuthDeps {
   campuses?: CampusRepository;
   refreshTokens: RefreshTokenRepository;
   emailTokens: EmailTokenRepository;
-  email: EmailSender;
+  email?: EmailSender;
   config: AuthConfig;
   now?: () => Date;
 }
@@ -87,12 +94,16 @@ export class AuthService {
   private accessSecret: string;
   private refreshSecret: string;
   private limiter: LoginLimiter;
+  private resetRequests: LoginLimiter;
+  private resetAttempts: LoginLimiter;
 
   constructor(private d: AuthDeps) {
     this.now = d.now ?? (() => new Date());
     this.accessSecret = requireAccessSecret(d.config.env);
     this.refreshSecret = requireRefreshSecret(d.config.env);
     this.limiter = new LoginLimiter(d.config.rateLimitLoginAttempts, d.config.rateLimitWindowMs, () => this.now().getTime());
+    this.resetRequests = new LoginLimiter(1, 60_000, () => this.now().getTime());
+    this.resetAttempts = new LoginLimiter(5, d.config.resetTokenTtlMinutes * 60_000, () => this.now().getTime());
   }
 
   // ─── Admin-provisioned driver ──────────────────────────────────────────────
@@ -142,9 +153,11 @@ export class AuthService {
     if (d_requireVerify(this.d.config) && !user.emailVerifiedAt) throw new DomainError(403, 'EMAIL_NOT_VERIFIED');
 
     // Opportunistic live migration of bcrypt hashes to Argon2id.
-    if (verify.needsRehash) await this.d.users.updatePassword(campusId, user.id, verify.newHash, user.passwordHash);
+    if (verify.needsRehash && !await this.d.users.updatePassword(campusId, user.id, verify.newHash, user.passwordHash)) {
+      throw new DomainError(401, 'INVALID_CREDENTIALS');
+    }
 
-    const { raw } = await this.issueRefreshToken(user.id, campusId);
+    const { raw } = await this.issueRefreshToken(user.id, campusId, { expectedPasswordHash: verify.needsRehash ? verify.newHash : user.passwordHash });
     const accessToken = signAccessToken({ userId: user.id, campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
     return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw, user: toSession(user) };
   }
@@ -176,7 +189,7 @@ export class AuthService {
       if (outcome === 'expired') throw new DomainError(401, 'REFRESH_TOKEN_EXPIRED');
     } else {
       await this.d.refreshTokens.revoke(stored.id, this.now());
-      ({ raw } = await this.issueRefreshToken(user.id, stored.campusId, stored.familyId, stored.id));
+      ({ raw } = await this.issueRefreshToken(user.id, stored.campusId, { familyId: stored.familyId, previousId: stored.id }));
     }
     const accessToken = signAccessToken({ userId: user.id, campusId: stored.campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
     return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw };
@@ -195,6 +208,7 @@ export class AuthService {
 
   // ─── Email verification ────────────────────────────────────────────────────
   async sendVerification(campusId: string, userId: string, email: string, name: string): Promise<void> {
+    if (!this.d.email) throw new DomainError(503, 'EMAIL_DELIVERY_UNAVAILABLE');
     const otp = generateOTP();
     const expiresAt = new Date(this.now().getTime() + this.d.config.emailTokenTtlMinutes * 60_000);
     await this.d.emailTokens.upsert({ userId, campusId, purpose: 'VERIFY_EMAIL', tokenHash: hashToken(otp), expiresAt });
@@ -210,28 +224,40 @@ export class AuthService {
 
   // ─── Password reset ────────────────────────────────────────────────────────
   async requestPasswordReset(campusId: string, email: string): Promise<void> {
-    // Always appears to succeed to prevent email enumeration.
-    const user = await this.d.users.findByEmail(campusId, email.toLowerCase());
-    if (!user || user.status === 'DISABLED') return;
+    const sender = this.d.email;
+    if (!sender) throw new DomainError(503, 'PASSWORD_RESET_UNAVAILABLE');
+    const address = email.toLowerCase();
+    if (!this.resetRequests.check(`${campusId.toLowerCase()}:${address}`)) throw tooMany('PASSWORD_RESET_RATE_LIMITED');
+    const user = await this.d.users.findByEmail(campusId, address);
+    if (!user || user.status !== 'ACTIVE') return;
     const token = generateOTP();
     const expiresAt = new Date(this.now().getTime() + this.d.config.resetTokenTtlMinutes * 60_000);
-    await this.d.emailTokens.upsert({ userId: user.id, campusId, purpose: 'RESET_PASSWORD', tokenHash: hashToken(token), expiresAt });
-    await this.d.email.sendPasswordReset(email, user.name, token);
+    await this.d.emailTokens.upsert({ userId: user.id, campusId: user.campusId, purpose: 'RESET_PASSWORD', tokenHash: this.resetHash(user, token), expiresAt });
+    // Provider latency and outcomes must not determine the public response.
+    void sender.sendPasswordReset(user.email, user.name, token).catch(() => {
+      console.warn('[email] Password reset delivery failed. See the email provider dashboard.');
+    });
   }
 
   async confirmPasswordReset(campusId: string, email: string, otp: string, newPassword: string): Promise<void> {
     const pwResult = z.object({ password: passwordSchema }).safeParse({ password: newPassword });
     if (!pwResult.success) throw badRequest('WEAK_PASSWORD', pwResult.error.issues[0]?.message);
-    const rec = await this.d.emailTokens.find(hashToken(otp), 'RESET_PASSWORD');
-    if (!rec || rec.usedAt || rec.expiresAt < this.now()) throw new DomainError(400, 'INVALID_OR_EXPIRED_TOKEN');
-    const user = await this.d.users.findByEmail(campusId, email.toLowerCase());
-    if (!user || user.id !== rec.userId) throw new DomainError(400, 'INVALID_OR_EXPIRED_TOKEN');
-    const hash = await hashPassword(newPassword);
-    await Promise.all([
-      this.d.users.updatePassword(campusId, user.id, hash),
-      this.d.emailTokens.markUsed(hashToken(otp), this.now()),
-      this.d.refreshTokens.revokeAll(user.id, this.now()),
-    ]);
+    const address = email.toLowerCase();
+    if (!this.resetAttempts.check(`${campusId.toLowerCase()}:${address}`)) throw tooMany('PASSWORD_RESET_RATE_LIMITED');
+    const invalid = () => new DomainError(400, 'INVALID_OR_EXPIRED_TOKEN');
+    const user = await this.d.users.findByEmail(campusId, address);
+    if (!user || user.status !== 'ACTIVE') throw invalid();
+    const tokenHash = this.resetHash(user, otp);
+    const rec = await this.d.emailTokens.find(tokenHash, 'RESET_PASSWORD');
+    if (!rec || rec.usedAt || rec.expiresAt <= this.now()) throw invalid();
+    const passwordHash = await hashPassword(newPassword);
+    if (!await this.d.emailTokens.completePasswordReset({ campusId: user.campusId, userId: user.id, tokenHash, passwordHash, expectedPasswordHash: user.passwordHash, at: this.now() })) {
+      throw invalid();
+    }
+  }
+
+  private resetHash(user: { campusId: string; id: string; passwordHash: string }, otp: string): string {
+    return crypto.createHmac('sha256', this.refreshSecret).update(`password-reset:${user.campusId}:${user.id}:${user.passwordHash}:${otp}`).digest('hex');
   }
 
   async changePassword(principal: Principal, currentPassword: string, newPassword: string): Promise<void> {
@@ -292,12 +318,12 @@ export class AuthService {
   }
 
   // ─── Private ───────────────────────────────────────────────────────────────
-  private async issueRefreshToken(userId: string, campusId: string, familyId?: string, previousId?: string): Promise<{ raw: string; id: string }> {
+  private async issueRefreshToken(userId: string, campusId: string, options: { familyId?: string; previousId?: string; expectedPasswordHash?: string }): Promise<{ raw: string; id: string }> {
     const raw = generateRefreshToken();
     const hash = hashRefreshToken(raw);
-    const family = familyId ?? crypto.randomUUID();
+    const family = options.familyId ?? crypto.randomUUID();
     const expiresAt = new Date(this.now().getTime() + this.d.config.refreshTtlDays * 86_400_000);
-    const id = await this.d.refreshTokens.create({ userId, campusId, tokenHash: hash, familyId: family, expiresAt, previousId });
+    const id = await this.d.refreshTokens.create({ userId, campusId, tokenHash: hash, familyId: family, expiresAt, previousId: options.previousId, expectedPasswordHash: options.expectedPasswordHash });
     return { raw, id };
   }
 }

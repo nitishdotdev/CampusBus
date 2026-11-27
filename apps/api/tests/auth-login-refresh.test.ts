@@ -71,6 +71,7 @@ async function makeAuth() {
     upsert: async () => {},
     find: async () => null,
     markUsed: async () => {},
+    completePasswordReset: async () => false,
   };
 
   const auth = new AuthService({

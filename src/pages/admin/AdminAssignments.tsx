@@ -384,8 +384,9 @@ export const AdminAssignments: React.FC = () => {
           )}
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Select Campus Bus</label>
+            <label htmlFor="assignment-bus" className="block font-bold text-slate-700 mb-1">Select Campus Bus</label>
             <select
+              id="assignment-bus"
               value={selectedBusId}
               onChange={(e) => setSelectedBusId(e.target.value)}
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500"
@@ -401,8 +402,9 @@ export const AdminAssignments: React.FC = () => {
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Select Driver</label>
+            <label htmlFor="assignment-driver" className="block font-bold text-slate-700 mb-1">Select Driver</label>
             <select
+              id="assignment-driver"
               value={selectedDriverId}
               onChange={(e) => setSelectedDriverId(e.target.value)}
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500"
@@ -418,8 +420,9 @@ export const AdminAssignments: React.FC = () => {
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Operating Transit Route</label>
+            <label htmlFor="assignment-route" className="block font-bold text-slate-700 mb-1">Operating Transit Route</label>
             <select
+              id="assignment-route"
               value={selectedRouteId}
               onChange={(e) => setSelectedRouteId(e.target.value)}
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500"

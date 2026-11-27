@@ -42,6 +42,13 @@ describe.skipIf(!PG_TEST_URL)('CRUD APIs (buses, routes, schedules, notification
     const token = h.token({ id: h.seed.driverFree, campusId: h.seed.campusA, role: 'DRIVER' });
     const started = await post('/api/v1/trips/start', { busId: h.seed.busNoRoute }, token);
     expect(started.status).toBe(201);
+    const routePath = `/api/v1/routes/${h.seed.route1}`;
+    const original = (await get(routePath, admin())).body;
+    const rejected = await patch(routePath, { stops: [] }, admin());
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.error).toBe('ROUTE_HAS_ACTIVE_TRIP');
+    const renamed = await patch(routePath, { name: 'Updated route label' }, admin());
+    expect(renamed.body.stops).toEqual(original.stops);
     expect((await patch(path, { driverId: null, routeId: null }, admin())).status).toBe(409);
     expect((await patch(`/api/v1/buses/${h.seed.busNoRoute}`, { status: 'MAINTENANCE' }, admin())).status).toBe(409);
     expect((await post(`/api/v1/trips/${started.body.trip.id}/end`, {}, token)).status).toBe(200);

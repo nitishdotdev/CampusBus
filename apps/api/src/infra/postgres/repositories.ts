@@ -108,11 +108,19 @@ export class PgRefreshTokenRepository implements RefreshTokenRepository {
   constructor(private p: pg.Pool) {}
   async create(t: Parameters<RefreshTokenRepository['create']>[0]) {
     const id = newId();
-    await this.p.query(
-      `INSERT INTO v1.refresh_tokens (id, user_id, campus_id, token_hash, family_id, previous_id, expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [id, t.userId, t.campusId, t.tokenHash, t.familyId, t.previousId ?? null, t.expiresAt],
-    );
+    const sql = `INSERT INTO v1.refresh_tokens (id, user_id, campus_id, token_hash, family_id, previous_id, expires_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)`;
+    const values = [id, t.userId, t.campusId, t.tokenHash, t.familyId, t.previousId ?? null, t.expiresAt];
+    if (t.expectedPasswordHash === undefined) await this.p.query(sql, values);
+    else await withTransaction(this.p, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(476202, hashtext($1))', [t.userId]);
+      const account = await client.query(
+        `SELECT id FROM v1.users WHERE campus_id = $1 AND id = $2 AND password_hash = $3 AND status = 'ACTIVE' FOR UPDATE`,
+        [t.campusId, t.userId, t.expectedPasswordHash],
+      );
+      if (!account.rowCount) throw new DomainError(401, 'INVALID_CREDENTIALS');
+      await client.query(sql, values);
+    });
     return id;
   }
   async find(tokenHash: string) {
@@ -180,6 +188,27 @@ export class PgEmailTokenRepository implements EmailTokenRepository {
   }
   async markUsed(tokenHash: string, at: Date) {
     await this.p.query('UPDATE v1.email_tokens SET used_at = $2 WHERE token_hash = $1', [tokenHash, at]);
+  }
+  async completePasswordReset({ campusId, userId, tokenHash, passwordHash, expectedPasswordHash, at }: Parameters<EmailTokenRepository['completePasswordReset']>[0]) {
+    return withTransaction(this.p, async client => {
+      // Serialize with refresh rotation before changing the password and revoking the session family.
+      await client.query('SELECT pg_advisory_xact_lock(476202, hashtext($1))', [userId]);
+      const account = await client.query(
+        `SELECT id FROM v1.users WHERE campus_id = $1 AND id = $2 AND password_hash = $3 AND status = 'ACTIVE' FOR UPDATE`,
+        [campusId, userId, expectedPasswordHash],
+      );
+      if (!account.rowCount) return false;
+      const consumed = await client.query(
+        `UPDATE v1.email_tokens SET used_at = $4
+         WHERE campus_id = $1 AND user_id = $2 AND purpose = 'RESET_PASSWORD'
+           AND token_hash = $3 AND used_at IS NULL AND expires_at > $4`,
+        [campusId, userId, tokenHash, at],
+      );
+      if (!consumed.rowCount) return false;
+      await client.query('UPDATE v1.users SET password_hash = $3, updated_at = $4 WHERE campus_id = $1 AND id = $2', [campusId, userId, passwordHash, at]);
+      await client.query('UPDATE v1.refresh_tokens SET revoked_at = $3 WHERE user_id = $1 AND campus_id = $2 AND revoked_at IS NULL', [userId, campusId, at]);
+      return true;
+    });
   }
 }
 
@@ -407,6 +436,11 @@ export class PgRouteRepository implements RouteRepository {
       );
       if (!r.rows[0]) { await client.query('ROLLBACK'); return null; }
       if (patch.stops) {
+        const active = await client.query(
+          `SELECT 1 FROM v1.trips WHERE campus_id = $1 AND route_id = $2 AND status = 'ACTIVE' LIMIT 1`,
+          [campusId, id],
+        );
+        if (active.rowCount) throw new DomainError(409, 'ROUTE_HAS_ACTIVE_TRIP');
         await client.query('DELETE FROM v1.stops WHERE route_id = $1', [id]);
         for (const s of patch.stops) {
           await client.query(
@@ -415,8 +449,9 @@ export class PgRouteRepository implements RouteRepository {
           );
         }
       }
+      const stops = await client.query('SELECT * FROM v1.stops WHERE route_id = $1', [id]);
       await client.query('COMMIT');
-      return this.findById(campusId, id);
+      return toRoute(r.rows[0], stops.rows.map(toStop));
     } catch (e) {
       await client.query('ROLLBACK');
       if (isUniqueViolation(e, 'routes_campus_code_key')) throw new DomainError(409, 'ROUTE_CODE_TAKEN');
@@ -475,6 +510,8 @@ export class PgTripRepository implements TripRepository {
             [t.driverId, t.campusId],
           );
           if (!account.rowCount) throw new DomainError(403, 'ACCOUNT_NOT_ACTIVE');
+          const route = await client.query('SELECT id FROM v1.routes WHERE id = $1 AND campus_id = $2 FOR SHARE', [t.routeId, t.campusId]);
+          if (!route.rowCount) throw new DomainError(404, 'ROUTE_NOT_FOUND');
         }
         const result = await client.query(
           `INSERT INTO v1.trips (id, campus_id, bus_id, driver_id, route_id, status, mode, started_at, active_bus_key, active_driver_key, current_occupancy)

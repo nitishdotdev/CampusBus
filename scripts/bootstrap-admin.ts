@@ -14,7 +14,6 @@ import { AuthService, DEFAULT_AUTH_CONFIG } from '../apps/api/src/auth/service';
 import { createPostgresRepositories } from '../apps/api/src/infra/postgres/repositories';
 import { applyV1Schema } from '../apps/api/src/infra/postgres/pool';
 import { buildPgConnection } from '../apps/api/src/infra/postgres/tls';
-import { ConsoleEmailSender } from '../apps/api/src/infra/email/stub';
 
 function arg(name: string): string {
   const idx = process.argv.indexOf(name);
@@ -56,7 +55,6 @@ async function main() {
       campuses: repos.campuses,
       refreshTokens: repos.refreshTokens,
       emailTokens: repos.emailTokens,
-      email: new ConsoleEmailSender(),
       config: { ...DEFAULT_AUTH_CONFIG, env: process.env },
     });
     const user = await auth.bootstrapAdmin(campusId, email, password, name);

@@ -9,7 +9,6 @@ import type {
   RefreshTokenRepository, RouteRepository, ScheduleRepository,
   TelemetryRepository, TripRepository, UserRepository, VehicleLocationRepository,
 } from './domain/types';
-import { ConsoleEmailSender } from './infra/email/stub';
 
 export interface AppRepositories {
   campuses: CampusRepository;
@@ -37,7 +36,7 @@ export function createServices(
 ) {
   const auth = new AuthService({
     users: repos.users, campuses: repos.campuses, refreshTokens: repos.refreshTokens, emailTokens: repos.emailTokens,
-    email: email ?? new ConsoleEmailSender(),
+    email,
     config: { ...DEFAULT_AUTH_CONFIG, ...(authConfig ?? {}), env: authConfig?.env ?? process.env },
     now,
   });

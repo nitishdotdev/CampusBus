@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { accountStatus, assignment, busCreate, busPatch, driverAssignment, emptyBody, idParam, routeAssignment, routeCreate, routePatch, scheduleCreate, schedulePatch, transport } from './validation';
 import { buildCorsOptions } from '../config/cors';
@@ -21,6 +22,8 @@ export interface AppDeps {
   alerts?: EmergencyAlertRepository;
   bootstrapSecret?: string;
   verifyActiveAccount?: boolean;
+  checkReadiness?: () => Promise<void>;
+  trustProxy?: number;
   verifyToken: (token: string) => Principal | null; allowedOrigins: string[];
 }
 type AuthedRequest = Request & { principal: Principal };
@@ -32,11 +35,20 @@ const pageQuery = z.object({ page: z.coerce.number().int().min(1).optional(), pa
 export function createApp(deps: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
+  if (deps.trustProxy !== undefined) app.set('trust proxy', deps.trustProxy);
   app.use(cors(buildCorsOptions(deps.allowedOrigins)));
   app.use(express.json({ limit: '64kb' }));
 
   // ─── Health ────────────────────────────────────────────────────────────────
-  app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
+  app.get('/healthz', async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      await deps.checkReadiness?.();
+      res.json({ status: 'ok' });
+    } catch {
+      res.status(503).json({ status: 'unavailable' });
+    }
+  });
 
   // ─── Auth middleware ───────────────────────────────────────────────────────
   const auth: RequestHandler = (req, res, next) => {
@@ -165,12 +177,16 @@ export function createApp(deps: AppDeps) {
     await deps.auth.changePassword(req.principal, body.currentPassword, body.newPassword);
     res.status(204).send();
   }));
-  ar.post('/request-password-reset', wrap(async (req, res) => {
+  const resetLimiter = (limit: number) => rateLimit({
+    windowMs: 60_000, limit, standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'PASSWORD_RESET_RATE_LIMITED' },
+  });
+  ar.post('/request-password-reset', resetLimiter(15), wrap(async (req, res) => {
     const { campusId, email } = reset.parse(req.body);
     await deps.auth.requestPasswordReset(campusId, email);
     res.status(204).send();
   }));
-  ar.post('/confirm-password-reset', wrap(async (req, res) => {
+  ar.post('/confirm-password-reset', resetLimiter(30), wrap(async (req, res) => {
     const { campusId, email, otp, newPassword } = reset.extend({ otp: otpSchema, newPassword: z.string().min(8).max(72) }).parse(req.body);
     await deps.auth.confirmPasswordReset(campusId, email, otp, newPassword);
     res.status(204).send();

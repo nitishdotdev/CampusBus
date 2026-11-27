@@ -8,11 +8,18 @@ import { ShieldAlert, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const AppShell: React.FC = () => {
-  const { emergencyAlerts, role, currentUser, isRestoringSession, dataError, refreshData } = useApp();
+  const { emergencyAlerts, role, currentUser, sessionRestoration, retrySessionRestore, dataError, refreshData } = useApp();
   const location = useLocation();
   const activeAlert = emergencyAlerts.find((a) => a.status === 'ACTIVE');
 
-  if (isRestoringSession) return <main className="p-6" role="status">Restoring your session…</main>;
+  if (!currentUser && sessionRestoration === 'loading') return <main className="p-6" role="status">Restoring your session…</main>;
+  if (!currentUser && sessionRestoration === 'retry') return (
+    <main className="p-6 text-slate-900">
+      <p role="status">Could not restore your session. Check your connection and try again.</p>
+      <button type="button" onClick={retrySessionRestore} className="min-h-11 mr-4 font-semibold text-blue-700 underline">Retry</button>
+      <Link to="/roles" className="inline-flex min-h-11 items-center text-blue-700 underline">Go to sign in</Link>
+    </main>
+  );
   if (!currentUser) return <Navigate to="/roles" replace />;
 
   const home = `/${currentUser.role.toLowerCase()}`;

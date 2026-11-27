@@ -15,11 +15,12 @@ import { verifyAccessToken } from './auth/tokens';
 import { createServices } from './compose';
 import type { LiveEmitter } from './domain/types';
 import { createApp } from './http/app';
-import { applyV1Schema } from './infra/postgres/pool';
+import { applyV1Schema, databaseReadiness } from './infra/postgres/pool';
 import { createPostgresRepositories } from './infra/postgres/repositories';
 import { createGateway } from './realtime/gateway';
 import { resolveAllowedOrigins } from './config/cors';
 import { buildPgConnection } from './infra/postgres/tls';
+import { createEmailSender } from './infra/email/resend';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) { console.error('FATAL: DATABASE_URL is required'); process.exit(1); }
@@ -35,10 +36,13 @@ const pool = new pg.Pool({
   connectionString: pgConn.connectionString,
   ssl: pgConn.ssl,
   max: 10,
+  connectionTimeoutMillis: 1_000,
   idleTimeoutMillis: 30_000,
 });
+pool.on('error', () => console.error('[postgres] Idle database connection lost.'));
 
 async function main() {
+  const email = createEmailSender(process.env);
   await applyV1Schema(pool);
   console.info('[postgres] v1 schema ready');
 
@@ -52,7 +56,7 @@ async function main() {
     repos,
     trackingConfig,
     emitterProxy,
-    undefined,
+    email,
     { env: process.env },
   );
 
@@ -67,6 +71,8 @@ async function main() {
     tripRepo:  services.repos.trips,
     verifyToken: (t) => verifyAccessToken(t, accessSecret),
     verifyActiveAccount: true,
+    checkReadiness: databaseReadiness(pool),
+    trustProxy: process.env.RENDER === 'true' ? 1 : undefined,
     allowedOrigins: ALLOWED_ORIGINS,
     bootstrapSecret: BOOTSTRAP_SECRET,
     ...services.extraRepos,

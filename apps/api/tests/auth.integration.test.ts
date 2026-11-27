@@ -2,7 +2,6 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHarness, id, PG_TEST_URL, type Harness } from './harness';
 
-// Single harness for all auth tests — avoids 5× connection overhead on FerretDB
 describe.skipIf(!PG_TEST_URL)('Auth integration (single harness)', () => {
   let h: Harness;
   beforeAll(async () => { h = await createHarness(); });
@@ -15,6 +14,27 @@ describe.skipIf(!PG_TEST_URL)('Auth integration (single harness)', () => {
   const login = (email: string, pw = 'Password1!') =>
     api().post('/api/v1/auth/login').send({ campusId: campus(), email, password: pw });
   let globalTok = '';
+
+  it('reports ready, returns a bounded 503 when the schema probe stalls and recovers', async () => {
+    const healthy = await api().get('/healthz');
+    expect(healthy.status).toBe(200);
+    expect(healthy.body).toEqual({ status: 'ok' });
+    expect(healthy.headers['cache-control']).toBe('no-store');
+    const client = await h.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('LOCK TABLE v1.campuses IN ACCESS EXCLUSIVE MODE');
+      const unhealthy = await Promise.all([api().get('/healthz'), api().get('/healthz')]);
+      for (const response of unhealthy) {
+        expect(response.status).toBe(503);
+        expect(response.body).toEqual({ status: 'unavailable' });
+      }
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+    expect((await api().get('/healthz')).status).toBe(200);
+  });
 
   // ── Registration ──────────────────────────────────────────────────────────
   describe('registration', () => {
@@ -210,6 +230,11 @@ describe.skipIf(!PG_TEST_URL)('Auth integration (single harness)', () => {
 
   // ── Email verification ────────────────────────────────────────────────────
   describe('email verification and password reset', () => {
+    const requestReset = (email: string, campusId = campus()) =>
+      api().post('/api/v1/auth/request-password-reset').send({ campusId, email });
+    const confirmReset = (email: string, otp: string, newPassword: string, campusId = campus()) =>
+      api().post('/api/v1/auth/confirm-password-reset').send({ campusId, email, otp, newPassword });
+
     it('correct OTP marks emailVerifiedAt; reuse is rejected', async () => {
       await reg('verify@t.test');
       const u = await h.services.repos.users.findByEmail(campus(), 'verify@t.test');
@@ -227,19 +252,53 @@ describe.skipIf(!PG_TEST_URL)('Auth integration (single harness)', () => {
       await reg('reset@t.test');
       const lr = await login('reset@t.test');
       const userId = lr.body.user.userId;
-      const crypto = await import('crypto');
-      const otp = '445566';
-      await h.services.repos.emailTokens.upsert({ userId, campusId: campus(), purpose: 'RESET_PASSWORD', tokenHash: crypto.createHash('sha256').update(otp).digest('hex'), expiresAt: new Date(Date.now() + 1_200_000) });
-      expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'weak' })).status).toBe(400);
-      expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'NewPass2!' })).status).toBe(204);
+      expect((await requestReset('RESET@t.test')).status).toBe(204);
+      const { to, code } = h.sentResets.at(-1)!;
+      expect(to).toBe('reset@t.test');
+      expect((await confirmReset(to, code, 'weak')).status).toBe(400);
+      expect((await confirmReset(to, code, 'NewPass2!', h.seed.campusB)).status).toBe(400);
+      const confirms = await Promise.all([confirmReset(to, code, 'NewPass2!'), confirmReset(to, code, 'NewPass2!')]);
+      expect(confirms.map(r => r.status).sort()).toEqual([204, 400]);
       const { rows: alive } = await h.pool.query('SELECT id FROM v1.refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
       expect(alive).toHaveLength(0);
       expect((await login('reset@t.test')).status).toBe(401);
       expect((await login('reset@t.test', 'NewPass2!')).status).toBe(200);
-      expect((await api().post('/api/v1/auth/confirm-password-reset').send({ campusId: campus(), email: 'reset@t.test', otp, newPassword: 'AnotherPass3!' })).status).toBe(400);
+      expect((await confirmReset(to, code, 'AnotherPass3!')).status).toBe(400);
+    });
+    it('invalidates a pending code and declines a session based on a superseded password hash', async () => {
+      const email = 'superseded-reset@t.test';
+      await reg(email);
+      const loginResponse = await login(email);
+      const before = (await h.services.repos.users.findByEmail(campus(), email))!;
+      expect((await requestReset(email)).status).toBe(204);
+      const { code } = h.sentResets.at(-1)!;
+      const change = await api().post('/api/v1/auth/change-password')
+        .set('Authorization', `Bearer ${loginResponse.body.tokens.accessToken}`)
+        .send({ currentPassword: 'Password1!', newPassword: 'NewPass2!' });
+      expect(change.status).toBe(204);
+      expect((await confirmReset(email, code, 'OtherPass3!')).status).toBe(400);
+      await expect(h.services.repos.refreshTokens.create({
+        userId: before.id, campusId: before.campusId, expectedPasswordHash: before.passwordHash,
+        familyId: 'stale-session', tokenHash: 'stale-session', expiresAt: new Date(Date.now() + 60_000),
+      })).rejects.toMatchObject({ status: 401, code: 'INVALID_CREDENTIALS' });
     });
     it('request-password-reset always returns 204 even for unknown email', async () => {
-      expect((await api().post('/api/v1/auth/request-password-reset').send({ campusId: campus(), email: 'nobody@t.test' })).status).toBe(204);
+      const deliveries = h.sentResets.length;
+      expect((await requestReset('nobody@t.test')).status).toBe(204);
+      expect(h.sentResets).toHaveLength(deliveries);
+      expect((await requestReset('Nobody@t.test')).status).toBe(429);
+    });
+    it('expires codes and caps confirmation attempts independently of requesting a code', async () => {
+      const email = 'expired-reset@t.test';
+      await reg(email);
+      expect((await requestReset(email)).status).toBe(204);
+      const { code } = h.sentResets.at(-1)!;
+      h.clock.advance(20 * 60_000);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        expect((await confirmReset(email, code, 'NewPass2!')).status).toBe(400);
+      }
+      expect((await requestReset(email)).status).toBe(204);
+      expect((await confirmReset(email, h.sentResets.at(-1)!.code, 'NewPass2!')).status).toBe(429);
     });
   });
 });

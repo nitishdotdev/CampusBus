@@ -1,13 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Bus, CampusNotification, College, EmergencyAlert, Route, RouteStatus, Trip, User, UserRole } from '../types';
-import { authService } from '../services/authService';
+import { authService, type SessionRestoration } from '../services/authService';
 import { locationService, type LocationServiceState } from '../services/locationService';
 import { tripService } from '../services/tripService';
 import { listCampuses, type V1Campus } from '../services/v1/auth';
 import { v1AlertToUi, v1BusToUi, v1NotificationToUi, v1RouteToUi, v1TripToUi } from '../services/v1/adapters';
 import { busesV1 } from '../services/v1/buses';
 import { alertsV1, notificationsV1 } from '../services/v1/notifications';
-import { ApiV1Error } from '../services/v1/client';
+import { ApiV1Error, v1Token } from '../services/v1/client';
 import { allPages } from '../services/v1/pages';
 import { routesV1 } from '../services/v1/routes';
 import { socketV1 } from '../services/v1/socket';
@@ -25,7 +25,8 @@ interface AppContextType {
   v1Campuses: V1Campus[];
   logout: () => void;
   isAuthenticated: boolean;
-  isRestoringSession: boolean;
+  sessionRestoration: SessionRestoration | 'loading';
+  retrySessionRestore: () => void;
   buses: Bus[];
   routes: Route[];
   trips: Trip[];
@@ -55,7 +56,9 @@ function routeTracking(buses: Bus[]): Map<string, RouteStatus> {
 }
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isRestoringSession, setIsRestoringSession] = useState(true);
+  const [sessionRestoration, setSessionRestoration] = useState<SessionRestoration | 'loading'>('loading');
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const retrySessionRestore = useCallback(() => setRestoreAttempt(attempt => attempt + 1), []);
   const [currentUser, setCurrentUser] = useState<User | null>(authService.getCurrentUser());
   const [campuses, setCampuses] = useState<V1Campus[]>([]);
   const [buses, setBuses] = useState<Bus[]>([]);
@@ -71,8 +74,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const requestVersion = useRef(0);
 
   useEffect(() => {
-    let mounted = true;
-    const unsubscribe = authService.subscribe(user => {
+    return authService.subscribe(user => {
       requestVersion.current++;
       setCurrentUser(user);
       setBuses([]);
@@ -86,9 +88,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       locationService.setDriver(user?.role === 'DRIVER' ? user.id : null);
       if (!user) tripService.clearActiveTrip();
     });
-    void authService.restore().finally(() => { if (mounted) setIsRestoringSession(false); });
-    return () => { mounted = false; unsubscribe(); };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    setSessionRestoration('loading');
+    void authService.restore().then(result => { if (mounted) setSessionRestoration(result); });
+    return () => { mounted = false; };
+  }, [restoreAttempt]);
+
+  useEffect(() => {
+    if (sessionRestoration !== 'retry' || currentUser) return;
+    window.addEventListener('online', retrySessionRestore);
+    return () => window.removeEventListener('online', retrySessionRestore);
+  }, [currentUser, sessionRestoration, retrySessionRestore]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -137,7 +150,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (stillCurrent()) setDataError(null);
     } catch (error) {
       if (!stillCurrent()) return;
-      if (error instanceof ApiV1Error && (error.code === 'ACCOUNT_NOT_ACTIVE' || error.status === 401)) {
+      if (error instanceof ApiV1Error && (error.code === 'ACCOUNT_NOT_ACTIVE' || (error.status === 401 && !v1Token.getRefresh()))) {
         authService.logout();
         return;
       }
@@ -182,7 +195,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const value: AppContextType = {
     currentUser, role: currentUser?.role ?? 'STUDENT', currentCollege, v1Campuses: campuses,
     logout: () => authService.logout(),
-    isAuthenticated: authService.isAuthenticated(), isRestoringSession,
+    isAuthenticated: authService.isAuthenticated(), sessionRestoration, retrySessionRestore,
     buses, routes, trips, activeTrip, notifications, markNotificationsRead,
     unreadCount: notifications.filter(item => !item.isRead).length,
     emergencyAlerts, activeEmergencyCount: emergencyAlerts.filter(item => item.status === 'ACTIVE').length,

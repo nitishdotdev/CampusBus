@@ -68,7 +68,7 @@ function makeAuth(opts: { existingAdminCount?: number; campuses?: CampusReposito
     users,
     campuses: opts.campuses ?? makeCampuses(),
     refreshTokens: { create: async () => 'x', find: async () => null, revoke: async () => {}, revokeFamily: async () => {}, revokeAll: async () => {}, purgeExpired: async () => 0 },
-    emailTokens: { upsert: async () => {}, find: async () => null, markUsed: async () => {} },
+    emailTokens: { upsert: async () => {}, find: async () => null, markUsed: async () => {}, completePasswordReset: async () => false },
     email: { sendVerification: async () => {}, sendPasswordReset: async () => {} },
     config: {
       ...DEFAULT_AUTH_CONFIG,

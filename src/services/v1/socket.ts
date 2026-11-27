@@ -24,6 +24,9 @@ type SnapshotMessage = { busId: string; tripId: string | null; position: Locatio
 class SocketV1Service {
   private socket: Socket | null = null;
   private listeners = new Map<string, Set<LocationListener>>();
+  private resumeWhenOnline = () => {
+    if (this.socket && !this.socket.active) this.socket.connect();
+  };
 
   connect(): void {
     if (this.socket || !v1Token.getAccess()) return;
@@ -32,9 +35,11 @@ class SocketV1Service {
       path: '/socket.io/',
       auth: callback => callback({ token: v1Token.getAccess() }),
       transports: ['websocket', 'polling'],
+      tryAllTransports: true,
       reconnectionAttempts: 10,
     });
     this.socket = socket;
+    window.addEventListener('online', this.resumeWhenOnline);
 
     socket.on('connect', () => {
       for (const busId of this.listeners.keys()) socket.emit('subscribe:bus', { busId });
@@ -84,6 +89,7 @@ class SocketV1Service {
   disconnect(): void {
     this.socket?.disconnect();
     this.socket = null;
+    window.removeEventListener('online', this.resumeWhenOnline);
     this.listeners.clear();
   }
 }

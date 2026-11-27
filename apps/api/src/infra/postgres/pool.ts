@@ -20,6 +20,16 @@ export async function createPostgresPool(env: NodeJS.ProcessEnv = process.env): 
   return pool;
 }
 
+// Pool checkout has its own deadline on the server pool. Share concurrent probes.
+export function databaseReadiness(pool: pg.Pool): () => Promise<void> {
+  const query = { text: 'SELECT 1 FROM v1.campuses LIMIT 1', query_timeout: 1_000 };
+  let pending: Promise<void> | undefined;
+  return () => {
+    pending ??= pool.query(query).then(() => {}).finally(() => { pending = undefined; });
+    return pending;
+  };
+}
+
 export async function withTransaction<T>(pool: pg.Pool, execute: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   try {

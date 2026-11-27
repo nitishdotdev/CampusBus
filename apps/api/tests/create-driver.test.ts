@@ -99,7 +99,7 @@ describe('AuthService.createDriver', () => {
     const auth = new AuthService({
       users,
       refreshTokens: { create: async () => 'x', find: async () => null, revoke: async () => {}, revokeFamily: async () => {}, revokeAll: async () => {}, purgeExpired: async () => 0 },
-      emailTokens: { upsert: async () => {}, find: async () => null, markUsed: async () => {} },
+      emailTokens: { upsert: async () => {}, find: async () => null, markUsed: async () => {}, completePasswordReset: async () => false },
       email: { sendVerification: async () => {}, sendPasswordReset: async () => {} },
       config: {
         ...DEFAULT_AUTH_CONFIG,
@@ -118,7 +118,7 @@ describe('AuthService.createDriver', () => {
     const auth = new AuthService({
       users: { create: async () => { throw new Error('must not create'); } } as any,
       refreshTokens: { create: async () => 'x', find: async () => null, revoke: async () => {}, revokeFamily: async () => {}, revokeAll: async () => {}, purgeExpired: async () => 0 },
-      emailTokens: { upsert: async () => {}, find: async () => null, markUsed: async () => {} },
+      emailTokens: { upsert: async () => {}, find: async () => null, markUsed: async () => {}, completePasswordReset: async () => false },
       email: { sendVerification: async () => {}, sendPasswordReset: async () => {} },
       config: {
         ...DEFAULT_AUTH_CONFIG,

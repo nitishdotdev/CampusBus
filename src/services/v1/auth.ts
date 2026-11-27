@@ -86,13 +86,29 @@ export async function logoutV1(): Promise<void> {
   } catch { /* best-effort */ }
 }
 
-export async function getMeV1(): Promise<V1SessionUser | null> {
-  try {
-    const { id, ...user } = await v1Client.get<Omit<V1SessionUser, 'userId'> & { id: string }>('/api/v1/users/me');
-    return { ...user, userId: id };
-  } catch {
-    return null;
+export function requestPasswordResetV1(campusId: string, email: string) {
+  return v1Client.postPublic('/api/v1/auth/request-password-reset', { campusId, email });
+}
+
+export function confirmPasswordResetV1(campusId: string, email: string, otp: string, newPassword: string) {
+  return v1Client.postPublic('/api/v1/auth/confirm-password-reset', { campusId, email, otp, newPassword });
+}
+
+export function formatPasswordResetError(error: unknown): string {
+  if (!(error instanceof ApiV1Error)) return 'Check your connection and try again.';
+  switch (error.code) {
+    case 'PASSWORD_RESET_UNAVAILABLE': return 'Email recovery is unavailable. Contact your campus administrator.';
+    case 'PASSWORD_RESET_RATE_LIMITED': return 'Too many attempts. Wait and try again.';
+    case 'INVALID_OR_EXPIRED_TOKEN': return 'This code is invalid or expired. Check the code or request a new one.';
+    case 'WEAK_PASSWORD': return 'Use 8 to 72 characters with a letter and a number or symbol.';
+    case 'INVALID_REQUEST': return 'Check the entered details and try again.';
+    default: return 'Password recovery failed. Try again or contact your campus administrator.';
   }
+}
+
+export async function getMeV1(): Promise<V1SessionUser> {
+  const { id, ...user } = await v1Client.get<Omit<V1SessionUser, 'userId'> & { id: string }>('/api/v1/users/me');
+  return { ...user, userId: id };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

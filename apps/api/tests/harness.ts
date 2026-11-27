@@ -4,7 +4,7 @@ import { createServices } from '../src/compose';
 import { DEFAULT_TRACKING, type TrackingConfig } from '../src/config/env';
 import { signAccessToken, verifyAccessToken } from '../src/auth/tokens';
 import { newId } from '../src/infra/postgres/ids';
-import { applyV1Schema } from '../src/infra/postgres/pool';
+import { applyV1Schema, databaseReadiness } from '../src/infra/postgres/pool';
 import { createPostgresRepositories, type Repositories } from '../src/infra/postgres/repositories';
 import { createApp } from '../src/http/app';
 import { createGateway } from '../src/realtime/gateway';
@@ -25,6 +25,7 @@ export interface Harness {
   app: ReturnType<typeof createApp>;
   server: http.Server; url: string;
   emitted: { campusId: string; busId: string; payload: any }[];
+  sentResets: { to: string; code: string }[];
   clock: { now: () => Date; set: (d: Date) => void; advance: (ms: number) => void };
   seed: Seed;
   token: (u: { id: string; campusId: string; role: Role }, ttl?: number) => string;
@@ -80,13 +81,18 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
     let forward: (c: string, b: string, p: unknown) => void = () => {};
     const emitter = { emitLocation: (c: string, b: string, p: unknown) => { emitted.push({ campusId: c, busId: b, payload: p }); forward(c, b, p); } };
     const testEnv = { ...process.env, ACCESS_TOKEN_SECRET: SECRET, REFRESH_TOKEN_SECRET: REFRESH_SECRET } as NodeJS.ProcessEnv;
-    const services = createServices(repos, config, emitter, undefined, { env: testEnv, accessTtlSeconds: 900, refreshTtlDays: 30, emailVerificationRequired: false, emailTokenTtlMinutes: 60, resetTokenTtlMinutes: 20, rateLimitLoginAttempts: 100, rateLimitWindowMs: 60_000 }, clock.now);
+    const sentResets: Harness['sentResets'] = [];
+    const email = {
+      sendVerification: async () => {},
+      sendPasswordReset: async (to: string, _name: string, code: string) => { sentResets.push({ to, code }); },
+    };
+    const services = createServices(repos, config, emitter, email, { env: testEnv, accessTtlSeconds: 900, refreshTtlDays: 30, emailVerificationRequired: false, emailTokenTtlMinutes: 60, resetTokenTtlMinutes: 20, rateLimitLoginAttempts: 100, rateLimitWindowMs: 60_000 }, clock.now);
     const verifyToken = (t: string) => verifyAccessToken(t, SECRET);
     const app = createApp({
       ingest: services.ingest, trips: services.trips, live: services.live, auth: services.auth,
       users: repos.users, buses: repos.buses, routes: repos.routes, tripRepo: repos.trips,
       ...services.extraRepos,
-      verifyToken, verifyActiveAccount: true, allowedOrigins: [],
+      verifyToken, verifyActiveAccount: true, allowedOrigins: [], checkReadiness: databaseReadiness(pool),
     });
     const server = http.createServer(app);
     const gateway = createGateway(server, { verifyToken, live: services.live, allowedOrigins: [] });
@@ -98,7 +104,7 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
     const origin = `http://127.0.0.1:${address.port}`;
 
     return {
-      pool, connectionString, services, app, server, url: origin, emitted, clock, seed,
+      pool, connectionString, services, app, server, url: origin, emitted, sentResets, clock, seed,
       token: (u, ttl) => signAccessToken({ userId: u.id, campusId: u.campusId, role: u.role }, SECRET, ttl),
       close,
     };

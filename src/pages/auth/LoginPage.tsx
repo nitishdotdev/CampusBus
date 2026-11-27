@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Mail, Lock, User, AlertCircle, ArrowLeft, Loader2, Eye, EyeOff, Building2 } from 'lucide-react';
 import { authService } from '../../services/authService';
-import { loginV1, registerV1, logoutV1, listCampuses, formatCampusFetchError, type V1Campus } from '../../services/v1/auth';
+import {
+  loginV1, registerV1, logoutV1, listCampuses, formatCampusFetchError, type V1Campus,
+  requestPasswordResetV1, confirmPasswordResetV1, formatPasswordResetError,
+} from '../../services/v1/auth';
 import { socketV1 } from '../../services/v1/socket';
 import { BrandMark } from '../../components/brand/BrandMark';
 import {
@@ -13,7 +16,7 @@ import {
 } from './roleAccess';
 import type { UserRole } from '../../types';
 
-type Mode = 'login' | 'register';
+type Mode = 'login' | 'register' | 'request-reset' | 'confirm-reset';
 
 function mismatchMessage(accountRole: UserRole, intended: UserRole): string {
   return `This account is a ${roleLabel(accountRole)}, not a ${roleLabel(intended)}. Sign in from the matching role, or switch roles.`;
@@ -38,6 +41,17 @@ export const LoginPage: React.FC = () => {
   const [notice, setNotice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [otp, setOtp] = useState('');
+  const recovering = mode === 'request-reset' || mode === 'confirm-reset';
+
+  const changeMode = (next: Mode) => {
+    setMode(next);
+    setError('');
+    setNotice('');
+    setPassword('');
+    setShowPassword(false);
+    setOtp('');
+  };
 
   useEffect(() => {
     setMode(registerAllowed ? 'register' : 'login');
@@ -69,6 +83,26 @@ export const LoginPage: React.FC = () => {
 
   const handleV1 = async () => {
     if (!campusId) { setError('Please select your campus.'); return; }
+    if (recovering) {
+      try {
+        if (mode === 'request-reset') {
+          await requestPasswordResetV1(campusId, email);
+          changeMode('confirm-reset');
+          setNotice('If an active account matches these details, you’ll receive a code by email.');
+        } else {
+          if (!/[A-Za-z]/.test(password) || !/[0-9!@#$%^&*]/.test(password)) {
+            setError('Use a letter and a number or symbol in your new password.');
+            return;
+          }
+          await confirmPasswordResetV1(campusId, email, otp, password);
+          changeMode('login');
+          setNotice('Password changed. Sign in with your new password.');
+        }
+      } catch (error) {
+        setError(formatPasswordResetError(error));
+      }
+      return;
+    }
     if (mode === 'login') {
       const res = await loginV1(campusId, email, password);
       if (res.ok) {
@@ -129,7 +163,7 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const heading =
+  const heading = recovering ? 'Reset your password' :
     intendedRole === 'ADMIN'
       ? 'Admin sign in'
       : mode === 'register'
@@ -207,6 +241,7 @@ export const LoginPage: React.FC = () => {
                         id="campus"
                         value={campusId}
                         onChange={(e) => setCampusId(e.target.value)}
+                        disabled={mode === 'confirm-reset' || isSubmitting}
                         required
                         className="w-full min-h-11 pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
@@ -252,13 +287,23 @@ export const LoginPage: React.FC = () => {
                     placeholder="you@college.edu"
                     required
                     autoComplete="email"
+                    readOnly={mode === 'confirm-reset' || isSubmitting}
                     className="w-full min-h-11 pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="password" className="block text-xs font-bold text-slate-700 mb-1">Password</label>
+              {mode === 'confirm-reset' && (
+                <div>
+                  <label htmlFor="reset-code" className="block text-xs font-bold text-slate-700 mb-1">Email code</label>
+                  <input id="reset-code" value={otp} onChange={(e) => setOtp(e.target.value)}
+                    inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required
+                    className="w-full min-h-11 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              )}
+
+              {mode !== 'request-reset' && <div>
+                <label htmlFor="password" className="block text-xs font-bold text-slate-700 mb-1">{mode === 'confirm-reset' ? 'New password' : 'Password'}</label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
                   <input
@@ -267,6 +312,8 @@ export const LoginPage: React.FC = () => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={mode === 'login' ? 'Enter password' : 'Min 8 characters'}
+                    minLength={mode === 'login' ? undefined : 8}
+                    maxLength={mode === 'login' ? 256 : 72}
                     required
                     autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                     className="w-full min-h-11 pl-9 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -280,21 +327,35 @@ export const LoginPage: React.FC = () => {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              </div>
+              </div>}
 
               <button
                 type="submit"
-                disabled={isSubmitting || campusLoading}
+                disabled={isSubmitting || campusLoading || campuses.length === 0}
                 className="w-full min-h-12 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-sm rounded-full shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
               >
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : null}
-                {isSubmitting ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}
+                {isSubmitting ? 'Please wait…' : {
+                  login: 'Sign In', register: 'Create Account', 'request-reset': 'Send reset code', 'confirm-reset': 'Reset password',
+                }[mode]}
               </button>
             </form>
+            {(recovering || mode === 'login') && (
+              <div className="mt-2 flex flex-wrap justify-center gap-x-3 text-sm font-semibold text-blue-700">
+                {mode === 'confirm-reset' && (
+                  <button type="button" disabled={isSubmitting} onClick={() => changeMode('request-reset')} className="min-h-11 hover:underline">
+                    Request another code
+                  </button>
+                )}
+                <button type="button" disabled={isSubmitting} onClick={() => changeMode(recovering ? 'login' : 'request-reset')} className="min-h-11 hover:underline">
+                  {recovering ? 'Back to sign in' : 'Forgot password?'}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="text-center mt-4 space-y-2">
-            {canSelfRegister(intendedRole) || intendedRole === null ? (
+            {!recovering && (canSelfRegister(intendedRole) || intendedRole === null ? (
               <Link
                 to={switchHref}
                 className="block text-sm text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
@@ -308,7 +369,7 @@ export const LoginPage: React.FC = () => {
                   ? 'Driver accounts are provisioned by your campus admin. Public signup is not available.'
                   : 'Admin accounts are provisioned by your campus. Public signup is not available.'}
               </p>
-            )}
+            ))}
             <Link to="/" className="block text-sm text-slate-500 hover:text-slate-700 cursor-pointer">
               Back to Home
             </Link>

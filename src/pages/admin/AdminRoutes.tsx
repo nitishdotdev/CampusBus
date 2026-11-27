@@ -4,24 +4,16 @@ import { Link } from 'react-router-dom';
 import { RouteStatusBadge } from '../../components/common/StatusBadges';
 import { Modal } from '../../components/common/Modals';
 import { routesV1 } from '../../services/v1/routes';
-
-import {
-  Route as RouteIcon,
-  Plus,
-  MapPin,
-  Clock,
-  Bus,
-  Trash2,
-  CheckCircle2,
-  ChevronRight,
-} from 'lucide-react';
+import { ApiV1Error } from '../../services/v1/client';
+import type { Route } from '../../types';
+import { Plus, MapPin } from 'lucide-react';
 
 export const AdminRoutes: React.FC = () => {
   const { routes, buses, refreshData } = useApp();
   const [selectedRouteId, setSelectedRouteId] = useState<string>(routes[0]?.id || '');
-  const [isAddRouteModalOpen, setIsAddRouteModalOpen] = useState(false);
+  const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
+  const [editingRoute, setEditingRoute] = useState<Route | null>(null);
 
-  // New Route Form
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [color, setColor] = useState('#2563EB');
@@ -32,24 +24,48 @@ export const AdminRoutes: React.FC = () => {
 
   const selectedRoute = routes.find((r) => r.id === selectedRouteId) || routes[0];
 
-  const handleCreateRoute = async (event: React.FormEvent) => {
+  const openRouteForm = (route: Route | null) => {
+    setEditingRoute(route);
+    setCode(route?.code ?? '');
+    setName(route?.name ?? '');
+    setColor(route?.color ?? '#2563EB');
+    setDraftStops(route?.stops.map(stop => ({ key: stopKey.current++, name: stop.name, lat: String(stop.lat), lng: String(stop.lng) })) ?? []);
+    setError('');
+    setIsRouteModalOpen(true);
+  };
+
+  const moveStop = (index: number, offset: number) => {
+    setDraftStops(stops => {
+      const next = [...stops];
+      [next[index], next[index + offset]] = [next[index + offset], next[index]];
+      return next;
+    });
+  };
+
+  const handleSaveRoute = async (event: React.FormEvent) => {
     event.preventDefault();
     if (saving) return;
     setSaving(true);
     setError('');
     try {
-      const route = await routesV1.create({
-        code: code.trim().toUpperCase(), name: name.trim(), color,
-        stops: draftStops.map((stop, order) => ({ name: stop.name.trim(), lat: Number(stop.lat), lng: Number(stop.lng), order })),
-      });
+      const details = { code: code.trim().toUpperCase(), name: name.trim(), color };
+      const stops = draftStops.map((stop, order) => ({ name: stop.name.trim(), lat: Number(stop.lat), lng: Number(stop.lng), order }));
+      const stopsChanged = editingRoute && (stops.length !== editingRoute.stops.length || stops.some((stop, index) => {
+        const original = editingRoute.stops[index];
+        return stop.name !== original.name || stop.lat !== original.lat || stop.lng !== original.lng;
+      }));
+      const route = editingRoute
+        ? await routesV1.update(editingRoute.id, { ...details, ...(stopsChanged ? { stops } : {}) })
+        : await routesV1.create({ ...details, stops });
       setSelectedRouteId(route.id);
-      setCode('');
-      setName('');
-      setDraftStops([]);
-      setIsAddRouteModalOpen(false);
+      setIsRouteModalOpen(false);
       await refreshData();
-    } catch {
-      setError('Could not create the route. Check the route code and stop details.');
+    } catch (err) {
+      const messages: Record<string, string> = {
+        ROUTE_CODE_TAKEN: 'A route already uses this code.',
+        ROUTE_HAS_ACTIVE_TRIP: 'Wait for active trips on this route to end before changing stops.',
+      };
+      setError((err instanceof ApiV1Error && err.code && messages[err.code]) || 'Could not save the route. Check the details and try again.');
     } finally {
       setSaving(false);
     }
@@ -66,7 +82,7 @@ export const AdminRoutes: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setIsAddRouteModalOpen(true)}
+          onClick={() => openRouteForm(null)}
           className="self-start sm:self-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
         >
           <Plus className="w-4 h-4" />
@@ -119,7 +135,7 @@ export const AdminRoutes: React.FC = () => {
         {/* Right: Route Details & Stops */}
         {selectedRoute && (
           <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
-            <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
               <div>
                 <div className="flex items-center gap-2.5">
                   <span
@@ -134,7 +150,10 @@ export const AdminRoutes: React.FC = () => {
                 <p className="text-xs text-slate-500 mt-1">{selectedRoute.description}</p>
               </div>
 
-              <Link to="/admin/schedules" className="flex items-center text-xs font-semibold text-blue-700 underline">Manage schedules</Link>
+              <div className="flex flex-wrap gap-3">
+                <button type="button" onClick={() => openRouteForm(selectedRoute)} className="min-h-11 text-xs font-semibold text-blue-700 underline">Edit route</button>
+                <Link to="/admin/schedules" className="flex min-h-11 items-center text-xs font-semibold text-blue-700 underline">Manage schedules</Link>
+              </div>
 
             </div>
 
@@ -177,17 +196,17 @@ export const AdminRoutes: React.FC = () => {
         )}
       </div>
 
-      {/* Add Route Modal */}
       <Modal
-        isOpen={isAddRouteModalOpen}
-        onClose={() => setIsAddRouteModalOpen(false)}
-        title="Create New Campus Route"
+        isOpen={isRouteModalOpen}
+        onClose={() => { if (!saving) setIsRouteModalOpen(false); }}
+        title={editingRoute ? 'Edit Campus Route' : 'Create New Campus Route'}
       >
-        <form onSubmit={handleCreateRoute} className="space-y-4">
+        <form onSubmit={handleSaveRoute} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Route Code *</label>
+              <label htmlFor="route-code" className="block text-xs font-bold text-slate-700 mb-1">Route Code *</label>
               <input
+                id="route-code"
                 type="text"
                 required
                 value={code}
@@ -197,10 +216,10 @@ export const AdminRoutes: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Route Color</label>
+              <label htmlFor="route-color" className="block text-xs font-bold text-slate-700 mb-1">Route Color</label>
               <div className="flex items-center gap-2">
                 <input
-                  type="color"
+                  id="route-color" type="color"
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
                   className="w-9 h-9 rounded-lg border border-slate-200 cursor-pointer p-0.5"
@@ -211,8 +230,9 @@ export const AdminRoutes: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Route Name *</label>
+            <label htmlFor="route-name" className="block text-xs font-bold text-slate-700 mb-1">Route Name *</label>
             <input
+              id="route-name"
               type="text"
               required
               value={name}
@@ -232,7 +252,11 @@ export const AdminRoutes: React.FC = () => {
                   value={stop.lat} onChange={event => setDraftStops(draftStops.map(item => item.key === stop.key ? { ...item, lat: event.target.value } : item))} />
                 <input className="min-w-0 rounded border p-2 text-sm" type="number" step="any" min={-180} max={180} required aria-label={`Stop ${index + 1} longitude`} placeholder="Longitude"
                   value={stop.lng} onChange={event => setDraftStops(draftStops.map(item => item.key === stop.key ? { ...item, lng: event.target.value } : item))} />
-                <button type="button" className="min-h-11 text-left text-xs font-semibold text-rose-700" onClick={() => setDraftStops(draftStops.filter(item => item.key !== stop.key))}>Remove stop {index + 1}</button>
+                <div className="col-span-2 flex flex-wrap gap-x-3 text-xs font-semibold">
+                  <button type="button" disabled={index === 0} aria-label={`Move stop ${index + 1} up`} className="min-h-11 text-blue-700 disabled:text-slate-500" onClick={() => moveStop(index, -1)}>Move up</button>
+                  <button type="button" disabled={index === draftStops.length - 1} aria-label={`Move stop ${index + 1} down`} className="min-h-11 text-blue-700 disabled:text-slate-500" onClick={() => moveStop(index, 1)}>Move down</button>
+                  <button type="button" className="min-h-11 text-rose-700" onClick={() => setDraftStops(draftStops.filter(item => item.key !== stop.key))}>Remove stop {index + 1}</button>
+                </div>
               </div>
             ))}
             <button type="button" disabled={draftStops.length >= 100} className="min-h-11 text-xs font-semibold text-blue-700 underline"
@@ -243,7 +267,7 @@ export const AdminRoutes: React.FC = () => {
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setIsAddRouteModalOpen(false)}
+              disabled={saving} onClick={() => setIsRouteModalOpen(false)}
               className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
             >
               Cancel
@@ -252,7 +276,7 @@ export const AdminRoutes: React.FC = () => {
               type="submit" disabled={saving}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs cursor-pointer"
             >
-              Create Route
+              {editingRoute ? 'Save Route' : 'Create Route'}
             </button>
           </div>
         </form>

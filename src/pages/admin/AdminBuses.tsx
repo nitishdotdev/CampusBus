@@ -229,10 +229,11 @@ export const AdminBuses: React.FC = () => {
         <form onSubmit={handleAddBus} className="space-y-4">
           {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
+            <label htmlFor="new-bus-number" className="block text-xs font-bold text-slate-700 mb-1">
               Bus Number / Asset Tag *
             </label>
             <input
+              id="new-bus-number"
               type="text"
               required
               value={busNumber}
@@ -243,16 +244,17 @@ export const AdminBuses: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Vehicle Model</label>
-            <input aria-label="Vehicle model" value={model} onChange={e => setModel(e.target.value)} maxLength={80}
+            <label htmlFor="new-bus-model" className="block text-xs font-bold text-slate-700 mb-1">Vehicle Model</label>
+            <input id="new-bus-model" value={model} onChange={e => setModel(e.target.value)} maxLength={80}
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
 
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">License Plate</label>
+              <label htmlFor="new-bus-plate" className="block text-xs font-bold text-slate-700 mb-1">License Plate</label>
               <input
+                id="new-bus-plate"
                 type="text"
                 value={plateNumber}
                 onChange={(e) => setPlateNumber(e.target.value)}
@@ -261,8 +263,9 @@ export const AdminBuses: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Passenger Capacity</label>
+              <label htmlFor="new-bus-capacity" className="block text-xs font-bold text-slate-700 mb-1">Passenger Capacity</label>
               <input
+                id="new-bus-capacity"
                 type="number"
                 min="1"
                 max="200" required
@@ -274,8 +277,9 @@ export const AdminBuses: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Initial Assigned Route</label>
+            <label htmlFor="new-bus-route" className="block text-xs font-bold text-slate-700 mb-1">Initial Assigned Route</label>
             <select
+              id="new-bus-route"
               value={assignedRouteId}
               onChange={(e) => setAssignedRouteId(e.target.value)}
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"

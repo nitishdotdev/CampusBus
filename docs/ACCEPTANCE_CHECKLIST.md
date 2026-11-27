@@ -9,11 +9,13 @@
 - [x] Authenticated browser route coverage includes desktop and mobile viewport widths. The browser evidence archive records individual route outcomes.
 - [x] The local npm audit returned zero vulnerabilities.
 
-## Release gates
+## Production evidence and release gates
 
-- [ ] Hosting owner confirms the exact Render service, Vercel project, preview settings and production origin. The connected Vercel preview reported a deployment failure. The public project domain served a Flutter application when checked.
-- [ ] Hosting owner confirms the current production database revision and checks for pre-v1 records. Validate the additive migration and rollback on a staging copy before an approved production rollout.
-- [ ] Validate map tile loading in the intended hosted browser environment. Local Chromium rejected the cloud proxy certificate for the tile host and verified the fallback.
-- [ ] Test physical-device GPS and Chrome 109. The build targets Chrome 109 and the browser evidence uses Chromium 156 with device emulation.
-- [ ] Confirm the desired hosted session and password recovery configuration. Refresh tokens are scoped to browser tabs. Email recovery requires a delivery adapter.
-- [ ] Run authenticated post-deploy checks for each role on the approved deployment. No production deploy or database writes were performed during this review.
+- [x] The baseline frontend compiled with the live Render origin. Public health, the campus endpoint, browser CORS headers, login preflight, Engine.IO polling, and WebSocket upgrade were verified.
+- [ ] The public campus directory returned `[]`. Confirm the existing production database target, TLS mode, schema and record inventory. Restore access to the intended campuses through approved provisioning or recovery before release.
+- [ ] Approve and configure `/healthz` as the explicit health check on the existing Render service. Confirm Preview has its own Vercel API origin and review all checks on the follow-up PR.
+- [ ] Approve a production sender and validate real recovery email to an authorized inbox. Confirm a reset ends the previous refresh session. An already issued access token retains its normal expiry.
+- [ ] Sign in with authorized student, driver and admin accounts on the approved deployment. Check campus selection, data isolation, notifications, authenticated tracking and session restore. Confirm map tiles in the hosted browser.
+- [ ] Test GPS on a moving physical phone with location permission, interruption and reconnect. Verify Chrome 109 on the institution's supported devices after deployment.
+
+Validate the branch with `npm run lint`, the PostgreSQL and TLS suites in [CI](../.github/workflows/ci.yml), `VITE_API_V1_URL=https://campusmove-nahp.onrender.com npm run build`, `npm run api:build` and `npm audit --audit-level=high`.
