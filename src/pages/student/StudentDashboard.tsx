@@ -30,6 +30,8 @@ type Schedule = UiSchedule;
 
 export const StudentDashboard: React.FC = () => {
   const { currentUser, currentCollege, buses, routes, notifications, isLoadingData } = useApp();
+  const routeNameById = new Map(routes.map((r) => [r.id, r.name]));
+  const busNumberById = new Map(buses.map((b) => [b.id, b.busNumber]));
 
   const [selectedRouteId, setSelectedRouteId] = useState<string>('ALL');
   const [selectedBusId, setSelectedBusId] = useState<string | undefined>(undefined);
@@ -456,8 +458,8 @@ export const StudentDashboard: React.FC = () => {
               {upcomingSchedules.map((s) => (
                 <div key={s.id} className="py-2.5 flex items-center justify-between text-xs">
                   <div>
-                    <span className="font-bold text-slate-900">Route {s.route_id}</span>
-                    <span className="text-slate-400 ml-2">Vehicle #{s.bus_id}</span>
+                    <span className="font-bold text-slate-900">Route {routeNameById.get(s.route_id) ?? 'Unknown route'}</span>
+                    <span className="text-slate-400 ml-2">Vehicle {busNumberById.get(s.bus_id) ?? 'Unknown vehicle'}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Clock className="w-3.5 h-3.5 text-blue-600" />

@@ -1,11 +1,10 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const argon2 = require('argon2') as { hash(pw: string, o: object): Promise<string>; verify(h: string, pw: string): Promise<boolean>; needsRehash(h: string, o: object): boolean; argon2id: number };
+import * as argon2 from 'argon2';
 import * as bcrypt from 'bcryptjs';
 
 // OWASP 2023 recommended parameters for production.
 // In tests (NODE_ENV=test) we use much lower cost so hashing stays fast.
 const isTest = process.env.NODE_ENV === 'test';
-const OPTS = isTest
+const OPTS: argon2.HashOptions = isTest
   ? { type: argon2.argon2id, memoryCost: 8192, timeCost: 1, parallelism: 1 }
   : { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4 };
 

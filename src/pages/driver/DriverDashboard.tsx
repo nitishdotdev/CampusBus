@@ -294,9 +294,6 @@ export const DriverDashboard: React.FC = () => {
                 <h2 className="text-base font-bold text-slate-900 leading-none">
                   {currentUser?.name || 'Driver'}
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                  CDL ON-DUTY
-                </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
                 Assigned: <strong className="text-slate-800">{assignedBus.busNumber}</strong> ({assignedBus.model.split(' ')[0]}) • Route{' '}

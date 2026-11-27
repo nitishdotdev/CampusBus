@@ -4,7 +4,7 @@ import { adminService } from '../../services/adminService';
 import { NotificationCategory, NotificationPriority } from '../../types';
 import { notificationsV1, alertsV1 } from '../../services/v1/notifications';
 
-const USE_V1 = (import.meta as any).env?.VITE_USE_V1_API === 'true';
+const USE_V1 = import.meta.env.VITE_USE_V1_API === 'true';
 import {
   ShieldAlert,
   Send,
