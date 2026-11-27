@@ -419,7 +419,7 @@ export const StudentDashboard: React.FC = () => {
                   <span className="flex items-center gap-1.5">
                     <Compass className="w-3.5 h-3.5 text-slate-600" /> Speed:
                   </span>
-                  <span className="font-bold text-slate-800">{selectedBus.speedKmh || 0} km/h</span>
+                  <span className="font-bold text-slate-800">{selectedBus.speedKmh == null ? 'Unavailable' : `${selectedBus.speedKmh} km/h`}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5">

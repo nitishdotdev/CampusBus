@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
-import { Route, Stop } from '../../types';
+import { Link } from 'react-router-dom';
+import { useLiveBuses } from '../../hooks/useLiveBuses';
+import { estimateArrivalSeconds } from '../../services/arrivalEstimate';
 import { RouteStatusBadge, ETAIndicator } from '../../components/common/StatusBadges';
 import {
   Route as RouteIcon,
@@ -14,10 +16,10 @@ import {
 
 export const StudentRoutes: React.FC = () => {
   const { routes, buses } = useApp();
-  const [selectedRouteId, setSelectedRouteId] = useState<string>(routes[0]?.id || 'route_blue');
+  const [selectedRouteId, setSelectedRouteId] = useState<string>(routes[0]?.id ?? '');
 
   const selectedRoute = routes.find((r) => r.id === selectedRouteId) || routes[0];
-  const activeBusesOnRoute = buses.filter(
+  const activeBusesOnRoute = useLiveBuses(buses).filter(
     (b) => b.status === 'ACTIVE' && b.currentRouteId === selectedRoute?.id
   );
 
@@ -43,10 +45,10 @@ export const StudentRoutes: React.FC = () => {
             ).length;
 
             return (
-              <div
+              <button type="button" aria-pressed={isSelected}
                 key={route.id}
                 onClick={() => setSelectedRouteId(route.id)}
-                className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-2xs ${
+                className={`block w-full p-4 text-left rounded-2xl border transition-all cursor-pointer shadow-2xs ${
                   isSelected
                     ? 'bg-white border-blue-500 ring-2 ring-blue-500/20 shadow-sm'
                     : 'bg-white border-slate-200 hover:border-slate-300'
@@ -72,9 +74,9 @@ export const StudentRoutes: React.FC = () => {
                     <BusIcon className="w-3.5 h-3.5 text-blue-600" />
                     {activeCount} {activeCount === 1 ? 'bus' : 'buses'} active
                   </span>
-                  <span>Every {route.frequencyMinutes}m</span>
+                  <span>{route.stops.length} stops</span>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -97,14 +99,9 @@ export const StudentRoutes: React.FC = () => {
                 <p className="text-xs text-slate-500 mt-1">{selectedRoute.description}</p>
               </div>
 
-              <div className="text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100 shrink-0">
-                <div>
-                  <strong>Hours:</strong> {selectedRoute.scheduleHours}
-                </div>
-                <div>
-                  <strong>Frequency:</strong> Every {selectedRoute.frequencyMinutes} minutes
-                </div>
-              </div>
+              <Link to="/student/schedules" className="inline-flex min-h-11 items-center text-xs font-semibold text-blue-800 underline">
+                View timetable
+              </Link>
             </div>
 
             {/* Active buses operating right now */}
@@ -114,7 +111,9 @@ export const StudentRoutes: React.FC = () => {
               </h4>
               {activeBusesOnRoute.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {activeBusesOnRoute.map((bus) => (
+                  {activeBusesOnRoute.map((bus) => {
+                    const estimate = estimateArrivalSeconds(bus, selectedRoute);
+                    return (
                     <div
                       key={bus.id}
                       className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 flex items-center justify-between"
@@ -126,22 +125,22 @@ export const StudentRoutes: React.FC = () => {
                         <div>
                           <div className="font-bold text-xs text-slate-900">{bus.busNumber}</div>
                           <div className="text-[10px] text-slate-500">
-                            Occupancy: {bus.currentOccupancy}/{bus.capacity} seats
+                            {bus.hasOccupancy ? `Occupancy: ${bus.currentOccupancy}/${bus.capacity}` : 'Occupancy unavailable'}
                           </div>
                         </div>
                       </div>
                       <ETAIndicator
-                        seconds={bus.etaToNextStopSeconds}
-                        confidence={bus.etaConfidence}
+                        seconds={estimate}
+                        confidence={estimate == null ? 'OFFLINE' : 'DEGRADED'}
                         size="sm"
                       />
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500 text-center">
-                  No live vehicles active on this route at this moment. Scheduled timetable in
-                  effect.
+                  No vehicles are running on this route.
                 </div>
               )}
             </div>
@@ -149,16 +148,13 @@ export const StudentRoutes: React.FC = () => {
             {/* Ordered Stop Timeline */}
             <div>
               <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">
-                Ordered Campus Stops & Estimated Arrival
+                Campus stops in route order
               </h4>
 
               <div className="relative pl-6 space-y-6 before:content-[''] before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
                 {selectedRoute.stops.map((stop, index) => {
                   const isFirst = index === 0;
                   const isLast = index === selectedRoute.stops.length - 1;
-
-                  // Compute simulated realistic estimated arrival time
-                  const estimatedMin = index * 4 + 2;
 
                   return (
                     <div key={`${stop.id}-${index}`} className="relative group">
@@ -181,9 +177,7 @@ export const StudentRoutes: React.FC = () => {
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="text-xs font-bold text-slate-900">{stop.name}</span>
-                              <span className="text-[10px] px-1.5 py-0.2 bg-white text-slate-600 rounded border border-slate-200">
-                                {stop.code}
-                              </span>
+
                             </div>
                             {stop.landmark && (
                               <p className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
@@ -193,14 +187,6 @@ export const StudentRoutes: React.FC = () => {
                             )}
                           </div>
 
-                          <div className="text-right">
-                            <span className="text-xs font-bold text-slate-800">
-                              +{estimatedMin} min
-                            </span>
-                            <div className="text-[10px] text-slate-400">
-                              {selectedRoute.status === 'LIVE' ? 'Est. Live ETA' : 'Scheduled'}
-                            </div>
-                          </div>
                         </div>
                       </div>
                     </div>

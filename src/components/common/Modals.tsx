@@ -7,8 +7,12 @@ function Dialog({ label, description, onClose, children, maxWidth }: {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const element = dialog.current;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     element?.showModal();
-    return () => element?.close();
+    return () => {
+      element?.close();
+      if (opener?.isConnected) opener.focus();
+    };
   }, []);
 
   return (
