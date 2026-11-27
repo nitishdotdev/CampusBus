@@ -4,12 +4,14 @@ export type Role = 'STUDENT' | 'DRIVER' | 'ADMIN';
 export interface CampusDTO {
   id: string; name: string; shortCode: string; city: string;
   lat: number; lng: number; zoom: number; timezone: string;
+  dispatchPhone?: string | null; gpsIntervalSeconds?: number;
 }
 export interface CampusRepository {
   list(): Promise<CampusDTO[]>;
   findById(id: string): Promise<CampusDTO | null>;
   findByCode(shortCode: string): Promise<CampusDTO | null>;
   create(c: Omit<CampusDTO, 'id'>): Promise<CampusDTO>;
+  updateSettings?(campusId: string, values: { name: string; dispatchPhone: string | null; gpsIntervalSeconds: number }): Promise<CampusDTO | null>;
 }
 export type UserStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'DISABLED';
 export type TripStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
@@ -80,6 +82,7 @@ export interface RefreshTokenRepository {
   /** Create a refresh token. familyId groups rotated tokens for theft detection. */
   create(t: { userId: string; campusId: string; tokenHash: string; familyId: string; expiresAt: Date; previousId?: string }): Promise<string>;
   find(tokenHash: string): Promise<{ id: string; userId: string; campusId: string; familyId: string; expiresAt: Date; revokedAt: Date | null; previousId: string | null } | null>;
+  rotate?(tokenId: string, at: Date, successor: { userId: string; campusId: string; familyId: string; tokenHash: string; expiresAt: Date }): Promise<'rotated' | 'reused' | 'expired'>;
   /** Revoke one token (used = normal rotation). */
   revoke(id: string, at: Date): Promise<void>;
   /** Revoke every live token in a family (theft detected). */

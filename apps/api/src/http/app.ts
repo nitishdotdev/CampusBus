@@ -20,6 +20,7 @@ export interface AppDeps {
   notifications?: NotificationRepository;
   alerts?: EmergencyAlertRepository;
   bootstrapSecret?: string;
+  verifyActiveAccount?: boolean;
   verifyToken: (token: string) => Principal | null; allowedOrigins: string[];
 }
 type AuthedRequest = Request & { principal: Principal };
@@ -44,7 +45,14 @@ export function createApp(deps: AppDeps) {
     const principal = token ? deps.verifyToken(token) : null;
     if (!principal) { res.status(401).json({ error: 'UNAUTHENTICATED' }); return; }
     (req as AuthedRequest).principal = principal;
-    next();
+    if (!deps.verifyActiveAccount) { next(); return; }
+    void deps.users.findById(principal.campusId, principal.userId).then(user => {
+      if (user?.status !== 'ACTIVE' || user.role !== principal.role) {
+        res.status(403).json({ error: 'ACCOUNT_NOT_ACTIVE' });
+      } else {
+        next();
+      }
+    }).catch(next);
   };
   const requireRole = (...roles: Role[]): RequestHandler => (req, res, next) => {
     const p = (req as AuthedRequest).principal;
@@ -76,7 +84,10 @@ export function createApp(deps: AppDeps) {
     lat:       z.number().min(-90).max(90),
     lng:       z.number().min(-180).max(180),
     zoom:      z.number().int().min(1).max(20).default(15),
-    timezone:  z.string().max(50).default('UTC'),
+    timezone:  z.string().max(50).refine(timezone => {
+      try { new Intl.DateTimeFormat('en', { timeZone: timezone }); return true; }
+      catch { return false; }
+    }, 'Use a valid IANA time zone').default('UTC'),
   }).strict();
   app.get('/api/v1/campuses', wrap(async (_req, res) => {
     if (!deps.campuses) { res.status(500).json({ error: 'INTERNAL_ERROR' }); return; }
@@ -90,6 +101,20 @@ export function createApp(deps: AppDeps) {
     if (!deps.campuses) { res.status(500).json({ error: 'INTERNAL_ERROR' }); return; }
     const body = campusBody.parse(req.body);
     res.status(201).json(await deps.campuses.create(body));
+  }));
+
+  app.patch('/api/v1/campuses/settings', auth, requireRole('ADMIN'), wrap(async (req, res) => {
+    const { campusId, userId } = req.principal;
+    const actor = await deps.users.findById(campusId, userId);
+    if (actor?.role !== 'ADMIN' || actor.status !== 'ACTIVE') throw new DomainError(403, 'FORBIDDEN');
+    const body = z.strictObject({
+      name: z.string().trim().min(2).max(120),
+      dispatchPhone: z.string().trim().min(3).max(32).regex(/^[+\d ()-]+$/).nullable(),
+      gpsIntervalSeconds: z.number().int().min(2).max(10),
+    }).parse(req.body);
+    const campus = await deps.campuses?.updateSettings?.(campusId, body);
+    if (!campus) throw new DomainError(404, 'CAMPUS_NOT_FOUND');
+    res.json(campus);
   }));
 
   // ─── Auth routes ─────────────────────────────────────────────────────────

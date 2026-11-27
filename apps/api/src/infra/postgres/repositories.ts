@@ -121,6 +121,29 @@ export class PgRefreshTokenRepository implements RefreshTokenRepository {
     if (!d) return null;
     return { id: d.id, userId: d.user_id, campusId: d.campus_id, familyId: d.family_id, expiresAt: d.expires_at, revokedAt: d.revoked_at ?? null, previousId: d.previous_id ?? null };
   }
+  async rotate(tokenId: string, at: Date, successor: Parameters<NonNullable<RefreshTokenRepository['rotate']>>[2]) {
+    return withTransaction(this.p, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(476202, hashtext($1))', [successor.userId]);
+      const current = await client.query(
+        'SELECT revoked_at, expires_at FROM v1.refresh_tokens WHERE id = $1 AND user_id = $2 AND family_id = $3 FOR UPDATE',
+        [tokenId, successor.userId, successor.familyId],
+      );
+      const token = current.rows[0];
+      if (!token || token.expires_at < at) return 'expired' as const;
+      if (token.revoked_at) {
+        await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE family_id = $1 AND revoked_at IS NULL', [successor.familyId, at]);
+        return 'reused' as const;
+      }
+      await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE id = $1', [tokenId, at]);
+      await client.query(
+        `INSERT INTO v1.refresh_tokens (id, user_id, campus_id, token_hash, family_id, previous_id, expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [newId(), successor.userId, successor.campusId, successor.tokenHash, successor.familyId, tokenId, successor.expiresAt],
+      );
+      return 'rotated' as const;
+    });
+  }
+
   async revoke(id: string, at: Date) {
     await this.p.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE id = $1', [id, at]);
   }
@@ -128,7 +151,10 @@ export class PgRefreshTokenRepository implements RefreshTokenRepository {
     await this.p.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE family_id = $1 AND revoked_at IS NULL', [familyId, at]);
   }
   async revokeAll(userId: string, at: Date) {
-    await this.p.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL', [userId, at]);
+    await withTransaction(this.p, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(476202, hashtext($1))', [userId]);
+      await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL', [userId, at]);
+    });
   }
   async purgeExpired(cutoff: Date) {
     const r = await this.p.query('DELETE FROM v1.refresh_tokens WHERE expires_at < $1', [cutoff]);
@@ -741,6 +767,7 @@ export class PgEmergencyAlertRepository implements EmergencyAlertRepository {
 const toCampus = (d: any): CampusDTO => ({
   id: d.id, name: d.name, shortCode: d.short_code, city: d.city ?? '',
   lat: Number(d.lat), lng: Number(d.lng), zoom: d.zoom ?? 15, timezone: d.timezone ?? 'UTC',
+  dispatchPhone: d.dispatch_phone ?? null, gpsIntervalSeconds: d.gps_interval_seconds,
 });
 
 export class PgCampusRepository implements CampusRepository {
@@ -757,6 +784,13 @@ export class PgCampusRepository implements CampusRepository {
   async findByCode(shortCode: string) {
     const r = await this.p.query('SELECT * FROM v1.campuses WHERE short_code = $1', [shortCode.toUpperCase()]);
     return r.rows[0] ? toCampus(r.rows[0]) : null;
+  }
+  async updateSettings(campusId: string, values: { name: string; dispatchPhone: string | null; gpsIntervalSeconds: number }) {
+    const { rows } = await this.p.query(
+      'UPDATE v1.campuses SET name = $2, dispatch_phone = $3, gps_interval_seconds = $4 WHERE id = $1 RETURNING *',
+      [campusId, values.name, values.dispatchPhone, values.gpsIntervalSeconds],
+    );
+    return rows[0] ? toCampus(rows[0]) : null;
   }
   async create(c: Omit<CampusDTO, 'id'>) {
     const r = await this.p.query(

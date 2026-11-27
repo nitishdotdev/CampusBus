@@ -1,7 +1,7 @@
 /**
  * apps/api standalone entry point.
  * Usage:  tsx apps/api/src/server.ts
- *         node dist/api.cjs
+ *         node dist-api/api.cjs
  *
  * Required env: DATABASE_URL, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET
  * Optional env: PORT (default 4000), CORS_ORIGIN (comma-separated), BOOTSTRAP_SECRET, DATABASE_SSL_MODE
@@ -66,6 +66,7 @@ async function main() {
     routes:    services.repos.routes,
     tripRepo:  services.repos.trips,
     verifyToken: (t) => verifyAccessToken(t, accessSecret),
+    verifyActiveAccount: true,
     allowedOrigins: ALLOWED_ORIGINS,
     bootstrapSecret: BOOTSTRAP_SECRET,
     ...services.extraRepos,

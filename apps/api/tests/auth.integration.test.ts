@@ -160,6 +160,17 @@ describe.skipIf(!PG_TEST_URL)('Auth integration (single harness)', () => {
     });
   });
 
+  it('rotates a refresh token at most once when concurrent requests arrive', async () => {
+    await reg('rotate@t.test');
+    const signedIn = await login('rotate@t.test');
+    const refresh = () => api().post('/api/v1/auth/refresh').send({ refreshToken: signedIn.body.refreshToken });
+    const responses = await Promise.all([refresh(), refresh()]);
+    expect(responses.map(item => item.status).sort()).toEqual([200, 401]);
+    expect(responses.find(item => item.status === 401)?.body.error).toBe('REFRESH_TOKEN_REUSE');
+    const live = await h.pool.query('SELECT id FROM v1.refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL', [signedIn.body.user.userId]);
+    expect(live.rows).toHaveLength(0);
+  });
+
   // ── Password hashing ──────────────────────────────────────────────────────
   describe('password hashing', () => {
     it('new accounts get Argon2id hashes', async () => {

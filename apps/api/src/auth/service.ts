@@ -154,7 +154,7 @@ export class AuthService {
     const hash = hashRefreshToken(rawToken);
     const stored = await this.d.refreshTokens.find(hash);
     if (!stored) throw new DomainError(401, 'INVALID_REFRESH_TOKEN');
-    if (stored.revokedAt) {
+    if (stored.revokedAt && !this.d.refreshTokens.rotate) {
       // Reuse detected: revoke the whole family to neutralize any stolen token.
       await this.d.refreshTokens.revokeFamily(stored.familyId, this.now());
       throw new DomainError(401, 'REFRESH_TOKEN_REUSE');
@@ -164,10 +164,20 @@ export class AuthService {
     const user = await this.d.users.findById(stored.campusId, stored.userId);
     if (!user || user.status !== 'ACTIVE') { await this.d.refreshTokens.revokeFamily(stored.familyId, this.now()); throw forbidden('ACCOUNT_NOT_ACTIVE'); }
 
-    // Rotate: revoke old token, issue a new one in the same family.
-    await this.d.refreshTokens.revoke(stored.id, this.now());
-    const { raw, id } = await this.issueRefreshToken(user.id, stored.campusId, stored.familyId, stored.id);
-    void id; // used internally
+    let raw: string;
+    if (this.d.refreshTokens.rotate) {
+      raw = generateRefreshToken();
+      const at = this.now();
+      const outcome = await this.d.refreshTokens.rotate(stored.id, at, {
+        userId: user.id, campusId: stored.campusId, familyId: stored.familyId,
+        tokenHash: hashRefreshToken(raw), expiresAt: new Date(at.getTime() + this.d.config.refreshTtlDays * 86_400_000),
+      });
+      if (outcome === 'reused') throw new DomainError(401, 'REFRESH_TOKEN_REUSE');
+      if (outcome === 'expired') throw new DomainError(401, 'REFRESH_TOKEN_EXPIRED');
+    } else {
+      await this.d.refreshTokens.revoke(stored.id, this.now());
+      ({ raw } = await this.issueRefreshToken(user.id, stored.campusId, stored.familyId, stored.id));
+    }
     const accessToken = signAccessToken({ userId: user.id, campusId: stored.campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
     return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw };
   }
@@ -176,7 +186,7 @@ export class AuthService {
   async logout(rawToken: string): Promise<void> {
     const hash = hashRefreshToken(rawToken);
     const stored = await this.d.refreshTokens.find(hash);
-    if (stored && !stored.revokedAt) await this.d.refreshTokens.revoke(stored.id, this.now());
+    if (stored) await this.d.refreshTokens.revokeFamily(stored.familyId, this.now());
   }
 
   async logoutAll(principal: Principal): Promise<void> {
