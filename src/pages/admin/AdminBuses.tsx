@@ -170,7 +170,7 @@ export const AdminBuses: React.FC = () => {
                         </div>
                         <div>
                           <div>{bus.busNumber}</div>
-                          <div className="text-[10px] text-slate-400 font-normal">
+                          <div className="text-[10px] text-slate-600 font-normal">
                             {bus.model} • {bus.plateNumber}
                           </div>
                         </div>
@@ -202,7 +202,7 @@ export const AdminBuses: React.FC = () => {
                           </span>
                         </div>
                       ) : (
-                        <span className="text-slate-400">Unassigned (Pool)</span>
+                        <span className="text-slate-600">Unassigned (Pool)</span>
                       )}
                     </td>
 

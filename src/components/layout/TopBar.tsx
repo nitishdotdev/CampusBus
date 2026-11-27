@@ -60,11 +60,11 @@ export const TopBar: React.FC<{ onOpenMobileMenu?: () => void }> = () => {
             to={role === 'ADMIN' ? '/admin/alerts' : role === 'DRIVER' ? '/driver/notifications' : '/student/notifications'}
             className="relative p-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
             title="Notifications"
-            aria-label="Notifications"
+            aria-label={unreadCount ? `Notifications, ${unreadCount} unread` : 'Notifications'}
           >
-            <Bell className="w-5 h-5" />
+            <Bell className="w-5 h-5" aria-hidden="true" />
             {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+              <span aria-hidden="true" className="absolute top-1.5 right-0.5 min-w-4 h-4 px-0.5 rounded-full bg-blue-700 text-white text-[10px] font-bold flex items-center justify-center">
                 {unreadCount}
               </span>
             )}

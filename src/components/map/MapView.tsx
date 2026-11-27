@@ -470,7 +470,7 @@ export const MapView: React.FC<MapViewProps> = ({
       <div className="absolute top-3 left-3 z-10 bg-white/95 backdrop-blur-xs p-2.5 rounded-xl border border-slate-200 shadow-xs flex flex-col gap-1.5 text-[11px] text-slate-700 max-w-[210px]">
         <div className="font-bold text-slate-900 border-b border-slate-100 pb-1 flex items-center justify-between gap-2">
           <span>Campus Transit Fleet</span>
-          {hasLiveTracking && <span className="w-2 h-2 rounded-full bg-emerald-500" aria-label="Live tracking available" />}
+          {hasLiveTracking && <span role="img" className="w-2 h-2 rounded-full bg-emerald-500" aria-label="Live tracking available" />}
         </div>
         {routes.slice(0, 5).map((r) => (
           <div key={r.id} className="flex items-center gap-2">

@@ -180,7 +180,7 @@ export const NotificationCard: React.FC<{
             >
               {notification.title}
             </h4>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-slate-600">
               {new Date(notification.timestamp).toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',

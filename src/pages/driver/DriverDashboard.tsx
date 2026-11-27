@@ -252,7 +252,7 @@ export const DriverDashboard: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
                   Trip in progress
                 </span>
                 <h3 className="text-lg font-black text-slate-900 mt-0.5">
@@ -260,7 +260,7 @@ export const DriverDashboard: React.FC = () => {
                 </h3>
               </div>
               <div className="text-right">
-                <div className="text-xs text-slate-400 font-medium">Trip Duration</div>
+                <div className="text-xs text-slate-600 font-medium">Trip Duration</div>
                 <div className="text-lg font-bold text-slate-900 font-mono">
                   {tripElapsedMins} min
                 </div>

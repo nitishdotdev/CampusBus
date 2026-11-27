@@ -129,9 +129,9 @@ export const DriverRoute: React.FC = () => {
                   <span
                     className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0 font-mono ${
                       isCompleted
-                        ? 'bg-emerald-600 text-white'
+                        ? 'bg-emerald-700 text-white'
                         : isNext
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-blue-700 text-white'
                         : 'bg-slate-100 text-slate-700'
                     }`}
                   >
@@ -141,7 +141,7 @@ export const DriverRoute: React.FC = () => {
                     <div className="font-bold text-slate-900 flex items-center gap-2">
                       <span>{stop.name}</span>
                       {isNext && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white animate-pulse">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-700 text-white">
                           Next Stop
                         </span>
                       )}
