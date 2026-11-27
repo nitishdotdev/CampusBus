@@ -1,40 +1,24 @@
-import React, { useEffect } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import React from 'react';
+import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { MobileNavigation } from './MobileNavigation';
 import { useApp } from '../../store/AppContext';
 import { ShieldAlert, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { authService } from '../../services/authService';
 
 export const AppShell: React.FC = () => {
-  const { emergencyAlerts, role, currentUser } = useApp();
-  const navigate = useNavigate();
+  const { emergencyAlerts, role, currentUser, isRestoringSession } = useApp();
   const location = useLocation();
   const activeAlert = emergencyAlerts.find((a) => a.status === 'ACTIVE');
 
-  // Auth guard: redirect to login if not authenticated
-  useEffect(() => {
-    if (!authService.isAuthenticated()) {
-      navigate('/roles', { replace: true });
-    }
-  }, [currentUser, navigate]);
+  if (isRestoringSession) return <main className="p-6" role="status">Restoring your session…</main>;
+  if (!currentUser) return <Navigate to="/roles" replace />;
 
-  // Role-based redirect guard
-  useEffect(() => {
-    if (!currentUser) return;
-    const path = location.pathname;
-    const userRole = currentUser.role;
-
-    if (path.startsWith('/admin') && userRole !== 'ADMIN') {
-      navigate(`/${userRole.toLowerCase()}`, { replace: true });
-    } else if (path.startsWith('/driver') && userRole !== 'DRIVER') {
-      navigate(`/${userRole.toLowerCase()}`, { replace: true });
-    } else if (path.startsWith('/student') && userRole !== 'STUDENT') {
-      navigate(`/${userRole.toLowerCase()}`, { replace: true });
-    }
-  }, [currentUser, location.pathname, navigate]);
+  const home = `/${currentUser.role.toLowerCase()}`;
+  if (location.pathname !== home && !location.pathname.startsWith(`${home}/`)) {
+    return <Navigate to={home} replace />;
+  }
 
   return (
     <div className="flex h-screen w-full bg-slate-50 text-slate-900 overflow-hidden">

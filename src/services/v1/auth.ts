@@ -83,7 +83,8 @@ export async function logoutV1(): Promise<void> {
 
 export async function getMeV1(): Promise<V1SessionUser | null> {
   try {
-    return await v1Client.get<V1SessionUser>('/api/v1/users/me');
+    const { id, ...user } = await v1Client.get<Omit<V1SessionUser, 'userId'> & { id: string }>('/api/v1/users/me');
+    return { ...user, userId: id };
   } catch {
     return null;
   }

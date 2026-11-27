@@ -49,6 +49,7 @@ interface AppContextType {
   switchCollege: (collegeId: string) => void;
   logout: () => void;
   isAuthenticated: boolean;
+  isRestoringSession: boolean;
 
   // Data
   buses: Bus[];
@@ -76,6 +77,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(authService.getCurrentUser());
   const [currentCollege, setCurrentCollege] = useState<College>(DEFAULT_COLLEGE);
   const [buses, setBuses] = useState<Bus[]>([]);
@@ -106,12 +108,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Auth subscription
   useEffect(() => {
+    let mounted = true;
+    void authService.restore().finally(() => { if (mounted) setIsRestoringSession(false); });
     const unsubAuth = authService.subscribe((user) => {
       setCurrentUser(user);
-      if (user) {
-        // Load data when user is authenticated
-        loadAllData();
-      } else {
+      if (!user) {
         // Clear all data on logout
         setBuses([]);
         setRoutes([]);
@@ -122,7 +123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsLoadingData(false);
       }
     });
-    return () => unsubAuth();
+    return () => { mounted = false; unsubAuth(); };
   }, []);
 
   // Data subscriptions (only when authenticated)
@@ -214,7 +215,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           busesV1.list(),
           routesV1.list(),
           notificationsV1.list(),
-          alertsV1.list(),
+          authService.getCurrentUser()?.role === 'ADMIN' ? alertsV1.list() : Promise.resolve(null),
           tripsV1.list(1, 50),
         ]);
         if (busPage.status === 'fulfilled') {
@@ -255,7 +256,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             routeId: n.routeId ?? undefined, expiresAt: n.expiresAt ?? undefined,
           } as any)));
         }
-        if (alertPage.status === 'fulfilled') {
+        if (alertPage.status === 'fulfilled' && alertPage.value) {
           setEmergencyAlerts(alertPage.value.items.map(a => ({
             id: a.id, collegeId: a.campusId, type: 'SOS', severity: 'HIGH',
             title: a.message ?? 'Emergency alert', description: a.message ?? '',
@@ -281,7 +282,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = () => {
-    if (USE_V1) { logoutV1(); socketV1.disconnect(); }
     authService.logout();
   };
 
@@ -327,6 +327,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     switchCollege,
     logout,
     isAuthenticated,
+    isRestoringSession,
     buses,
     routes,
     trips,
