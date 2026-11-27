@@ -4,7 +4,7 @@ import { createServices } from '../src/compose';
 import { DEFAULT_TRACKING, type TrackingConfig } from '../src/config/env';
 import { signAccessToken, verifyAccessToken } from '../src/auth/tokens';
 import { newId } from '../src/infra/postgres/ids';
-import { applyV1Schema, databaseReadiness } from '../src/infra/postgres/pool';
+import { applyV1Schema, campusProvisioningReadiness, databaseReadiness } from '../src/infra/postgres/pool';
 import { createPostgresRepositories, type Repositories } from '../src/infra/postgres/repositories';
 import { createApp } from '../src/http/app';
 import { createGateway } from '../src/realtime/gateway';
@@ -93,6 +93,7 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
       users: repos.users, buses: repos.buses, routes: repos.routes, tripRepo: repos.trips,
       ...services.extraRepos,
       verifyToken, verifyActiveAccount: true, allowedOrigins: [], checkReadiness: databaseReadiness(pool),
+      checkCampusProvisioning: campusProvisioningReadiness(pool),
     });
     const server = http.createServer(app);
     const gateway = createGateway(server, { verifyToken, live: services.live, allowedOrigins: [] });
