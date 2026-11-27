@@ -6,7 +6,7 @@ The active API uses the `v1` schema in PostgreSQL. Tables for campus, accounts, 
 
 1. Confirm the target service and database from the hosting dashboards. Record the active application revision, database branch, and a backup or point-in-time recovery marker. Take a schema and row-count inventory for both `v1` and any historical schemas without copying private records into logs.
 2. Restore to a staging database or use an isolated provider branch. Configure `DATABASE_URL`, any private CA, and `DATABASE_SSL_MODE=verify` in the runner's secret store.
-3. Run `NODE_ENV=production npm run db:migrate` twice. The migrator runs in a transaction under a PostgreSQL advisory lock. This release adds complaint storage, trip stop snapshots, occupancy, optional bus metadata, and campus settings. It does not drop or reset rows.
+3. Run `NODE_ENV=production npm run db:migrate` twice. The migrator runs in a transaction under a PostgreSQL advisory lock. This release adds complaint storage, trip stop snapshots, occupancy, optional bus metadata, and campus settings, and optional schedule arrival times. It does not drop or reset rows.
 4. Compare row counts, primary keys, assignment relationships, and login for existing accounts. Start a new trip, verify GPS and stop advancement, end it, and validate complaint ownership and resolution. Stop snapshots apply to newly started trips. Plan the rollout between shifts if existing active trips need uninterrupted stop tracking.
 5. After review and deployment approval, apply the same migration to the confirmed production database. Verify health, campus list, CORS and one authorized account per role.
 
