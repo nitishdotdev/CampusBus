@@ -8,42 +8,23 @@ export const DriverHistory: React.FC = () => {
 
   const completedTrips = trips.filter((t: Trip) => t.status === 'COMPLETED');
 
-  const totalDistance = completedTrips.reduce((acc: number, t: Trip) => acc + (t.distanceCoveredKm || 0), 0);
-  const avgDistance = completedTrips.length > 0 ? totalDistance / completedTrips.length : null;
-
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Driver Shift Log & Trip History</h2>
         <p className="text-xs text-slate-500">
-          Archived trip telemetry, route mileage, and passenger counts
+          Completed trips and recorded GPS fixes
         </p>
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
           <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
             Completed Trips
           </div>
           <div className="text-2xl font-black text-slate-900 mt-1 font-mono">
             {completedTrips.length}
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Mileage Logged
-          </div>
-          <div className="text-2xl font-black text-slate-900 mt-1 font-mono">
-            {totalDistance.toFixed(1)} <span className="text-sm font-normal text-slate-500">km</span>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Avg. Trip Distance
-          </div>
-          <div className="text-2xl font-black text-blue-600 mt-1 font-mono">
-            {avgDistance === null ? '—' : <>{avgDistance.toFixed(1)} <span className="text-sm font-normal text-slate-500">km</span></>}
           </div>
         </div>
       </div>
@@ -53,8 +34,8 @@ export const DriverHistory: React.FC = () => {
         {completedTrips.map((trip: Trip) => {
           const route = routes.find((r) => r.id === trip.routeId);
           const start = new Date(trip.startTime);
-          const end = trip.endTime ? new Date(trip.endTime) : new Date();
-          const durationMins = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
+          const end = trip.endTime ? new Date(trip.endTime) : null;
+          const durationMins = end ? Math.max(0, Math.floor((end.getTime() - start.getTime()) / 60000)) : null;
 
           return (
             <div
@@ -78,20 +59,18 @@ export const DriverHistory: React.FC = () => {
                     <span className="flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5" />
                       {start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} –{' '}
-                      {end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({durationMins}m)
+                      {end?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) ?? 'End time unavailable'}{durationMins != null && ` (${durationMins}m)`}
                     </span>
                     <span>•</span>
-                    <span>{trip.distanceCoveredKm || 12.4} km</span>
-                    <span>•</span>
-                    <span>{trip.syncedLocationsCount || 142} GPS pings</span>
+                    <span>{trip.syncedLocationsCount} GPS fixes</span>
                   </div>
                 </div>
               </div>
 
               <div className="text-right shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
-                <div className="text-[11px] text-slate-400">Peak Occupancy</div>
+                <div className="text-[11px] text-slate-400">Final passenger count</div>
                 <div className="text-sm font-bold text-slate-800 font-mono">
-                  {trip.currentOccupancy} passengers
+                  {trip.hasOccupancy ? `${trip.currentOccupancy} passengers` : 'Unavailable'}
                 </div>
               </div>
             </div>

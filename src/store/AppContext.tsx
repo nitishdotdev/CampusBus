@@ -7,6 +7,7 @@ import { listCampuses, type V1Campus } from '../services/v1/auth';
 import { v1AlertToUi, v1BusToUi, v1NotificationToUi, v1RouteToUi, v1TripToUi } from '../services/v1/adapters';
 import { busesV1 } from '../services/v1/buses';
 import { alertsV1, notificationsV1 } from '../services/v1/notifications';
+import { ApiV1Error } from '../services/v1/client';
 import { allPages } from '../services/v1/pages';
 import { routesV1 } from '../services/v1/routes';
 import { socketV1 } from '../services/v1/socket';
@@ -39,7 +40,6 @@ interface AppContextType {
   locationState: LocationServiceState;
   toggleSimulatedOffline: (simulateOffline: boolean) => void;
   refreshData: () => Promise<void>;
-  resetAllData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -115,6 +115,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const fleet = busRecords.map(bus => v1BusToUi(bus));
       const tracking = routeTracking(fleet);
       setCampuses(campusRecords);
+      locationService.setReportingInterval(campusRecords.find(campus => campus.id === currentUser.collegeId)?.gpsIntervalSeconds ?? 3);
       setBuses(fleet);
       setRoutes(routeRecords.map(route => v1RouteToUi(route, tracking.get(route.id))));
       setNotifications(notificationRows.items.map(v1NotificationToUi));
@@ -134,8 +135,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
       if (stillCurrent()) setDataError(null);
-    } catch {
+    } catch (error) {
       if (!stillCurrent()) return;
+      if (error instanceof ApiV1Error && (error.code === 'ACCOUNT_NOT_ACTIVE' || error.status === 401)) {
+        authService.logout();
+        return;
+      }
       setDataError('Could not refresh campus data. Try again when your connection is available.');
     } finally {
       if (stillCurrent()) setIsLoadingData(false);
@@ -171,6 +176,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentCollege: College = campus ? {
     id: campus.id, name: campus.name, shortCode: campus.shortCode, campusName: campus.city,
     centerLocation: { lat: campus.lat, lng: campus.lng }, defaultZoom: campus.zoom, timezone: campus.timezone,
+    gpsIntervalSeconds: campus.gpsIntervalSeconds, dispatchPhone: campus.dispatchPhone,
   } : unknownCampus;
 
   const value: AppContextType = {
@@ -183,11 +189,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isLoadingData, dataError, locationState,
     toggleSimulatedOffline: simulate => locationService.toggleSimulatedOffline(simulate),
     refreshData: () => loadData(),
-    resetAllData: async () => {
-      if (readKey) localStorage.removeItem(readKey);
-      setReadNotifications(new Set());
-      await loadData();
-    },
+
   };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };

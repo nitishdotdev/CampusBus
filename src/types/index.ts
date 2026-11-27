@@ -41,6 +41,8 @@ export interface College {
   };
   defaultZoom: number;
   timezone: string;
+  dispatchPhone?: string | null;
+  gpsIntervalSeconds?: number;
 }
 
 export interface User {

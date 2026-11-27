@@ -26,6 +26,7 @@ class LocationService {
   private retryAt = 0;
   private failures = 0;
   private listeners = new Set<(state: LocationServiceState) => void>();
+  private reportingInterval = 3000;
   private driverId: string | null = null;
   private state: LocationServiceState = {
     gpsStatus: 'GPS_PERMISSION_REQUIRED',
@@ -46,6 +47,8 @@ class LocationService {
       void this.attemptSyncQueuedLocations();
     }, 4000);
   }
+
+  public setReportingInterval(seconds: number) { this.reportingInterval = seconds * 1000; }
 
   public getState(): LocationServiceState { return { ...this.state }; }
 
@@ -85,6 +88,7 @@ class LocationService {
       return;
     }
 
+    let lastReported = 0;
     this.watchId = navigator.geolocation.watchPosition(position => {
       if (generation !== this.generation) return;
       const { latitude: lat, longitude: lng, accuracy, speed, heading } = position.coords;
@@ -93,6 +97,8 @@ class LocationService {
       this.state.gpsStatus = accuracy > 65 ? 'GPS_UNAVAILABLE' : 'GPS_ACTIVE';
       this.state.errorMessage = accuracy > 65 ? 'Location accuracy is low. Keep the device near a window with a clear view of the sky.' : null;
       this.notify();
+      if (position.timestamp - lastReported < this.reportingInterval) return;
+      lastReported = position.timestamp;
       const item = { id: `loc_${crypto.randomUUID()}`, tripId, busId, driverId, lat, lng, accuracy, speed, heading, timestamp, attemptCount: 0 };
       void offlineQueueService.enqueue(item).then(() => {
         if (this.driverId !== driverId) return;

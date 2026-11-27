@@ -35,6 +35,7 @@ import { EmptyState } from '../../components/common/States';
 export const DriverDashboard: React.FC = () => {
   const {
     currentUser,
+    currentCollege,
     activeTrip,
     buses,
     routes,
@@ -234,7 +235,7 @@ export const DriverDashboard: React.FC = () => {
             {assignedRoute.stops?.length || 0} stops
           </span>
         </div>
-        <MapView
+        <MapView center={[currentCollege.centerLocation.lat, currentCollege.centerLocation.lng]} zoom={currentCollege.defaultZoom}
           buses={[{
             ...assignedBus,
             lastLocation: locationState.lastLocation || assignedBus.lastLocation,

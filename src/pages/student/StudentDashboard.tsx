@@ -253,7 +253,7 @@ export const StudentDashboard: React.FC = () => {
         {/* Real Interactive Map */}
         <div className="lg:col-span-2 space-y-3">
           <div className="relative">
-            <MapView
+            <MapView center={[currentCollege.centerLocation.lat, currentCollege.centerLocation.lng]} zoom={currentCollege.defaultZoom}
               buses={displayedBuses}
               routes={selectedRouteId === 'ALL' ? routes : routes.filter((r) => r.id === selectedRouteId)}
               selectedBusId={selectedBus?.id}
@@ -379,12 +379,8 @@ export const StudentDashboard: React.FC = () => {
                   </div>
                   <div className="mt-1">
                     <ETAIndicator
-                      seconds={
-                        selectedBus.nextStop?.etaMinutes
-                          ? selectedBus.nextStop.etaMinutes * 60
-                          : selectedBus.etaToNextStopSeconds
-                      }
-                      confidence={selectedBus.etaConfidence || 'LIVE'}
+                      seconds={estimate}
+                      confidence={estimate == null ? 'OFFLINE' : 'DEGRADED'}
                     />
                   </div>
                 </div>

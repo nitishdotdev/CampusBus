@@ -9,7 +9,7 @@ import { useLiveBuses } from '../../hooks/useLiveBuses';
 import { estimateArrivalSeconds } from '../../services/arrivalEstimate';
 
 export const StudentLiveBuses: React.FC = () => {
-  const { buses, routes } = useApp();
+  const { buses, routes, currentCollege } = useApp();
   const [selectedBusId, setSelectedBusId] = useState<string>();
   const [selectedRouteId, setSelectedRouteId] = useState('ALL');
   const activeBuses = useLiveBuses(buses).filter(bus => Boolean(bus.activeTripId));
@@ -71,7 +71,7 @@ export const StudentLiveBuses: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 relative">
-            <MapView
+            <MapView center={[currentCollege.centerLocation.lat, currentCollege.centerLocation.lng]} zoom={currentCollege.defaultZoom}
               buses={filteredBuses}
               routes={routes}
               selectedBusId={selectedBusId}

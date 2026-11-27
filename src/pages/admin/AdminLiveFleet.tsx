@@ -69,7 +69,7 @@ export const AdminLiveFleet: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2">
-            <MapView buses={filteredBuses} routes={routes} selectedBusId={selectedBusId}
+            <MapView center={[currentCollege.centerLocation.lat, currentCollege.centerLocation.lng]} zoom={currentCollege.defaultZoom} buses={filteredBuses} routes={routes} selectedBusId={selectedBusId}
               selectedRouteId={routeFilter !== 'ALL' ? routeFilter : undefined}
               onSelectBus={(b) => setSelectedBusId(b.id)} heightClass="h-[550px] sm:h-[620px]" />
           </div>

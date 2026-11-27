@@ -7,7 +7,7 @@ export const AdminAnalytics: React.FC = () => {
   const { buses, routes, trips } = useApp();
 
   const completedTrips = trips.filter((t) => t.status === 'COMPLETED');
-  const activeTrips = trips.filter((t) => t.status === 'IN_PROGRESS').length;
+  const activeTrips = buses.filter(bus => bus.activeTripId).length;
   const totalTrips = trips.length;
 
   return (
@@ -19,7 +19,7 @@ export const AdminAnalytics: React.FC = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200">
-          <div className="text-xs font-semibold text-slate-500 uppercase">Total Trips</div>
+          <div className="text-xs font-semibold text-slate-500 uppercase">Recent Trips</div>
           <div className="text-2xl font-black text-slate-900 mt-2">{totalTrips}</div>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-200">
@@ -56,7 +56,7 @@ export const AdminAnalytics: React.FC = () => {
                     <th className="py-2 px-3">Route</th>
                     <th className="py-2 px-3">Started</th>
                     <th className="py-2 px-3">Ended</th>
-                    <th className="py-2 px-3">Distance</th>
+                    <th className="py-2 px-3">GPS fixes</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -70,7 +70,7 @@ export const AdminAnalytics: React.FC = () => {
                         </td>
                         <td className="py-2.5 px-3">{new Date(trip.startTime).toLocaleString()}</td>
                         <td className="py-2.5 px-3">{trip.endTime ? new Date(trip.endTime).toLocaleString() : '—'}</td>
-                        <td className="py-2.5 px-3 font-mono">{trip.distanceCoveredKm.toFixed(1)} km</td>
+                        <td className="py-2.5 px-3 font-mono">{trip.totalLocationsLogged}</td>
                       </tr>
                     );
                   })}
@@ -88,7 +88,6 @@ export const AdminAnalytics: React.FC = () => {
             {routes.map((route) => {
               const routeTrips = trips.filter((t) => t.routeId === route.id);
               const routeCompleted = routeTrips.filter((t) => t.status === 'COMPLETED').length;
-              const totalDist = routeTrips.reduce((acc, t) => acc + t.distanceCoveredKm, 0);
               return (
                 <div key={route.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
                   <div className="flex items-center gap-2">
@@ -98,7 +97,6 @@ export const AdminAnalytics: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-4 text-slate-600">
                     <span>{routeCompleted} trips</span>
-                    <span>{totalDist.toFixed(1)} km</span>
                   </div>
                 </div>
               );

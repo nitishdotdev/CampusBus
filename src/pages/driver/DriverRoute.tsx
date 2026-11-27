@@ -6,7 +6,7 @@ import { EmptyState } from '../../components/common/States';
 import { Route as RouteIcon, MapPin, Bus, Clock, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
 export const DriverRoute: React.FC = () => {
-  const { currentUser, routes, buses, activeTrip, isLoadingData } = useApp();
+  const { currentUser, routes, buses, activeTrip, isLoadingData, currentCollege } = useApp();
   const assignedBus = buses.find(bus => bus.id === activeTrip?.busId) ??
     buses.find(bus => bus.currentDriverId === currentUser?.id);
   const assignedRoute = routes.find(route => route.id === (activeTrip?.routeId ?? assignedBus?.currentRouteId));
@@ -81,7 +81,7 @@ export const DriverRoute: React.FC = () => {
           </span>
         </div>
 
-        <MapView
+        <MapView center={[currentCollege.centerLocation.lat, currentCollege.centerLocation.lng]} zoom={currentCollege.defaultZoom}
           buses={assignedBus ? [{
             ...assignedBus,
             currentStopId: activeTrip?.currentStopId || assignedBus.currentStopId,
