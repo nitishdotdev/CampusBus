@@ -278,7 +278,9 @@ export class PgBusRepository implements BusRepository {
       return await withTransaction(this.p, async client => {
         const current = await this.lockBus(client, campusId, id);
         if (!current) return null;
-        if (patch.status && patch.status !== current.status) await this.assertNoActiveTrip(client, campusId, id);
+        const statusChanged = patch.status !== undefined && patch.status !== current.status;
+        const capacityChanged = patch.capacity !== undefined && patch.capacity !== current.capacity;
+        if (statusChanged || capacityChanged) await this.assertNoActiveTrip(client, campusId, id);
         const result = await client.query(
           `UPDATE v1.buses SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND campus_id = $${vals.length} RETURNING *`,
           vals,

@@ -4,6 +4,8 @@ import { BusStatusBadge } from '../../components/common/StatusBadges';
 import { SearchInput, FilterBar } from '../../components/common/Inputs';
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
 import { busesV1, type V1Bus } from '../../services/v1/buses';
+import { ApiV1Error } from '../../services/v1/client';
+import type { Bus } from '../../types';
 
 import {
   Bus as BusIcon,
@@ -21,9 +23,9 @@ export const AdminBuses: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingBusId, setEditingBusId] = useState<string | null>(null);
   const [deletingBusId, setDeletingBusId] = useState<string | null>(null);
 
-  // New Bus form state
   const [busNumber, setBusNumber] = useState('');
   const [model, setModel] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
@@ -31,6 +33,7 @@ export const AdminBuses: React.FC = () => {
   const [assignedRouteId, setAssignedRouteId] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const editingActiveBus = buses.some(bus => bus.id === editingBusId && bus.activeTripId);
 
   const filteredBuses = buses.filter((b) => {
     if (statusFilter !== 'ALL' && b.status !== statusFilter) return false;
@@ -53,25 +56,37 @@ export const AdminBuses: React.FC = () => {
       await operation();
       after();
       await refreshData();
-    } catch {
-      setError('Could not save the vehicle change. Check the vehicle status and try again.');
+    } catch (err) {
+      const messages: Record<string, string> = {
+        BUS_NUMBER_TAKEN: 'A vehicle already uses this bus number.',
+        BUS_HAS_ACTIVE_TRIP: 'Wait for the active trip to end before changing vehicle capacity or status, or removing the vehicle.',
+      };
+      setError((err instanceof ApiV1Error && err.code && messages[err.code]) || 'Could not save the vehicle change. Check the vehicle details and try again.');
     } finally {
       setPending(false);
     }
   };
 
-  const handleAddBus = (event: React.FormEvent) => {
+  const openVehicleForm = (bus: Bus | null) => {
+    setEditingBusId(bus?.id ?? null);
+    setBusNumber(bus?.busNumber ?? '');
+    setModel(bus?.model ?? '');
+    setPlateNumber(bus?.plateNumber ?? '');
+    setCapacity(bus?.capacity ?? 45);
+    setAssignedRouteId('');
+    setError('');
+    setIsAddModalOpen(true);
+  };
+
+  const handleSaveVehicle = (event: React.FormEvent) => {
     event.preventDefault();
-    void mutate(() => busesV1.create({
-      number: busNumber.trim(), capacity, status: 'ACTIVE',
-      model: model.trim() || undefined, plateNumber: plateNumber.trim() || undefined, routeId: assignedRouteId || undefined,
-    }), () => {
-      setIsAddModalOpen(false);
-      setBusNumber('');
-      setModel('');
-      setPlateNumber('');
-      setAssignedRouteId('');
-    });
+    const number = busNumber.trim();
+    const vehicleModel = model.trim();
+    const plate = plateNumber.trim();
+    void mutate(() => editingBusId
+      ? busesV1.update(editingBusId, { number, capacity: editingActiveBus ? undefined : capacity, model: vehicleModel || null, plateNumber: plate || null })
+      : busesV1.create({ number, capacity, status: 'ACTIVE', model: vehicleModel || undefined, plateNumber: plate || undefined, routeId: assignedRouteId || undefined }),
+    () => setIsAddModalOpen(false));
   };
 
   const handleStatusChange = (id: string, status: V1Bus['status']) =>
@@ -105,7 +120,7 @@ export const AdminBuses: React.FC = () => {
 
         <button
           id="add-new-bus-button"
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={() => openVehicleForm(null)}
           className="self-start sm:self-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4" />
@@ -204,6 +219,10 @@ export const AdminBuses: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
+                      <button type="button" onClick={() => openVehicleForm(bus)} aria-label={`Edit vehicle ${bus.busNumber}`}
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100">
+                        <Edit2 className="w-4 h-4" aria-hidden="true" />
+                      </button>
                       <button
                         onClick={() => setDeletingBusId(bus.id)}
                         className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
@@ -223,10 +242,10 @@ export const AdminBuses: React.FC = () => {
       {/* Add Bus Modal */}
       <Modal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        title="Add Campus Shuttle Vehicle"
+        onClose={() => { if (!pending) setIsAddModalOpen(false); }}
+        title={editingBusId ? 'Edit Campus Shuttle Vehicle' : 'Add Campus Shuttle Vehicle'}
       >
-        <form onSubmit={handleAddBus} className="space-y-4">
+        <form onSubmit={handleSaveVehicle} className="space-y-4">
           {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
           <div>
             <label htmlFor="new-bus-number" className="block text-xs font-bold text-slate-700 mb-1">
@@ -267,6 +286,7 @@ export const AdminBuses: React.FC = () => {
               <input
                 id="new-bus-capacity"
                 type="number"
+                disabled={editingActiveBus}
                 min="1"
                 max="200" required
                 value={capacity}
@@ -276,7 +296,7 @@ export const AdminBuses: React.FC = () => {
             </div>
           </div>
 
-          <div>
+          {!editingBusId && <div>
             <label htmlFor="new-bus-route" className="block text-xs font-bold text-slate-700 mb-1">Initial Assigned Route</label>
             <select
               id="new-bus-route"
@@ -291,12 +311,12 @@ export const AdminBuses: React.FC = () => {
                 </option>
               ))}
             </select>
-          </div>
+          </div>}
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setIsAddModalOpen(false)}
+              disabled={pending} onClick={() => setIsAddModalOpen(false)}
               className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
             >
               Cancel
@@ -305,7 +325,7 @@ export const AdminBuses: React.FC = () => {
               type="submit" disabled={pending}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs cursor-pointer"
             >
-              Add Vehicle to Fleet
+              {editingBusId ? 'Save Vehicle' : 'Add Vehicle to Fleet'}
             </button>
           </div>
         </form>
@@ -317,7 +337,7 @@ export const AdminBuses: React.FC = () => {
         onClose={() => setDeletingBusId(null)}
         onConfirm={handleDelete}
         title="Remove Vehicle from Fleet?"
-        message="This will remove the bus record from the campus registry. Any active GPS tracks will be terminated."
+        message="This removes the vehicle from the campus registry. A vehicle with an active trip cannot be removed."
         confirmLabel="Remove Bus"
         isDangerous
       />

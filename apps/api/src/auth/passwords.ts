@@ -8,6 +8,9 @@ const OPTS: argon2.HashOptions = isTest
   ? { type: argon2.argon2id, memoryCost: 8192, timeCost: 1, parallelism: 1 }
   : { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4 };
 
+// Hash of a public placeholder. Unknown accounts still perform a full Argon2id check.
+export const UNKNOWN_ACCOUNT_HASH = '$argon2id$v=19$m=65536,p=4,t=3$mjTqNqMvUnUovwQ8s0gLbQ$KCwqmjoJRN+G4hrSXuBGJXmOEUEFkmiBQH1jvwcGufc';
+
 export async function hashPassword(password: string): Promise<string> { return argon2.hash(password, OPTS); }
 
 export type VerifyResult =

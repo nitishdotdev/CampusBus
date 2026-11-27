@@ -21,7 +21,7 @@ export const busesV1 = {
   create: (body: { number: string; capacity: number; status?: V1Bus['status']; model?: string; plateNumber?: string; routeId?: string }) =>
     v1Client.post<V1Bus>('/api/v1/buses', body),
 
-  update: (id: string, patch: Partial<{ number: string; capacity: number; status: string }>) =>
+  update: (id: string, patch: Partial<Pick<V1Bus, 'number' | 'capacity' | 'status' | 'model' | 'plateNumber'>>) =>
     v1Client.patch<V1Bus>(`/api/v1/buses/${id}`, patch),
 
   delete: (id: string) => v1Client.delete<void>(`/api/v1/buses/${id}`),

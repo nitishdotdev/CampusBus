@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { badRequest, DomainError, forbidden, notFound, tooMany } from '../domain/errors';
 import type { CampusRepository, EmailSender, EmailTokenRepository, Principal, RefreshTokenRepository, Role, SessionInfo, UserRepository, UserStatus } from '../domain/types';
-import { hashPassword, verifyPassword } from './passwords';
+import { hashPassword, UNKNOWN_ACCOUNT_HASH, verifyPassword } from './passwords';
 import { generateOTP, generateRefreshToken, hashRefreshToken, hashToken, requireAccessSecret, requireRefreshSecret, signAccessToken, type VerifiedPrincipal, verifyAccessToken } from './tokens';
 
 export interface AuthConfig {
@@ -141,10 +141,9 @@ export class AuthService {
     // Rate limit by (campusId, email) to prevent enumeration and brute-force.
     if (!this.limiter.check(`${campusId}:${email}`)) throw tooMany('LOGIN_RATE_LIMITED');
 
-    // Constant-time: fetch the user first and only then verify (no timing difference for unknown emails).
+    // Verify against a valid placeholder when no account matches the address.
     const user = await this.d.users.findByEmail(campusId, email);
-    const dummyHash = '$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dummy'; // always run a verify to avoid timing leak
-    const verify = await verifyPassword(password, user?.passwordHash ?? dummyHash);
+    const verify = await verifyPassword(password, user?.passwordHash ?? UNKNOWN_ACCOUNT_HASH);
     if (!user || !verify.ok) throw new DomainError(401, 'INVALID_CREDENTIALS');
 
     if (user.status === 'DISABLED') throw forbidden('ACCOUNT_DISABLED');

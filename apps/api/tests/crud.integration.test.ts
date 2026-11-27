@@ -51,7 +51,11 @@ describe.skipIf(!PG_TEST_URL)('CRUD APIs (buses, routes, schedules, notification
     expect(renamed.body.stops).toEqual(original.stops);
     expect((await patch(path, { driverId: null, routeId: null }, admin())).status).toBe(409);
     expect((await patch(`/api/v1/buses/${h.seed.busNoRoute}`, { status: 'MAINTENANCE' }, admin())).status).toBe(409);
+    const vehiclePath = `/api/v1/buses/${h.seed.busNoRoute}`;
+    expect((await patch(vehiclePath, { capacity: 1, model: 'QA' }, admin())).body.error).toBe('BUS_HAS_ACTIVE_TRIP');
+    expect((await patch(vehiclePath, { model: 'QA' }, admin())).body.model).toBe('QA');
     expect((await post(`/api/v1/trips/${started.body.trip.id}/end`, {}, token)).status).toBe(200);
+    expect((await patch(vehiclePath, { capacity: 32 }, admin())).body.capacity).toBe(32);
     expect((await patch(path, { driverId: null, routeId: null }, admin())).status).toBe(200);
   });
 

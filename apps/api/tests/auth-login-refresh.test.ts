@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import * as argon2 from 'argon2';
 import request from 'supertest';
 import { AuthService, DEFAULT_AUTH_CONFIG } from '../src/auth/service';
-import { hashPassword } from '../src/auth/passwords';
+import { hashPassword, UNKNOWN_ACCOUNT_HASH } from '../src/auth/passwords';
 import { createApp } from '../src/http/app';
 import type {
   EmailTokenRepository, RefreshTokenRepository, UserDTO, UserRepository,
@@ -142,4 +143,7 @@ describe('login / refresh token contract (SPA)', () => {
     expect(res.body.refreshToken).toEqual(expect.stringMatching(/^[a-f0-9]{96}$/));
     expect(res.body.refreshToken).not.toBe(login.refreshToken);
   });
+});
+it('runs a valid Argon2id check for addresses without an account', async () => {
+  await expect(argon2.verify(UNKNOWN_ACCOUNT_HASH, 'unrelated password')).resolves.toBe(false);
 });
