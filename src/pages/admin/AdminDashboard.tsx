@@ -1,3 +1,4 @@
+import { WorkspaceHeading } from '../../components/common/WorkspaceHeading';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../../store/AppContext';
@@ -37,19 +38,11 @@ export const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            {currentCollege.name} Fleet Overview
-          </h2>
-          <p className="text-xs text-slate-500">Real-time campus shuttle monitoring</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link to="/admin/fleet" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors">
-            <Navigation className="w-4 h-4" /> Live Fleet Map
-          </Link>
-        </div>
-      </div>
+      <WorkspaceHeading title={`${currentCollege.name} fleet overview`}
+        description="Review current service, vehicle availability and open incidents."
+        actions={<Link to="/admin/fleet" className="campus-action">
+          <Navigation aria-hidden="true" className="h-4 w-4" /> Live fleet map
+        </Link>} />
 
       {/* Emergency Banner */}
       {activeAlerts.length > 0 && (

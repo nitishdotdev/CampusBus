@@ -1,3 +1,4 @@
+import { WorkspaceHeading } from '../../components/common/WorkspaceHeading';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../../store/AppContext';
@@ -118,28 +119,12 @@ export const StudentDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner & Route Selector */}
-      <div className="bg-blue-900 text-white rounded-2xl p-5 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-blue-700/60 border border-blue-500/40 text-[11px] font-semibold text-blue-100 mb-2">
-              <span>Campus Transit • {currentCollege.campusName}</span>
-            </div>
-            <h2 className="text-xl sm:text-2xl font-black tracking-tight">
-              Live Shuttle Tracker{currentUser?.name ? `, ${currentUser.name.split(' ')[0]}` : ''}
-            </h2>
-            <p className="text-xs text-blue-100 mt-1">
-              {activeBuses.length > 0
-                ? `${activeBuses.length} campus shuttle${activeBuses.length !== 1 ? 's' : ''} currently running.`
-                : 'No buses are currently running. Check the next scheduled departure.'}
-            </p>
-          </div>
-
-          {/* Route Selector Dropdown */}
-          <div className="bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/20 shrink-0">
-            <label htmlFor="student-dashboard-route" className="block text-[11px] font-bold uppercase tracking-wider text-blue-200 mb-1">
-              Filter by Line
-            </label>
+      <WorkspaceHeading title="Campus shuttles"
+        description={activeBuses.length
+          ? `${activeBuses.length} shuttle${activeBuses.length === 1 ? ' is' : 's are'} in service.`
+          : 'No shuttles are in service right now. Check the next scheduled departure.'}
+        actions={<div className="w-full sm:w-auto">
+            <label htmlFor="student-dashboard-route" className="mb-1 block text-xs font-semibold text-slate-700">Route</label>
             <select id="student-dashboard-route"
               value={selectedRouteId}
               onChange={(e) => {
@@ -151,7 +136,7 @@ export const StudentDashboard: React.FC = () => {
                   else setSelectedBusId(undefined);
                 }
               }}
-              className="w-full sm:w-56 px-3 py-2 bg-white text-slate-900 font-bold text-xs rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-xs cursor-pointer"
+              className="w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 sm:w-56"
             >
               <option value="ALL">All Routes ({activeBuses.length} active)</option>
               {routes.map((r) => {
@@ -163,9 +148,7 @@ export const StudentDashboard: React.FC = () => {
                 );
               })}
             </select>
-          </div>
-        </div>
-      </div>
+          </div>} />
 
       {/* Dashboard Summaries: Upcoming Schedules & Recent Notifications */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

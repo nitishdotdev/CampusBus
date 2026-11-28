@@ -61,3 +61,16 @@ body {
     transition: none;
   }
 }
+
+@layer components {
+  .campus-surface { background: #f3f5fa; color: #151f36; }
+  .campus-heading { color: #151f36; }
+  .campus-panel { @apply rounded-2xl border border-slate-200 bg-white; }
+  .campus-action {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-indigo-700 px-4 text-sm font-bold text-white hover:bg-indigo-800;
+  }
+  .campus-panel:focus-visible,
+  .campus-action:focus-visible {
+    @apply outline outline-2 outline-offset-2 outline-indigo-600;
+  }
+}
