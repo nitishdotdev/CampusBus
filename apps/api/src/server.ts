@@ -62,7 +62,8 @@ async function main() {
   );
 
   const bootstrap = await bootstrapAdminOnStartup(process.env, repos.campuses, services.auth);
-  if (bootstrap !== 'disabled') console.info(`[bootstrap] administrator ${bootstrap}`);
+  if (bootstrap === 'email-in-use') console.warn('[bootstrap] administrator not created: the bootstrap email already belongs to another account');
+  else if (bootstrap !== 'disabled') console.info(`[bootstrap] administrator ${bootstrap}`);
 
   const app = createApp({
     ingest:    services.ingest,

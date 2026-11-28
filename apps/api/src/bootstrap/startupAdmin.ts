@@ -1,7 +1,7 @@
 import { bootstrapAdminSchema, type AuthService } from '../auth/service';
 import type { CampusRepository } from '../domain/types';
 
-export type StartupAdminResult = 'disabled' | 'created' | 'already-exists';
+export type StartupAdminResult = 'disabled' | 'created' | 'already-exists' | 'email-in-use';
 
 /** Trusted, opt-in provisioning. Never logs or returns credentials. */
 export async function bootstrapAdminOnStartup(
@@ -31,7 +31,11 @@ export async function bootstrapAdminOnStartup(
     await auth.bootstrapAdmin(campus.id, email, password, name);
     return 'created';
   } catch (err) {
-    if ((err as { code?: string } | null)?.code === 'ADMIN_ALREADY_EXISTS') return 'already-exists';
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'ADMIN_ALREADY_EXISTS') return 'already-exists';
+    // The email belongs to another account. Leave that account untouched and keep the API running:
+    // a conflict in data must not crash every deployment while the bootstrap variables remain set.
+    if (code === 'EMAIL_ALREADY_REGISTERED') return 'email-in-use';
     // Do not propagate raw database or validation messages to deployment logs.
     throw new Error('Admin startup bootstrap failed; verify configuration and database');
   }

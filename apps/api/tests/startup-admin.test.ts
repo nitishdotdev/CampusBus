@@ -58,6 +58,12 @@ describe('startup administrator provisioning', () => {
     expect(auth.bootstrapAdmin).not.toHaveBeenCalled();
   });
 
+  it('reports an email owned by another account without failing startup or changing that account', async () => {
+    const { campuses, auth } = deps();
+    auth.bootstrapAdmin.mockRejectedValue(new DomainError(409, 'EMAIL_ALREADY_REGISTERED'));
+    expect(await bootstrapAdminOnStartup(env, campuses, auth)).toBe('email-in-use');
+  });
+
   it('does not create a missing campus', async () => {
     const { auth } = deps();
     await expect(bootstrapAdminOnStartup(env, { findByCode: async () => null }, auth))
@@ -102,6 +108,25 @@ describe.skipIf(!PG_TEST_URL)('startup admin PostgreSQL integration', () => {
         campusId: target.id, email: winner.email, password: 'DifferentPassword1!',
       });
       expect(denied.status).toBe(401);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it('leaves a student who already owns the bootstrap email untouched and does not fail startup', async () => {
+    const h = await createHarness();
+    try {
+      const { campuses, users } = h.services.repos;
+      const { id: _id, ...input } = campus;
+      const target = await campuses.create(input);
+      await users.create({
+        campusId: target.id, email: env.BOOTSTRAP_ADMIN_EMAIL, passwordHash: 'x',
+        name: 'Existing Student', role: 'STUDENT', status: 'ACTIVE',
+      });
+      expect(await bootstrapAdminOnStartup(env, campuses, h.services.auth)).toBe('email-in-use');
+      expect(await users.list(target.id, { role: 'ADMIN' })).toMatchObject({ total: 0 });
+      const student = await users.findByEmail(target.id, env.BOOTSTRAP_ADMIN_EMAIL);
+      expect(student).toMatchObject({ role: 'STUDENT', name: 'Existing Student' });
     } finally {
       await h.close();
     }
