@@ -18,5 +18,7 @@ Canonical names from apps/api. Use these exact names in code. Legacy names are l
 | Emergency alert | EmergencyAlertDTO / v1.emergency_alerts | Status: OPEN, ACKNOWLEDGED, RESOLVED |
 | Complaint | Complaint / v1.complaints | Status: OPEN, IN_PROGRESS, RESOLVED, CLOSED. Priority: LOW, NORMAL, HIGH |
 | Email token | EmailTokenRepository / v1.email_tokens | Verification and reset codes |
+| Queued reading (client) | TelemetryQueueItem / IndexedDB `telemetry_queue` | A GPS reading on the driver device waiting to be sent. Removed once the server has answered for it |
+| Quarantined reading (client) | QuarantinedLocationUpdate / IndexedDB `telemetry_quarantine` | A reading from a trip the server refused permanently. Kept on the device for up to 7 days, never resent automatically |
 
 **Deprecated: the legacy `server/` tree** (top-level `server/`, `server.ts`, `server/db/schema.sql`). It is not deployed. Root tests still import it, so it is not being retired in this setup. Do not add new code there. Put new work in `apps/api/`.

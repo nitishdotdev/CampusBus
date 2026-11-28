@@ -95,7 +95,7 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
       users: repos.users, buses: repos.buses, routes: repos.routes, tripRepo: repos.trips,
       ...services.extraRepos,
       verifyToken, isSessionActive: (sid) => services.auth.isSessionActive(sid),
-      verifyActiveAccount: true, allowedOrigins: [], checkReadiness: databaseReadiness(pool),
+      verifyActiveAccount: true, allowedOrigins: ['https://campus.example'], checkReadiness: databaseReadiness(pool),
       checkCampusProvisioning: campusProvisioningReadiness(pool),
     });
     const server = http.createServer(app);

@@ -208,12 +208,15 @@ describe.skipIf(!PG_TEST_URL)('GPS ingestion: rate limiting', () => {
   it('limits events per authenticated driver per window (batch cost = its size) and recovers next window', async () => {
     const trip = await freshTrip(h);
     const tok = h.token({ id: h.seed.driver1, campusId: h.seed.campusA, role: 'DRIVER' });
-    const go = (n: number) => request(h.app).post('/api/v1/telemetry').set('Authorization', `Bearer ${tok}`)
+    const go = (n: number) => request(h.app).post('/api/v1/telemetry').set('Authorization', `Bearer ${tok}`).set('Origin', 'https://campus.example')
       .send({ tripId: trip.id, events: Array.from({ length: n }, (_, i) => ev(h, -1000 - i * 100, 28.4595 + i * 1e-6)) });
     expect((await go(3)).status).toBe(200);
     const blocked = await go(3);
     expect(blocked.status).toBe(429);
     expect(blocked.body.error).toBe('RATE_LIMITED');
+    expect(blocked.headers['retry-after']).toBe('60');
+    expect(blocked.headers['access-control-expose-headers']).toMatch(/Retry-After/i);
+    expect(blocked.headers['access-control-allow-origin']).toBe('https://campus.example');
     expect((await go(2)).status).toBe(200);
     h.clock.advance(61_000);
     expect((await go(3)).status).toBe(200);

@@ -2,6 +2,21 @@ import type { GPSStatus, NetworkStatus, LocationPoint, QueuedLocationUpdate } fr
 import { offlineQueueService } from './offlineQueue';
 import { telemetryV1 } from './v1/telemetry';
 import { applySyncVerdicts, type AcceptedFix, type ReadingVerdict, type SyncResultLike } from './gpsQuality';
+import { describeSyncPause } from './telemetrySyncPolicy';
+import {
+  createSyncPolicyState, runSyncPass, type SyncPassOutcome, type SyncPolicyState,
+} from './telemetrySyncPass';
+
+/**
+ * Sync phase, as the driver should understand it. Derived from the queue, the network and the sync policy.
+ * - IDLE:           nothing waiting, or everything is in sync.
+ * - SYNCING:        a batch is in flight.
+ * - OFFLINE:        the device has no connection; readings are saved locally.
+ * - WAITING_RETRY:  temporary failure; will retry at retryAt.
+ * - PAUSED_AUTH:    the session must be renewed by signing in again.
+ * - PAUSED_ACCOUNT: the account cannot send telemetry; sync stays paused until sign-in.
+ */
+export type SyncPhase = 'IDLE' | 'SYNCING' | 'OFFLINE' | 'WAITING_RETRY' | 'PAUSED_AUTH' | 'PAUSED_ACCOUNT';
 
 export interface LocationServiceState {
   gpsStatus: GPSStatus;
@@ -19,8 +34,18 @@ export interface LocationServiceState {
   lastVerdict: ReadingVerdict | null;
   /** Session counts of rejected readings, keyed by server reason code. */
   rejectionCounts: Record<string, number>;
+  /** Driver-facing sync phase (see SyncPhase). */
+  syncPhase: SyncPhase;
+  /** Readings kept on this device because the server refused their trip permanently. */
+  quarantinedCount: number;
+  /** When the device will try again, as ISO time, during WAITING_RETRY or PAUSED_AUTH. */
+  retryAt: string | null;
+  /** Short, driver-facing explanation for the current non-idle phase. */
+  syncMessage: string | null;
 }
 
+const PRUNE_INTERVAL_MS = 10 * 60_000;
+const QUARANTINE_MESSAGE = 'Some saved location readings could not be delivered and are kept on this device for up to 7 days. Contact campus transport if this continues.';
 
 const toEvent = (item: QueuedLocationUpdate) => ({
   eventId: item.id, lat: item.lat, lng: item.lng, accuracyM: item.accuracy,
@@ -31,17 +56,23 @@ class LocationService {
   private watchId: number | null = null;
   private generation = 0;
   private syncing = false;
-  private retryAt = 0;
-  private failures = 0;
+  private driverEpoch = 0;
+  private pendingQuarantinePurges = new Set<string>();
   private listeners = new Set<(state: LocationServiceState) => void>();
   private reportingInterval = 3000;
   private driverId: string | null = null;
+
+  /** Sync policy state for the current driver. Replaced whenever the driver changes. */
+  private policy: SyncPolicyState = createSyncPolicyState();
+  private lastPruneAt = 0;
+
   private state: LocationServiceState = {
     gpsStatus: 'GPS_PERMISSION_REQUIRED',
     networkStatus: navigator.onLine ? 'NETWORK_ONLINE' : 'NETWORK_OFFLINE',
     isTracking: false, isSimulated: false, lastLocation: null, lastSyncTime: null,
     queuedCount: 0, errorMessage: null, isSimulatedOffline: false,
     lastAcceptedLive: null, lastVerdict: null, rejectionCounts: {},
+    syncPhase: 'IDLE', quarantinedCount: 0, retryAt: null, syncMessage: null,
   };
 
   constructor() {
@@ -53,6 +84,7 @@ class LocationService {
         this.state.gpsStatus = 'LOCATION_STALE';
         this.notify();
       }
+      if (!this.syncing) this.purgeDepartedDriverQuarantine();
       void this.attemptSyncQueuedLocations();
     }, 4000);
   }
@@ -69,11 +101,18 @@ class LocationService {
 
   public setDriver(driverId: string | null): void {
     if (this.driverId === driverId) return;
+    if (this.driverId) this.pendingQuarantinePurges.add(this.driverId);
+    this.driverEpoch++;
     this.stopTracking();
     this.driverId = driverId;
+    if (!this.syncing) this.purgeDepartedDriverQuarantine();
     this.state.queuedCount = 0;
+    this.state.quarantinedCount = 0;
     this.state.isSimulatedOffline = false;
+    this.policy = createSyncPolicyState();
+    this.state.errorMessage = null;
     this.networkChanged();
+    if (driverId) void this.pruneOwnQuarantine();
   }
 
   public toggleSimulatedOffline(simulateOffline: boolean): void {
@@ -136,44 +175,107 @@ class LocationService {
     this.notify();
   }
 
+  /**
+   * Starts one sync pass for the current driver. The policy lives in runSyncPass; this method only wires the real
+   * queue and transport, guards against overlapping passes, and turns the outcome into driver-facing state.
+   */
   public async attemptSyncQueuedLocations(): Promise<void> {
     const driverId = this.driverId;
-    if (!driverId || this.syncing || Date.now() < this.retryAt) return;
-    this.syncing = true;
-    try {
-      const queued = await offlineQueueService.getAll(50, driverId);
-      if (this.driverId !== driverId) return;
-      this.state.queuedCount = await offlineQueueService.getCount(driverId);
-      if (this.driverId !== driverId) return;
-      if (!navigator.onLine || this.state.isSimulatedOffline) {
-        this.state.networkStatus = queued.length ? 'LOCATION_QUEUED' : 'NETWORK_OFFLINE';
-        return;
-      }
-      if (!queued.length) return;
+    const epoch = this.driverEpoch;
+    if (!driverId || this.syncing) return;
+    if (this.policy.devicePause || Date.now() < this.policy.deviceRetryAt) {
+      this.refreshPhase();
+      return;
+    }
+    if (!navigator.onLine || this.state.isSimulatedOffline) {
+      this.refreshPhase();
+      return;
+    }
 
-      const tripId = queued[0].tripId;
-      const batch = queued.filter(item => item.tripId === tripId);
-      this.state.networkStatus = 'SYNCING';
-      this.notify();
-      const result = await telemetryV1.sendBatch(tripId, batch.map(toEvent));
-      this.recordVerdicts(result.results, batch);
-      const matched = new Set(result.results.flatMap(item => item.eventId ? [item.eventId] : []));
-      await offlineQueueService.remove(batch.filter(item => matched.has(item.id)).map(item => item.id));
-      if (this.driverId !== driverId) return;
-      this.failures = 0;
-      this.state.queuedCount = await offlineQueueService.getCount(driverId);
-      this.state.networkStatus = 'NETWORK_ONLINE';
-      if (result.results.some(item => item.status !== 'rejected')) this.state.lastSyncTime = new Date().toISOString();
-      if (result.results.some(item => item.status === 'rejected')) this.state.errorMessage = 'The server rejected some location readings.';
-    } catch {
-      if (this.driverId !== driverId) return;
-      this.retryAt = Date.now() + Math.min(60_000, 4000 * (2 ** this.failures++));
-      this.state.networkStatus = 'LOCATION_QUEUED';
-      this.state.errorMessage = 'Location records are queued. The app will retry when the connection is available.';
+    this.syncing = true;
+    this.state.syncPhase = 'SYNCING';
+    this.notify();
+    try {
+      const outcome = await runSyncPass({
+        driverId,
+        queue: offlineQueueService,
+        transport: telemetryV1,
+        state: this.policy,
+        now: () => Date.now(),
+        isCurrent: () => this.driverEpoch === epoch,
+        onResults: (results, readings) => this.recordVerdicts(results, readings),
+        toEvent,
+      });
+      if (this.driverEpoch !== epoch) return;
+      this.applyOutcome(outcome);
     } finally {
       this.syncing = false;
+      this.purgeDepartedDriverQuarantine();
+      if (this.driverEpoch === epoch) await this.refreshCounts(driverId);
       this.notify();
     }
+  }
+
+  private applyOutcome(outcome: SyncPassOutcome): void {
+    if (outcome.batchesSent > 0) this.state.lastSyncTime = new Date().toISOString();
+    if (outcome.deviceFailure) {
+      this.state.errorMessage = describeSyncPause(outcome.deviceFailure.reason);
+    } else if (outcome.quarantinedTrips.length > 0) {
+      this.state.errorMessage = QUARANTINE_MESSAGE;
+    } else if (outcome.serverRejected) {
+      this.state.errorMessage = 'The server rejected some location readings.';
+    } else {
+      this.state.errorMessage = null;
+    }
+  }
+
+  /** Recomputes the driver-facing phase from the current queue, network and policy state. */
+  private refreshPhase(): void {
+    void this.refreshCounts(this.driverId);
+  }
+
+  private computePhase(): Pick<LocationServiceState, 'syncPhase' | 'retryAt' | 'syncMessage'> {
+    if (this.policy.devicePause === 'ACCOUNT') {
+      return { syncPhase: 'PAUSED_ACCOUNT', retryAt: null, syncMessage: describeSyncPause('ACCOUNT') };
+    }
+    if (this.policy.deviceRetryAt > Date.now() && this.policy.deviceRetryReason) {
+      const retryAt = new Date(this.policy.deviceRetryAt).toISOString();
+      if (this.policy.deviceRetryReason === 'AUTH') {
+        return { syncPhase: 'PAUSED_AUTH', retryAt, syncMessage: describeSyncPause('AUTH') };
+      }
+      return { syncPhase: 'WAITING_RETRY', retryAt, syncMessage: describeSyncPause(this.policy.deviceRetryReason) };
+    }
+    if (!navigator.onLine || this.state.isSimulatedOffline) {
+      return { syncPhase: 'OFFLINE', retryAt: null, syncMessage: describeSyncPause('NETWORK') };
+    }
+    return { syncPhase: 'IDLE', retryAt: null, syncMessage: null };
+  }
+
+  private async refreshCounts(driverId: string | null): Promise<void> {
+    if (!driverId) return;
+    const [queued, quarantined] = await Promise.all([
+      offlineQueueService.countQueued(driverId),
+      offlineQueueService.countQuarantined(driverId),
+    ]);
+    if (this.driverId !== driverId) return;
+    this.state.queuedCount = queued;
+    this.state.quarantinedCount = quarantined;
+    Object.assign(this.state, this.computePhase());
+    this.notify();
+  }
+
+  private purgeDepartedDriverQuarantine() {
+    for (const driverId of this.pendingQuarantinePurges) {
+      this.pendingQuarantinePurges.delete(driverId);
+      void offlineQueueService.purgeQuarantine(driverId)
+        .catch(() => { this.pendingQuarantinePurges.add(driverId); });
+    }
+  }
+
+  private async pruneOwnQuarantine(): Promise<void> {
+    if (Date.now() - this.lastPruneAt < PRUNE_INTERVAL_MS) return;
+    this.lastPruneAt = Date.now();
+    await offlineQueueService.pruneQuarantine().catch(() => { this.lastPruneAt = 0; });
   }
 
   /** Applies the server's per-reading verdicts to the driver-visible state. */
@@ -187,8 +289,11 @@ class LocationService {
   }
 
   private networkChanged() {
-    this.retryAt = 0;
-    this.failures = 0;
+    if (this.policy.deviceRetryReason === 'NETWORK') {
+      this.policy.deviceFailures = 0;
+      this.policy.deviceRetryAt = 0;
+      this.policy.deviceRetryReason = null;
+    }
     this.state.networkStatus = navigator.onLine && !this.state.isSimulatedOffline ? 'NETWORK_ONLINE' : 'NETWORK_OFFLINE';
     this.notify();
     void this.attemptSyncQueuedLocations();

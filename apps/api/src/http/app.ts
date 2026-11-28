@@ -460,11 +460,27 @@ export function createApp(deps: AppDeps) {
     const alr = express.Router();
     alr.get('/', auth, requireRole('ADMIN', 'DRIVER'), wrap(async (req, res) => {
       const q = z.object({ status: z.enum(['OPEN','ACKNOWLEDGED','RESOLVED']).optional(), page: z.coerce.number().int().min(1).optional(), pageSize: z.coerce.number().int().min(1).max(100).optional() }).parse(req.query);
-      res.json(await alerts.list(req.principal.campusId, q));
+      // Drivers see only the alerts they raised. Administrators see every alert in their campus.
+      const scope = req.principal.role === 'DRIVER' ? { raisedBy: req.principal.userId } : {};
+      res.json(await alerts.list(req.principal.campusId, { ...q, ...scope }));
+    }));
+    alr.get('/:id', auth, requireRole('ADMIN', 'DRIVER'), wrap(async (req, res) => {
+      const { campusId, userId, role } = req.principal;
+      const alert = await alerts.findById(campusId, idParam.parse(req.params['id']), role === 'DRIVER' ? userId : undefined);
+      if (!alert) throw new DomainError(404, 'ALERT_NOT_FOUND');
+      res.json(alert);
     }));
     alr.post('/', auth, requireRole('DRIVER'), wrap(async (req, res) => {
-      const b = z.object({ busId: z.string().regex(/^[a-f0-9]{24}$/i), tripId: z.string().regex(/^[a-f0-9]{24}$/i).optional(), message: z.string().max(1000).optional(), location: z.strictObject({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional() }).strict().parse(req.body);
+      const { requestId, ...b } = z.object({ requestId: idParam.optional(), busId: z.string().regex(/^[a-f0-9]{24}$/i), tripId: z.string().regex(/^[a-f0-9]{24}$/i).optional(), message: z.string().max(1000).optional(), location: z.strictObject({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional() }).strict().parse(req.body);
       const { campusId, userId } = req.principal;
+      if (requestId) {
+        const existing = await alerts.findById(campusId, requestId, userId);
+        if (existing) {
+          if (existing.busId !== b.busId || existing.message !== (b.message ?? null)) throw new DomainError(409, 'ALERT_REQUEST_CONFLICT');
+          res.json(existing);
+          return;
+        }
+      }
       const bus = await deps.buses.findById(campusId, b.busId);
       if (!bus || bus.driverId !== userId) throw new DomainError(404, 'BUS_NOT_FOUND');
       if (b.tripId) {
@@ -473,7 +489,7 @@ export function createApp(deps: AppDeps) {
           throw new DomainError(404, 'TRIP_NOT_FOUND');
         }
       }
-      res.status(201).json(await alerts.create({ campusId: req.principal.campusId, raisedBy: req.principal.userId, status: 'OPEN', ...b, tripId: b.tripId ?? null, message: b.message ?? null, location: b.location ?? null, acknowledgedBy: null, acknowledgedAt: null, resolvedBy: null, resolvedAt: null }));
+      res.status(201).json(await alerts.create({ campusId: req.principal.campusId, raisedBy: req.principal.userId, status: 'OPEN', ...b, tripId: b.tripId ?? null, message: b.message ?? null, location: b.location ?? null, acknowledgedBy: null, acknowledgedAt: null, resolvedBy: null, resolvedAt: null }, requestId));
     }));
     alr.post('/:id/acknowledge', auth, requireRole('ADMIN'), wrap(async (req, res) => {
       emptyBody.parse(req.body);
@@ -552,7 +568,7 @@ export function createApp(deps: AppDeps) {
 
   // ─── Error handler ────────────────────────────────────────────────────────
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof DomainError) { res.status(err.status).json({ error: err.code, ...(err.status === 400 && err.message !== err.code ? { detail: err.message } : {}) }); return; }
+    if (err instanceof DomainError) { if (err.retryAfterSeconds !== undefined) res.set('Retry-After', String(err.retryAfterSeconds)); res.status(err.status).json({ error: err.code, ...(err.status === 400 && err.message !== err.code ? { detail: err.message } : {}) }); return; }
     if (err instanceof z.ZodError) { res.status(400).json({ error: 'INVALID_REQUEST', detail: publicValidationMessage(err) }); return; }
     const e = err as { type?: string };
     if (e?.type === 'entity.too.large') { res.status(413).json({ error: 'PAYLOAD_TOO_LARGE' }); return; }

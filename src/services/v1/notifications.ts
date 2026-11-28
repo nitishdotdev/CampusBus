@@ -44,7 +44,8 @@ export const alertsV1 = {
     const q = status ? `&status=${status}` : '';
     return v1Client.get<Page<V1Alert>>(`/api/v1/alerts?page=${page}${q}`);
   },
-  raise: (body: { busId: string; tripId?: string; message?: string; location?: { lat: number; lng: number } }) =>
+  get: (id: string) => v1Client.get<V1Alert>(`/api/v1/alerts/${id}`),
+  raise: (body: { requestId?: string; busId: string; tripId?: string; message?: string; location?: { lat: number; lng: number } }) =>
     v1Client.post<V1Alert>('/api/v1/alerts', body),
   acknowledge: (id: string) => v1Client.post<V1Alert>(`/api/v1/alerts/${id}/acknowledge`, {}),
   resolve: (id: string)      => v1Client.post<V1Alert>(`/api/v1/alerts/${id}/resolve`, {}),

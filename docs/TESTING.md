@@ -14,6 +14,8 @@ The CI workflow provisions PostgreSQL 16 and a TLS-enabled PostgreSQL instance w
 
 For a browser run, create a disposable campus, one account per role, at least one stop sequence and a bus assignment, then use the frontend production build against the local API. Exercise both deep links and reloads after logging in. Wait for the route's own rendered content, capture console and HTTP errors, and test at 360, 390, 768, 1024, and 1440 CSS pixels. Capture empty and active states when possible. Use a separate device for physical GPS and Chrome 109 validation.
 
+Driver-device sync and emergency logic are tested as pure modules, so they run without services or a browser: `tests/telemetry-sync-policy.test.ts`, `tests/telemetry-sync-pass.test.ts` (the real sync pass against an in-memory queue and scripted server responses), `tests/emergency-policy.test.ts` and `tests/retry-after.test.ts`. The driver-alert visibility regression is `apps/api/tests/alerts-scope.integration.test.ts` and needs `PG_TEST_URL`.
+
 Current commands for build and dependency checks:
 
 ```sh

@@ -190,8 +190,10 @@ export interface NotificationRepository {
   delete(campusId: string, id: string): Promise<boolean>;
 }
 export interface EmergencyAlertRepository {
-  list(campusId: string, opts: { status?: AlertStatus; page?: number; pageSize?: number }): Promise<Page<EmergencyAlertDTO>>;
-  create(a: Omit<EmergencyAlertDTO, 'id' | 'createdAt'>): Promise<EmergencyAlertDTO>;
+  /** raisedBy limits results to alerts raised by that user. Drivers must always be scoped this way. */
+  list(campusId: string, opts: { status?: AlertStatus; raisedBy?: string; page?: number; pageSize?: number }): Promise<Page<EmergencyAlertDTO>>;
+  findById(campusId: string, id: string, raisedBy?: string): Promise<EmergencyAlertDTO | null>;
+  create(a: Omit<EmergencyAlertDTO, 'id' | 'createdAt'>, requestId?: string): Promise<EmergencyAlertDTO>;
   acknowledge(campusId: string, id: string, byUserId: string, at: Date): Promise<EmergencyAlertDTO | null>;
   resolve(campusId: string, id: string, byUserId: string, at: Date): Promise<EmergencyAlertDTO | null>;
 }

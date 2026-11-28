@@ -62,6 +62,8 @@ export function buildCorsOptions(allowed: string[]): CorsOptions {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Bootstrap-Secret'],
+    // Lets the driver app read the server's requested wait after a 429 when the API and app are on different origins.
+    exposedHeaders: ['Retry-After'],
     maxAge: 600,
   };
 }
