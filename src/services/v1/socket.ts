@@ -23,16 +23,35 @@ type LocationListener = (payload: BusLocationPayload) => void;
 type PositionMessage = LocationFix & { busId: string; tripId: string; freshness: TrackingFreshness };
 type SnapshotMessage = { busId: string; tripId: string | null; position: LocationFix | null; freshness: TrackingFreshness };
 
+export type SocketConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+
 class SocketV1Service {
   private socket: Socket | null = null;
+  private connection: SocketConnectionState = 'idle';
+  private connectionListeners = new Set<() => void>();
+  getConnection = () => this.connection;
+  subscribeConnection = (listener: () => void) => {
+    this.connectionListeners.add(listener);
+    return () => { this.connectionListeners.delete(listener); };
+  };
+  private setConnection(state: SocketConnectionState) {
+    if (this.connection === state) return;
+    this.connection = state;
+    for (const listener of this.connectionListeners) listener();
+  }
+
   private listeners = new Map<string, Set<LocationListener>>();
   private resumeWhenOnline = () => {
-    if (this.socket && !this.socket.active) this.socket.connect();
+    if (this.socket && !this.socket.active) {
+      this.setConnection('connecting');
+      this.socket.connect();
+    }
   };
 
   connect(): void {
     if (this.socket || !v1Token.getAccess()) return;
 
+    this.setConnection('connecting');
     const socket = io(getSocketBase(), {
       path: '/socket.io/',
       auth: callback => callback({ token: v1Token.getAccess() }),
@@ -44,6 +63,7 @@ class SocketV1Service {
     window.addEventListener('online', this.resumeWhenOnline);
 
     socket.on('connect', () => {
+      this.setConnection('connected');
       for (const busId of this.listeners.keys()) socket.emit('subscribe:bus', { busId });
     });
     socket.on('bus:location', ({ busId, tripId, freshness, ...fix }: PositionMessage) => {
@@ -56,10 +76,14 @@ class SocketV1Service {
     const reconnect = async () => {
       if (await refreshV1Session() && this.socket === socket && !socket.connected) socket.connect();
     };
+    socket.io.on('reconnect_attempt', () => this.setConnection('reconnecting'));
+    socket.io.on('reconnect_failed', () => this.setConnection('disconnected'));
     socket.on('disconnect', reason => {
+      this.setConnection(socket.active ? 'reconnecting' : 'disconnected');
       if (reason === 'io server disconnect') void reconnect();
     });
     socket.on('connect_error', error => {
+      this.setConnection(socket.active ? 'reconnecting' : 'disconnected');
       if (error.message === 'UNAUTHENTICATED') void reconnect();
     });
   }
@@ -93,6 +117,7 @@ class SocketV1Service {
     this.socket = null;
     window.removeEventListener('online', this.resumeWhenOnline);
     this.listeners.clear();
+    this.setConnection('idle');
   }
 }
 

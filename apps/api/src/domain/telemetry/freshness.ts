@@ -2,12 +2,9 @@ import type { TripDTO, VehicleLocationDTO } from '../types';
 
 export type Freshness = 'LIVE' | 'STALE' | 'DRIVER_OFFLINE' | 'TRIP_ENDED' | 'UNAVAILABLE';
 
-export const FRESHNESS_THRESHOLDS = {
-  /** Up to this position age with an active trip: LIVE (about six missed 3 s updates). */
-  liveMs: 20_000,
-  /** Up to this age: STALE (show last known position, clearly marked). Beyond it: DRIVER_OFFLINE. */
-  staleMs: 120_000,
-};
+import { activeTrackingFreshness, LIVE_MAX_AGE_MS, OFFLINE_AFTER_MS, trackingAge } from '../../../../../shared/trackingFreshness';
+
+export const FRESHNESS_THRESHOLDS = { liveMs: LIVE_MAX_AGE_MS, staleMs: OFFLINE_AFTER_MS };
 
 /**
  * The age of a position is measured from min(capturedAt, receivedAt):
@@ -23,10 +20,7 @@ export const FRESHNESS_THRESHOLDS = {
  */
 export function computeFreshness(now: Date, loc: Pick<VehicleLocationDTO, 'tripId' | 'capturedAt' | 'receivedAt'> | null, activeTrip: Pick<TripDTO, 'id'> | null): { state: Freshness; ageMs: number | null } {
   if (!loc) return { state: 'UNAVAILABLE', ageMs: null };
-  const positionTime = Math.min(loc.capturedAt.getTime(), loc.receivedAt.getTime());
-  const ageMs = Math.max(0, now.getTime() - positionTime);
+  const ageMs = trackingAge(now.getTime(), loc.capturedAt.getTime(), loc.receivedAt.getTime());
   if (!activeTrip || activeTrip.id !== loc.tripId) return { state: 'TRIP_ENDED', ageMs };
-  if (ageMs <= FRESHNESS_THRESHOLDS.liveMs) return { state: 'LIVE', ageMs };
-  if (ageMs <= FRESHNESS_THRESHOLDS.staleMs) return { state: 'STALE', ageMs };
-  return { state: 'DRIVER_OFFLINE', ageMs };
+  return { state: activeTrackingFreshness(ageMs), ageMs };
 }

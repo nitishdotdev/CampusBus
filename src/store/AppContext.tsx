@@ -162,9 +162,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     if (!currentUser) return;
-    void loadData(true);
-    const timer = window.setInterval(() => { if (!document.hidden) void loadData(); }, 15_000);
-    return () => { window.clearInterval(timer); };
+    let polling = false;
+    const poll = async (showLoading = false) => {
+      if (polling || document.hidden) return;
+      polling = true;
+      try { await loadData(showLoading); }
+      finally { polling = false; }
+    };
+    const onVisibility = () => { void poll(); };
+    void poll(true);
+    const timer = window.setInterval(onVisibility, 15_000);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(timer);
+    };
   }, [currentUser, loadData]);
 
   useEffect(() => {

@@ -77,7 +77,7 @@ The thresholds assume the 3 s foreground target (`FRESHNESS_THRESHOLDS` in `fres
 4. Stop arrival uses one geofence radius for every stop (`GEOFENCE_RADIUS_METERS`, default 50 m); there is no per-stop radius column yet. A bus must be stopped (known speed at or below 2 m/s) on accurate fixes (65 m or better) for at least 2 s inside the radius to be recorded as arrived. Stops are advanced strictly in sequence; a skipped stop is never inferred.
 5. No token issuance, login, refresh, or user management in `apps/api` yet; tests mint tokens directly.
 6. Live snapshots on socket subscribe and REST responses do not yet include stop progression; it is delivered with each live location update and on the REST bus list.
-7. The queue count uses a cursor until a driver index can be introduced.
+7. The version-3 driver/timestamp index bounds queue scans to the current driver.
 
 ### Offline database deployment and recovery
 

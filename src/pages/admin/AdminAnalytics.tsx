@@ -14,7 +14,7 @@ export const AdminAnalytics: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Transit Analytics</h2>
-        <p className="text-xs text-slate-500">Trip data and operational metrics</p>
+        <p className="text-xs text-slate-500">Activity from the latest 100 trips and the current fleet</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -23,7 +23,7 @@ export const AdminAnalytics: React.FC = () => {
           <div className="text-2xl font-black text-slate-900 mt-2">{totalTrips}</div>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-200">
-          <div className="text-xs font-semibold text-slate-500 uppercase">Completed</div>
+          <div className="text-xs font-semibold text-slate-500 uppercase">Recent Completed</div>
           <div className="text-2xl font-black text-emerald-600 mt-2">{completedTrips.length}</div>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-200">
@@ -83,7 +83,7 @@ export const AdminAnalytics: React.FC = () => {
 
       {routes.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6">
-          <h3 className="text-sm font-bold text-slate-900 mb-4">Route Summary</h3>
+          <h3 className="text-sm font-bold text-slate-900 mb-4">Completed Trips by Route in This Sample</h3>
           <div className="space-y-3">
             {routes.map((route) => {
               const routeTrips = trips.filter((t) => t.routeId === route.id);

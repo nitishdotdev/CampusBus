@@ -1,3 +1,5 @@
+import { useReducer } from 'react';
+import { mapFollow } from './mapFollow';
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -42,10 +44,8 @@ export const MapView: React.FC<MapViewProps> = ({
   const busAccuracyRef = useRef<Record<string, L.Circle>>({});
   const busesByIdRef = useRef<Map<string, Bus>>(new Map());
   const onSelectBusRef = useRef(onSelectBus);
-  const [followBus, setFollowBus] = useState(true);
-  const followRef = useRef(true);
-  useEffect(() => { followRef.current = followBus; }, [followBus]);
-  const userHasPannedRef = useRef<boolean>(false);
+  const [followMode, dispatchFollow] = useReducer(mapFollow, 'following');
+  const followBus = followMode === 'following';
   const lastSelectedTargetRef = useRef<string | undefined>(undefined);
 
   const [tileError, setTileError] = useState(false);
@@ -98,7 +98,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
     // Detect user manual navigation to avoid snapping them away
     map.on('dragstart', () => {
-      userHasPannedRef.current = true;
+      dispatchFollow('pan');
     });
 
     // Invalidate size to guarantee responsive rendering in tabs / modals
@@ -457,17 +457,8 @@ export const MapView: React.FC<MapViewProps> = ({
     const currentTarget = selectedBusId || selectedRouteId;
     const hasTargetChanged = currentTarget !== lastSelectedTargetRef.current;
 
-    if (hasTargetChanged) {
-      lastSelectedTargetRef.current = currentTarget;
-      userHasPannedRef.current = false; // Reset pan suppression on explicit user selection
-    }
-
-    if (userHasPannedRef.current) {
-      // User is actively exploring the map: do not auto-snap away
-      return;
-    }
-    // With follow turned off, only an explicit new selection moves the map.
-    if (!hasTargetChanged && !followRef.current) return;
+    if (hasTargetChanged) lastSelectedTargetRef.current = currentTarget;
+    if (!hasTargetChanged && (!followBus || !selectedBusId)) return;
 
     if (selectedBusId) {
       const bus = buses.find((b) => b.id === selectedBusId);
@@ -497,20 +488,22 @@ export const MapView: React.FC<MapViewProps> = ({
   const recenter = () => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    userHasPannedRef.current = false;
     const isValid = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
     const selected = selectedBusId ? buses.find((b) => b.id === selectedBusId) : undefined;
     const lat = selected?.lastLocation?.lat;
     const lng = selected?.lastLocation?.lng;
     if (isValid(lat) && isValid(lng)) {
-      setFollowBus(true);
+      dispatchFollow('recenter');
       map.flyTo([lat, lng], 16, { duration: 0.8 });
       return;
     }
-    const points = buses
+    const route = selectedRouteId && routes.find(item => item.id === selectedRouteId);
+    const routePoints = route ? route.pathCoordinates.filter(([lat, lng]) => isValid(lat) && isValid(lng)) : [];
+    const points = routePoints.length ? routePoints : buses
       .filter((b) => isValid(b.lastLocation?.lat) && isValid(b.lastLocation?.lng))
       .map((b) => L.latLng(b.lastLocation!.lat, b.lastLocation!.lng));
     if (points.length > 0) map.fitBounds(L.latLngBounds(points), { padding: [40, 40] });
+    else map.setView(center, zoom);
   };
 
   return (
@@ -539,7 +532,7 @@ export const MapView: React.FC<MapViewProps> = ({
           <button
             type="button"
             aria-pressed={followBus}
-            onClick={() => setFollowBus((v) => !v)}
+            onClick={() => dispatchFollow('toggle')}
             className={`min-h-11 px-3 rounded-xl border shadow-sm text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-600 ${
               followBus ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'
             }`}

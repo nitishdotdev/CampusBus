@@ -1,3 +1,4 @@
+import { LiveConnectionNotice } from '../../components/map/LiveConnectionNotice';
 import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
 import { MapView } from '../../components/map/MapView';
@@ -45,6 +46,7 @@ export const StudentLiveBuses: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
         <div>
           <h2 className="text-lg font-bold text-slate-900">Live Bus Tracking</h2>
+          <LiveConnectionNotice />
           <p className="text-xs text-slate-500">
             {activeBuses.length > 0
               ? 'Tracking is available for assigned vehicles when a fresh GPS fix is received.'

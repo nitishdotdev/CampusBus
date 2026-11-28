@@ -1,3 +1,4 @@
+import { LiveConnectionNotice } from '../../components/map/LiveConnectionNotice';
 import React, { useState } from 'react';
 import { useApp } from '../../store/AppContext';
 import { MapView } from '../../components/map/MapView';
@@ -45,6 +46,7 @@ export const AdminLiveFleet: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900">Fleet Operations Map</h2>
+          <LiveConnectionNotice />
           <p className="text-xs text-slate-500">Live GPS fleet tracking</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

@@ -29,8 +29,8 @@ describe('bus markers', () => {
   it('gives students and admins recenter and follow controls that never snap back against a manual pan', () => {
     expect(mapView).toMatch(/Recenter/);
     expect(mapView).toMatch(/aria-pressed=\{followBus\}/);
-    expect(mapView).toMatch(/if \(!hasTargetChanged && !followRef\.current\) return;/);
-    expect(mapView).toMatch(/userHasPannedRef\.current = false;/);
+    expect(mapView).toMatch(/dispatchFollow\('pan'\)/);
+    expect(mapView).toMatch(/dispatchFollow\('recenter'\)/);
   });
 
   it('draws no marker for a bus without a valid position', () => {

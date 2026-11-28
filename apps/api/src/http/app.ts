@@ -261,6 +261,13 @@ export function createApp(deps: AppDeps) {
     res.json(await deps.tripRepo.list(p.campusId, opts));
   }));
 
+  app.get('/api/v1/trips/:id', auth, requireRole('DRIVER', 'ADMIN'), wrap(async (req, res) => {
+    const { campusId, role, userId } = req.principal;
+    const trip = await deps.tripRepo.findById(campusId, idParam.parse(req.params['id']));
+    if (!trip || (role === 'DRIVER' && trip.driverId !== userId)) throw new DomainError(404, 'TRIP_NOT_FOUND');
+    res.json({ trip });
+  }));
+
   // ─── Live position ────────────────────────────────────────────────────────
   app.get('/api/v1/buses/:id/live', auth, wrap(async (req, res) => {
     if (!idParam.safeParse(req.params['id']).success) throw new DomainError(404, 'BUS_NOT_FOUND');

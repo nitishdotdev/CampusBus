@@ -9,6 +9,8 @@ export interface V1Trip {
 interface Page<T> { items: T[]; total: number; page: number; pageSize: number }
 
 export const tripsV1 = {
+  get: (tripId: string) => v1Client.get<{ trip: V1Trip }>(`/api/v1/trips/${tripId}`),
+
   start: (busId: string) =>
     v1Client.post<{ trip: V1Trip }>('/api/v1/trips/start', { busId }),
 
