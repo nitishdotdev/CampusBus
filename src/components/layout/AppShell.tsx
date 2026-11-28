@@ -28,7 +28,10 @@ export const AppShell: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 text-slate-900 overflow-hidden">
+    <div className="campus-surface flex h-screen w-full overflow-hidden supports-[height:100svh]:h-[100svh]">
+      <a href="#workspace-main" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[80] focus:rounded-lg focus:bg-white focus:p-3 focus:font-bold">
+        Skip to workspace
+      </a>
       {/* Desktop Sidebar */}
       <Sidebar />
 
@@ -56,8 +59,8 @@ export const AppShell: React.FC = () => {
         )}
 
         {/* Scrollable Page Body */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-20 md:pb-8">
-          <div className="max-w-7xl mx-auto">
+        <main id="workspace-main" tabIndex={0} className="flex-1 overflow-y-auto p-3 pb-24 sm:p-6 md:pb-8">
+          <div className="mx-auto w-full max-w-7xl">
             {dataError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-950">
               <span>{dataError}</span>
               <button type="button" onClick={() => void refreshData()} className="min-h-11 font-semibold underline">Retry</button>

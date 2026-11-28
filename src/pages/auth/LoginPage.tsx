@@ -7,7 +7,7 @@ import {
   requestPasswordResetV1, confirmPasswordResetV1, formatPasswordResetError,
 } from '../../services/v1/auth';
 import { socketV1 } from '../../services/v1/socket';
-import { BrandMark } from '../../components/brand/BrandMark';
+import { PortalHeader } from '../../components/brand/PortalHeader';
 import {
   ROLE_REDIRECT,
   canSelfRegister,
@@ -186,33 +186,20 @@ export const LoginPage: React.FC = () => {
     : `/login${intendedRole ? `?role=${intendedRole.toLowerCase()}` : ''}`;
 
   return (
-    <div className="min-h-screen bg-white flex flex-col overflow-x-hidden">
-      <header className="border-b border-slate-100">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-          <BrandMark compact />
-          <Link
-            to="/roles"
-            className="inline-flex items-center gap-1.5 min-h-11 px-3 text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-            Switch role
-          </Link>
-        </div>
-      </header>
+    <div className="campus-surface min-h-screen flex flex-col">
+      <PortalHeader>
+        <Link to="/roles" className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-slate-700">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Switch role
+        </Link>
+      </PortalHeader>
 
       <main className="flex-1 flex items-center justify-center px-4 py-10">
         <div className="w-full max-w-sm">
           <div className="text-center mb-8">
-            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">CampusBus</h1>
-            <p className="text-sm text-slate-500 mt-1">{heading}</p>
-            {intendedRole && (
-              <p className="mt-3 inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                Selected role: {roleLabel(intendedRole)}
-              </p>
-            )}
+            <h1 className="campus-heading text-3xl font-extrabold tracking-tight">{heading}</h1>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <div className="campus-panel p-5 sm:p-6">
             {error && (
               <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-sm text-rose-700" role="alert">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
@@ -337,7 +324,7 @@ export const LoginPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={isSubmitting || campusLoading || campuses.length === 0}
-                className="w-full min-h-12 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-sm rounded-full shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                className="campus-action w-full min-h-12 disabled:bg-slate-500"
               >
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : null}
                 {isSubmitting ? 'Please wait…' : {
@@ -369,13 +356,13 @@ export const LoginPage: React.FC = () => {
                 {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
               </Link>
             ) : (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-600">
                 {intendedRole === 'DRIVER'
                   ? 'Driver accounts are provisioned by your campus admin. Public signup is not available.'
                   : 'Admin accounts are provisioned by your campus. Public signup is not available.'}
               </p>
             ))}
-            <Link to="/" className="block text-sm text-slate-500 hover:text-slate-700 cursor-pointer">
+            <Link to="/" className="block text-sm text-slate-600 hover:text-slate-700 cursor-pointer">
               Back to Home
             </Link>
           </div>

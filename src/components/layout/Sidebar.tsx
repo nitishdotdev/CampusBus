@@ -50,13 +50,13 @@ export const Sidebar: React.FC = () => {
   const { role, unreadCount, activeEmergencyCount, currentCollege } = useApp();
   const links = workspaceLinks(role, unreadCount, activeEmergencyCount);
   return (
-    <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-white border-r border-slate-800 shrink-0">
+    <aside className="hidden md:flex flex-col w-52 xl:w-60 bg-slate-950 text-white border-r border-slate-800 shrink-0">
       <div className="p-5 border-b border-slate-800/80 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md">
-          <Bus className="w-5 h-5" />
+        <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md">
+          <Bus aria-hidden="true" className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="font-bold text-sm tracking-tight text-white">CampusBus</h1>
+          <span className="font-bold text-sm tracking-tight text-white">CampusBus</span>
           <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-400">
             <span className="truncate max-w-[130px]">{currentCollege.shortCode}</span>
           </div>
@@ -64,9 +64,8 @@ export const Sidebar: React.FC = () => {
       </div>
 
       <div className="px-5 py-3 border-b border-slate-800/50 bg-slate-950/40">
-        <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Workspace</div>
-        <div className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
-          <Radio className="w-3.5 h-3.5 text-blue-400" />
+        <div className="text-xs font-bold text-indigo-200 flex items-center gap-1.5">
+          <Radio aria-hidden="true" className="w-3.5 h-3.5 text-indigo-200" />
           {role === 'ADMIN' ? 'Administration' : role === 'DRIVER' ? 'Bus Operator' : 'Student'}
         </div>
       </div>
@@ -76,13 +75,13 @@ export const Sidebar: React.FC = () => {
           const Icon = item.icon;
           return (
             <NavLink key={item.to} to={item.to} end={item.to === '/student' || item.to === '/admin' || item.to === '/driver'}
-              className={({ isActive }) => `flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${isActive ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-800/60'}`}>
+              className={({ isActive }) => `flex min-h-11 items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs font-semibold focus-visible:outline-2 focus-visible:outline-indigo-300 ${isActive ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800/60'}`}>
               <div className="flex items-center gap-3">
                 <Icon className="w-4 h-4 shrink-0" />
                 <span>{item.label}</span>
               </div>
               {item.badge !== undefined && item.badge > 0 && (
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${item.badgeColor ? `${item.badgeColor} text-white` : 'bg-blue-500 text-white'}`}>{item.badge}</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${item.badgeColor ? `${item.badgeColor} text-white` : 'bg-indigo-700 text-white'}`}>{item.badge}</span>
               )}
             </NavLink>
           );
@@ -92,9 +91,8 @@ export const Sidebar: React.FC = () => {
       <div className="p-4 border-t border-slate-800/80 bg-slate-950/60 text-[11px] text-slate-400 flex items-center justify-between">
         <div>
           <div className="font-semibold text-slate-300">{currentCollege.name}</div>
-          <div className="text-[10px] text-slate-500">CampusBus</div>
         </div>
-        <MapPin className="w-4 h-4 text-slate-500" />
+        <MapPin aria-hidden="true" className="w-4 h-4 text-slate-400" />
       </div>
     </aside>
   );

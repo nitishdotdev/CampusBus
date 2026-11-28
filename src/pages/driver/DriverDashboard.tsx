@@ -1,3 +1,4 @@
+import { WorkspaceHeading } from '../../components/common/WorkspaceHeading';
 import { confirmTripChange, needsTripConfirmation, type TripChange } from '../../services/tripReconciliation';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../../store/AppContext';
@@ -264,7 +265,8 @@ export const DriverDashboard: React.FC = () => {
 
   if (!assignedBus || !assignedRoute) {
     return (
-      <div className="max-w-2xl mx-auto space-y-4 py-8">
+      <div className="mx-auto max-w-2xl space-y-4 py-4">
+        <WorkspaceHeading title="Driver workspace" />
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs text-center space-y-3">
           <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
             <BusIcon className="w-6 h-6" />
@@ -286,7 +288,8 @@ export const DriverDashboard: React.FC = () => {
   const occupancyPercent = Math.min(100, Math.round((occupancy / capacity) * 100));
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <div className="mx-auto max-w-2xl space-y-4">
+      <WorkspaceHeading title="Driver workspace" description={`Vehicle ${assignedBus.busNumber} · Route ${assignedRoute.code}`} />
       {uncertainTrip && (
         <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
           <p>{uncertainTrip.kind === 'starting' ? 'Trip start could not be confirmed.' : 'Trip end could not be confirmed.'}</p>

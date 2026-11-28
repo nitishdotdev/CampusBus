@@ -26,7 +26,7 @@ export const MobileNavigation: React.FC = () => {
         <div id="mobile-workspace-links" className="grid max-h-[55vh] grid-cols-2 gap-1 overflow-y-auto border-b border-slate-200 p-2">
           {secondary.map(({ to, label, icon: Icon, badge }) => (
             <NavLink key={to} to={to} onClick={() => setOpen(false)}
-              className={({ isActive }) => `flex min-h-11 items-center gap-2 rounded-lg px-2 text-xs font-semibold ${isActive ? 'bg-blue-50 text-blue-800' : 'text-slate-700'}`}>
+              className={({ isActive }) => `flex min-h-11 items-center gap-2 rounded-lg px-2 text-xs font-semibold ${isActive ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700'}`}>
               <Icon aria-hidden="true" className="h-4 w-4 shrink-0" />
               {label}{badge ? <span className="rounded-full bg-rose-700 px-1.5 text-white">{badge}</span> : null}
             </NavLink>
@@ -36,7 +36,7 @@ export const MobileNavigation: React.FC = () => {
       <div className="grid grid-cols-4 p-1">
         {primary.map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} end onClick={() => setOpen(false)}
-            className={({ isActive }) => `flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 text-center text-[10px] font-semibold ${isActive ? 'text-blue-800' : 'text-slate-700'}`}>
+            className={({ isActive }) => `flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 focus-visible:outline-2 focus-visible:outline-indigo-600 text-center text-[10px] font-semibold ${isActive ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700'}`}>
             <Icon aria-hidden="true" className="h-5 w-5" />{label}
           </NavLink>
         ))}
