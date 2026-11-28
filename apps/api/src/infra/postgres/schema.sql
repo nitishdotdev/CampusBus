@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS v1.refresh_tokens (
   revoked_at TIMESTAMPTZ,
   CONSTRAINT refresh_tokens_token_hash_key UNIQUE (token_hash)
 );
+-- Why a token stopped working: LOGOUT, REVOKED (account-level), REUSE (theft). NULL = rotated.
+ALTER TABLE v1.refresh_tokens ADD COLUMN IF NOT EXISTS revoked_reason VARCHAR(16);
 
 CREATE TABLE IF NOT EXISTS v1.email_tokens (
   user_id VARCHAR(24) NOT NULL,

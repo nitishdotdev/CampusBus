@@ -67,7 +67,7 @@ function makeAuth(opts: { existingAdminCount?: number; campuses?: CampusReposito
   const auth = new AuthService({
     users,
     campuses: opts.campuses ?? makeCampuses(),
-    refreshTokens: { create: async () => 'x', find: async () => null, revoke: async () => {}, revokeFamily: async () => {}, revokeAll: async () => {}, purgeExpired: async () => 0 },
+    refreshTokens: { create: async () => 'x', find: async () => null, revoke: async () => {}, revokeFamily: async () => {}, revokeAll: async () => {}, isFamilyActive: async () => true, purgeExpired: async () => 0 },
     emailTokens: { upsert: async () => {}, find: async () => null, markUsed: async () => {}, completePasswordReset: async () => false },
     email: { sendVerification: async () => {}, sendPasswordReset: async () => {} },
     config: {
@@ -135,6 +135,7 @@ describe('POST /api/v1/auth/bootstrap-admin', () => {
       auth,
       users: makeUsers().users,
       verifyToken: () => null,
+      isSessionActive: async () => true,
       allowedOrigins: [],
       bootstrapSecret: BOOTSTRAP_SECRET,
     });
@@ -165,6 +166,7 @@ describe('POST /api/v1/auth/bootstrap-admin', () => {
       auth,
       users: makeUsers().users,
       verifyToken: () => null,
+      isSessionActive: async () => true,
       allowedOrigins: [],
       bootstrapSecret: '',
     });

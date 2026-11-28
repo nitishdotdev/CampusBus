@@ -55,6 +55,7 @@ describe.skipIf(!PG_TEST_URL)('campus provisioning against PostgreSQL', () => {
       users: {} as any, buses: {} as any, routes: {} as any, tripRepo: {} as any,
       campuses: repos.campuses,
       verifyToken: () => null,
+      isSessionActive: async () => true,
       allowedOrigins: ['https://campus-bus-delta.vercel.app'],
       checkReadiness: databaseReadiness(pool),
       checkCampusProvisioning: campusProvisioningReadiness(pool),

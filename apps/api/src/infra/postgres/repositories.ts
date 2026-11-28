@@ -7,7 +7,7 @@ import { DomainError } from '../../domain/errors';
 import type {
   AlertStatus, BusDTO, BusRepository, CampusDTO, CampusRepository,
   EmailTokenRepository, EmergencyAlertDTO, EmergencyAlertRepository,
-  NotificationDTO, NotificationRepository, RefreshTokenRepository,
+  NotificationDTO, NotificationRepository, RefreshTokenRepository, RevocationReason,
   RouteDTO, RouteRepository, ScheduleDTO, ScheduleRepository, StopDTO,
   TelemetryRecord, TelemetryRepository, TripDTO, TripRepository,
   UserDTO, UserRepository, VehicleLocationDTO, VehicleLocationRepository,
@@ -127,7 +127,7 @@ export class PgRefreshTokenRepository implements RefreshTokenRepository {
     const r = await this.p.query('SELECT * FROM v1.refresh_tokens WHERE token_hash = $1', [tokenHash]);
     const d = r.rows[0];
     if (!d) return null;
-    return { id: d.id, userId: d.user_id, campusId: d.campus_id, familyId: d.family_id, expiresAt: d.expires_at, revokedAt: d.revoked_at ?? null, previousId: d.previous_id ?? null };
+    return { id: d.id, userId: d.user_id, campusId: d.campus_id, familyId: d.family_id, expiresAt: d.expires_at, revokedAt: d.revoked_at ?? null, revokedReason: d.revoked_reason ?? null, previousId: d.previous_id ?? null };
   }
   async rotate(tokenId: string, at: Date, successor: Parameters<NonNullable<RefreshTokenRepository['rotate']>>[2]) {
     return withTransaction(this.p, async client => {
@@ -139,7 +139,7 @@ export class PgRefreshTokenRepository implements RefreshTokenRepository {
       const token = current.rows[0];
       if (!token || token.expires_at < at) return 'expired' as const;
       if (token.revoked_at) {
-        await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE family_id = $1 AND revoked_at IS NULL', [successor.familyId, at]);
+        await client.query("UPDATE v1.refresh_tokens SET revoked_at = $2, revoked_reason = 'REUSE' WHERE family_id = $1 AND revoked_at IS NULL", [successor.familyId, at]);
         return 'reused' as const;
       }
       await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE id = $1', [tokenId, at]);
@@ -155,13 +155,20 @@ export class PgRefreshTokenRepository implements RefreshTokenRepository {
   async revoke(id: string, at: Date) {
     await this.p.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE id = $1', [id, at]);
   }
-  async revokeFamily(familyId: string, at: Date) {
-    await this.p.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE family_id = $1 AND revoked_at IS NULL', [familyId, at]);
+  async revokeFamily(familyId: string, at: Date, reason: RevocationReason = 'REVOKED') {
+    await this.p.query('UPDATE v1.refresh_tokens SET revoked_at = $2, revoked_reason = $3 WHERE family_id = $1 AND revoked_at IS NULL', [familyId, at, reason]);
   }
-  async revokeAll(userId: string, at: Date) {
+  async isFamilyActive(familyId: string, at: Date) {
+    const r = await this.p.query(
+      'SELECT 1 FROM v1.refresh_tokens WHERE family_id = $1 AND revoked_at IS NULL AND expires_at > $2 LIMIT 1',
+      [familyId, at],
+    );
+    return (r.rowCount ?? 0) > 0;
+  }
+  async revokeAll(userId: string, at: Date, reason: RevocationReason = 'REVOKED') {
     await withTransaction(this.p, async client => {
       await client.query('SELECT pg_advisory_xact_lock(476202, hashtext($1))', [userId]);
-      await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2 WHERE user_id = $1 AND revoked_at IS NULL', [userId, at]);
+      await client.query('UPDATE v1.refresh_tokens SET revoked_at = $2, revoked_reason = $3 WHERE user_id = $1 AND revoked_at IS NULL', [userId, at, reason]);
     });
   }
   async purgeExpired(cutoff: Date) {

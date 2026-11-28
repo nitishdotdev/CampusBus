@@ -19,7 +19,7 @@ students/admins: GET /api/v1/buses/:id/live (snapshot + freshness) and socket su
 | Trips start only on the caller's own bus | `trips.ts` | wrong bus 403 |
 | `isSimulated` is not accepted from clients (strict schemas reject it). Trip `mode` is set by the server; `SIMULATED` only if `SIMULATION_MODE=on`, which the config loader refuses when `NODE_ENV=production` | `validation.ts`, `config/env.ts`, `trips.ts` | top-level and per-event flag, disabled/enabled server, production config |
 | Observers: ADMIN (own campus), DRIVER (own bus), STUDENT (assigned bus or any bus on assigned route); inactive accounts never | `access.ts` | unit matrix, REST and socket tests |
-| Sockets: token only in the handshake `auth` payload (not the URL); no automatic rooms; each subscription is authorised; max 20 per socket; connection closed when the access token expires | `gateway.ts` | unauthenticated/expired/URL-token, unrelated student/driver/other campus, lurker, reconnect |
+| Sockets: token only in the handshake `auth` payload (not the URL); no automatic rooms; each subscription is authorised; max 20 per socket; connection closed when the access token expires or its session is revoked (re-checked every 60 seconds) | `gateway.ts` | unauthenticated/expired/URL-token, unrelated student/driver/other campus, lurker, reconnect |
 
 ## Event validation and ordering
 - Envelope: `{tripId, events[1..50]}`, strict. Event: `{eventId, lat, lng, accuracyM?, speedMps?, headingDeg?, capturedAt}`, strict. Body limit 64 kB.

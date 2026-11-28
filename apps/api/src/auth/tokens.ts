@@ -18,15 +18,21 @@ export function requireRefreshSecret(env: NodeJS.ProcessEnv = process.env): stri
   return s;
 }
 
-export function signAccessToken(p: Principal, secret: string, ttlSeconds = 900): string {
-  return jwt.sign({ campusId: p.campusId, role: p.role }, secret, { algorithm: 'HS256', subject: p.userId, issuer: ISSUER, audience: AUDIENCE, expiresIn: ttlSeconds });
+/**
+ * Access tokens carry `sid`, the refresh-token family they were issued from.
+ * Requests are rejected once that family is revoked (logout, logout-all, password change),
+ * so a logged-out session cannot keep using its access token until it expires.
+ */
+export function signAccessToken(p: Principal, secret: string, ttlSeconds = 900, sessionId: string): string {
+  return jwt.sign({ campusId: p.campusId, role: p.role, sid: sessionId }, secret, { algorithm: 'HS256', subject: p.userId, issuer: ISSUER, audience: AUDIENCE, expiresIn: ttlSeconds });
 }
-export type VerifiedPrincipal = Principal & { exp: number };
+export type VerifiedPrincipal = Principal & { exp: number; sessionId: string };
 export function verifyAccessToken(token: string, secret: string): VerifiedPrincipal | null {
   try {
     const c = jwt.verify(token, secret, { algorithms: ['HS256'], issuer: ISSUER, audience: AUDIENCE }) as jwt.JwtPayload;
     if (!c.sub || typeof c.campusId !== 'string' || !ROLES.includes(c.role as Role) || typeof c.exp !== 'number') return null;
-    return { userId: c.sub, campusId: c.campusId, role: c.role as Role, exp: c.exp };
+    if (typeof c.sid !== 'string' || c.sid.length === 0) return null; // tokens issued before sessions existed
+    return { userId: c.sub, campusId: c.campusId, role: c.role as Role, exp: c.exp, sessionId: c.sid };
   } catch { return null; }
 }
 

@@ -5,7 +5,7 @@ import { AuthService, DEFAULT_AUTH_CONFIG } from '../src/auth/service';
 import { hashPassword, UNKNOWN_ACCOUNT_HASH } from '../src/auth/passwords';
 import { createApp } from '../src/http/app';
 import type {
-  EmailTokenRepository, RefreshTokenRepository, UserDTO, UserRepository,
+  EmailTokenRepository, RefreshTokenRepository, RevocationReason, UserDTO, UserRepository,
 } from '../src/domain/types';
 
 const CAMPUS = 'a'.repeat(24);
@@ -30,7 +30,7 @@ async function makeAuth() {
 
   const refreshStore = new Map<string, {
     id: string; userId: string; campusId: string; familyId: string;
-    expiresAt: Date; revokedAt: Date | null; previousId: string | null;
+    expiresAt: Date; revokedAt: Date | null; revokedReason: RevocationReason | null; previousId: string | null;
   }>();
   let seq = 0;
 
@@ -51,7 +51,7 @@ async function makeAuth() {
       const id = `rt_${++seq}`;
       refreshStore.set(t.tokenHash, {
         id, userId: t.userId, campusId: t.campusId, familyId: t.familyId,
-        expiresAt: t.expiresAt, revokedAt: null, previousId: t.previousId ?? null,
+        expiresAt: t.expiresAt, revokedAt: null, revokedReason: null, previousId: t.previousId ?? null,
       });
       return id;
     },
@@ -59,12 +59,14 @@ async function makeAuth() {
     revoke: async (id, at) => {
       for (const rec of refreshStore.values()) if (rec.id === id) rec.revokedAt = at;
     },
-    revokeFamily: async (familyId, at) => {
-      for (const rec of refreshStore.values()) if (rec.familyId === familyId && !rec.revokedAt) rec.revokedAt = at;
+    revokeFamily: async (familyId, at, reason = 'REVOKED') => {
+      for (const rec of refreshStore.values()) if (rec.familyId === familyId && !rec.revokedAt) { rec.revokedAt = at; rec.revokedReason = reason; }
     },
-    revokeAll: async (userId, at) => {
-      for (const rec of refreshStore.values()) if (rec.userId === userId && !rec.revokedAt) rec.revokedAt = at;
+    revokeAll: async (userId, at, reason = 'REVOKED') => {
+      for (const rec of refreshStore.values()) if (rec.userId === userId && !rec.revokedAt) { rec.revokedAt = at; rec.revokedReason = reason; }
     },
+    isFamilyActive: async (familyId, at) =>
+      [...refreshStore.values()].some(rec => rec.familyId === familyId && !rec.revokedAt && rec.expiresAt > at),
     purgeExpired: async () => 0,
   };
 
@@ -130,6 +132,7 @@ describe('login / refresh token contract (SPA)', () => {
       auth,
       users,
       verifyToken: () => null,
+      isSessionActive: async () => true,
       allowedOrigins: [],
     });
 

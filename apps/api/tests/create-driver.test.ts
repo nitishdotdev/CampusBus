@@ -13,7 +13,7 @@ const SECRET = 'test-access-secret-test-access-secret-12345678';
 const REFRESH_SECRET = 'test-refresh-secret-test-refresh-secret-1234567';
 
 function token(p: Principal) {
-  return signAccessToken(p, SECRET);
+  return signAccessToken(p, SECRET, undefined, 'test-session');
 }
 
 function unusedDeps() {
@@ -34,6 +34,7 @@ describe('POST /api/v1/users/drivers', () => {
       auth: { createDriver: async () => ({}) } as any,
       users: {} as any,
       verifyToken: (t: string) => verifyAccessToken(t, SECRET),
+      isSessionActive: async () => true,
       allowedOrigins: [],
     });
     expect((await request(app).post('/api/v1/users/drivers').send({
@@ -59,6 +60,7 @@ describe('POST /api/v1/users/drivers', () => {
       } as any,
       users: {} as any,
       verifyToken: (t: string) => verifyAccessToken(t, SECRET),
+      isSessionActive: async () => true,
       allowedOrigins: [],
     });
     const res = await request(app)
@@ -98,7 +100,7 @@ describe('AuthService.createDriver', () => {
     };
     const auth = new AuthService({
       users,
-      refreshTokens: { create: async () => 'x', find: async () => null, revoke: async () => {}, revokeFamily: async () => {}, revokeAll: async () => {}, purgeExpired: async () => 0 },
+      refreshTokens: { create: async () => 'x', find: async () => null, revoke: async () => {}, revokeFamily: async () => {}, revokeAll: async () => {}, isFamilyActive: async () => true, purgeExpired: async () => 0 },
       emailTokens: { upsert: async () => {}, find: async () => null, markUsed: async () => {}, completePasswordReset: async () => false },
       email: { sendVerification: async () => {}, sendPasswordReset: async () => {} },
       config: {
@@ -117,7 +119,7 @@ describe('AuthService.createDriver', () => {
   it('rejects extra identity fields and non-admin principals', async () => {
     const auth = new AuthService({
       users: { create: async () => { throw new Error('must not create'); } } as any,
-      refreshTokens: { create: async () => 'x', find: async () => null, revoke: async () => {}, revokeFamily: async () => {}, revokeAll: async () => {}, purgeExpired: async () => 0 },
+      refreshTokens: { create: async () => 'x', find: async () => null, revoke: async () => {}, revokeFamily: async () => {}, revokeAll: async () => {}, isFamilyActive: async () => true, purgeExpired: async () => 0 },
       emailTokens: { upsert: async () => {}, find: async () => null, markUsed: async () => {}, completePasswordReset: async () => false },
       email: { sendVerification: async () => {}, sendPasswordReset: async () => {} },
       config: {

@@ -247,7 +247,8 @@ describe.skipIf(!PG_TEST_URL)('Auth integration (single harness)', () => {
       const crypto = await import('crypto');
       const otp = '112233';
       await h.services.repos.emailTokens.upsert({ userId: u!.id, campusId: campus(), purpose: 'VERIFY_EMAIL', tokenHash: crypto.createHash('sha256').update(otp).digest('hex'), expiresAt: new Date(Date.now() + 3_600_000) });
-      const tok = h.token({ id: u!.id, campusId: campus(), role: 'STUDENT' });
+      // A real sign-in, so the access token belongs to a live session.
+      const tok = (await login('verify@t.test')).body.tokens.accessToken;
       expect((await api().post('/api/v1/auth/verify-email').set('Authorization', `Bearer ${tok}`).send({ otp: '999999' })).status).toBe(400);
       expect((await api().post('/api/v1/auth/verify-email').set('Authorization', `Bearer ${tok}`).send({ otp })).status).toBe(204);
       expect((await api().post('/api/v1/auth/verify-email').set('Authorization', `Bearer ${tok}`).send({ otp })).status).toBe(400); // reuse

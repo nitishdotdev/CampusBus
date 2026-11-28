@@ -70,6 +70,7 @@ async function main() {
     routes:    services.repos.routes,
     tripRepo:  services.repos.trips,
     verifyToken: (t) => verifyAccessToken(t, accessSecret),
+    isSessionActive: (sid) => services.auth.isSessionActive(sid),
     verifyActiveAccount: true,
     checkReadiness: databaseReadiness(pool),
     checkCampusProvisioning: campusProvisioningReadiness(pool),
@@ -83,6 +84,7 @@ async function main() {
 
   const { emitter } = createGateway(httpServer, {
     verifyToken: (t) => verifyAccessToken(t, accessSecret),
+    isSessionActive: (sid) => services.auth.isSessionActive(sid),
     live: services.live,
     allowedOrigins: ALLOWED_ORIGINS,
   });

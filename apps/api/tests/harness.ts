@@ -2,7 +2,7 @@ import http from 'http';
 import pg from 'pg';
 import { createServices } from '../src/compose';
 import { DEFAULT_TRACKING, type TrackingConfig } from '../src/config/env';
-import { signAccessToken, verifyAccessToken } from '../src/auth/tokens';
+import { generateRefreshToken, hashRefreshToken, signAccessToken, verifyAccessToken } from '../src/auth/tokens';
 import { newId } from '../src/infra/postgres/ids';
 import { applyV1Schema, campusProvisioningReadiness, databaseReadiness } from '../src/infra/postgres/pool';
 import { createPostgresRepositories, type Repositories } from '../src/infra/postgres/repositories';
@@ -18,6 +18,8 @@ export const SECRET = 'test-secret-test-secret-test-secret-123456';
 export const REFRESH_SECRET = 'refresh-secret-refresh-secret-refresh-123456';
 export const T0 = new Date('2026-10-11T10:00:00.000Z');
 export const id = newId;
+/** Each seeded user has one live session (refresh-token family) with this id. */
+export const harnessSessionId = (userId: string) => `harness-${userId}`;
 
 export interface Harness {
   pool: pg.Pool; connectionString: string;
@@ -92,11 +94,12 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
       ingest: services.ingest, trips: services.trips, live: services.live, auth: services.auth,
       users: repos.users, buses: repos.buses, routes: repos.routes, tripRepo: repos.trips,
       ...services.extraRepos,
-      verifyToken, verifyActiveAccount: true, allowedOrigins: [], checkReadiness: databaseReadiness(pool),
+      verifyToken, isSessionActive: (sid) => services.auth.isSessionActive(sid),
+      verifyActiveAccount: true, allowedOrigins: [], checkReadiness: databaseReadiness(pool),
       checkCampusProvisioning: campusProvisioningReadiness(pool),
     });
     const server = http.createServer(app);
-    const gateway = createGateway(server, { verifyToken, live: services.live, allowedOrigins: [] });
+    const gateway = createGateway(server, { verifyToken, isSessionActive: (sid) => services.auth.isSessionActive(sid), live: services.live, allowedOrigins: [] });
     closeGateway = () => gateway.close();
     forward = (c, b, p) => gateway.emitter.emitLocation(c, b, p);
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -106,7 +109,7 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
 
     return {
       pool, connectionString, services, app, server, url: origin, emitted, sentResets, clock, seed,
-      token: (u, ttl) => signAccessToken({ userId: u.id, campusId: u.campusId, role: u.role }, SECRET, ttl),
+      token: (u, ttl) => signAccessToken({ userId: u.id, campusId: u.campusId, role: u.role }, SECRET, ttl, harnessSessionId(u.id)),
       close,
     };
   } catch (error) {
@@ -121,6 +124,10 @@ async function seedData(repos: Repositories): Promise<Seed> {
   const mk = async (campusId: string, role: Role, name: string, busId: string | null = null, routeId: string | null = null) => {
     const user = await repos.users.create({ campusId, email: `${name}@example.test`, passwordHash: 'x', name, role, status: 'ACTIVE' });
     if (busId || routeId) await repos.users.assignTransport(campusId, user.id, busId, routeId);
+    await repos.refreshTokens.create({
+      userId: user.id, campusId, tokenHash: hashRefreshToken(generateRefreshToken()), familyId: harnessSessionId(user.id),
+      expiresAt: new Date(Date.now() + 365 * 86_400_000),
+    });
     return user.id;
   };
   const { id: route1 } = await repos.routes.create({ campusId: campusA, code: 'R1', name: 'Route 1', color: '#2563eb', stops: [] });

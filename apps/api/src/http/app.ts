@@ -1,4 +1,5 @@
 import cors from 'cors';
+import { randomUUID } from 'crypto';
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
@@ -7,6 +8,7 @@ import { buildCorsOptions } from '../config/cors';
 import { bootstrapAdminSchema, passwordSchema, type AuthService } from '../auth/service';
 import { canViewBus } from '../domain/access';
 import { CampusNotProvisionedError, DomainError } from '../domain/errors';
+import { publicValidationMessage } from '../domain/validationMessage';
 import type { LiveService } from '../domain/live';
 import type { TelemetryIngestService } from '../domain/telemetry/ingest';
 import type { TripService } from '../domain/trips';
@@ -25,7 +27,10 @@ export interface AppDeps {
   checkReadiness?: () => Promise<void>;
   checkCampusProvisioning?: () => Promise<void>;
   trustProxy?: number;
-  verifyToken: (token: string) => Principal | null; allowedOrigins: string[];
+  verifyToken: (token: string) => (Principal & { sessionId: string }) | null;
+  /** Whether the access token's session (refresh-token family) is still live. */
+  isSessionActive: (sessionId: string) => Promise<boolean>;
+  allowedOrigins: string[];
 }
 type AuthedRequest = Request & { principal: Principal };
 
@@ -39,6 +44,15 @@ export function createApp(deps: AppDeps) {
   if (deps.trustProxy !== undefined) app.set('trust proxy', deps.trustProxy);
   app.use(cors(buildCorsOptions(deps.allowedOrigins)));
   app.use(express.json({ limit: '64kb' }));
+
+  // Every response carries a request ID so a user can quote it to support and logs can be matched.
+  app.use((req, res, next) => {
+    const incoming = req.get('x-request-id');
+    const requestId = incoming && /^[A-Za-z0-9-]{8,64}$/.test(incoming) ? incoming : randomUUID();
+    res.locals['requestId'] = requestId;
+    res.setHeader('X-Request-Id', requestId);
+    next();
+  });
 
   // ─── Health ────────────────────────────────────────────────────────────────
   // Liveness: process up and database reachable. Does not depend on campus data.
@@ -81,14 +95,16 @@ export function createApp(deps: AppDeps) {
     const principal = token ? deps.verifyToken(token) : null;
     if (!principal) { res.status(401).json({ error: 'UNAUTHENTICATED' }); return; }
     (req as AuthedRequest).principal = principal;
-    if (!deps.verifyActiveAccount) { next(); return; }
-    void deps.users.findById(principal.campusId, principal.userId).then(user => {
-      if (user?.status !== 'ACTIVE' || user.role !== principal.role) {
-        res.status(403).json({ error: 'ACCOUNT_NOT_ACTIVE' });
-      } else {
-        next();
+    void (async () => {
+      // Logout, logout-everywhere and password change end the session at once,
+      // even while the access token itself has not yet expired.
+      if (!await deps.isSessionActive(principal.sessionId)) { res.status(401).json({ error: 'SESSION_REVOKED' }); return; }
+      if (deps.verifyActiveAccount) {
+        const user = await deps.users.findById(principal.campusId, principal.userId);
+        if (user?.status !== 'ACTIVE' || user.role !== principal.role) { res.status(403).json({ error: 'ACCOUNT_NOT_ACTIVE' }); return; }
       }
-    }).catch(next);
+      next();
+    })().catch(next);
   };
   const requireRole = (...roles: Role[]): RequestHandler => (req, res, next) => {
     const p = (req as AuthedRequest).principal;
@@ -529,12 +545,13 @@ export function createApp(deps: AppDeps) {
   // ─── Error handler ────────────────────────────────────────────────────────
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof DomainError) { res.status(err.status).json({ error: err.code, ...(err.status === 400 && err.message !== err.code ? { detail: err.message } : {}) }); return; }
-    if (err instanceof z.ZodError) { res.status(400).json({ error: 'VALIDATION_ERROR', detail: err.issues[0]?.message }); return; }
+    if (err instanceof z.ZodError) { res.status(400).json({ error: 'INVALID_REQUEST', detail: publicValidationMessage(err) }); return; }
     const e = err as { type?: string };
     if (e?.type === 'entity.too.large') { res.status(413).json({ error: 'PAYLOAD_TOO_LARGE' }); return; }
     if (e?.type === 'entity.parse.failed') { res.status(400).json({ error: 'INVALID_JSON' }); return; }
-    console.error('[api] unhandled', err instanceof Error ? err.message : err);
-    res.status(500).json({ error: 'INTERNAL_ERROR' });
+    const requestId = String(res.locals['requestId'] ?? '');
+    console.error(`[api] unhandled requestId=${requestId}`, err instanceof Error ? (err.stack ?? err.message) : err);
+    res.status(500).json({ error: 'INTERNAL_ERROR', requestId });
   });
   return app;
 }

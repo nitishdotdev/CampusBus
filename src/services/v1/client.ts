@@ -9,6 +9,9 @@ import { readViteV1Env, resolveV1ApiBase } from './apiBase';
 
 const getApiBase = (): string => resolveV1ApiBase(readViteV1Env((import.meta as any).env));
 
+/** A request with no response inside this window fails instead of spinning indefinitely. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+
 export class ApiV1Error extends Error {
   constructor(message: string, public status: number, public code?: string) {
     super(message);
@@ -51,15 +54,33 @@ async function rawRequest<T>(
   if (withAuth && _accessToken) {
     headers['Authorization'] = `Bearer ${_accessToken}`;
   }
-  const res = await fetch(url, { ...options, headers, credentials: 'include' });
-  if (res.status === 204) return {} as T;
-  const ct = res.headers.get('content-type') ?? '';
-  const body = ct.includes('application/json') ? await res.json() : await res.text();
-  if (!res.ok) {
-    const code = typeof body === 'object' ? body?.error : undefined;
-    throw new ApiV1Error(code ?? `HTTP ${res.status}`, res.status, code);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timedOut = () => new ApiV1Error('REQUEST_TIMEOUT', 0, 'REQUEST_TIMEOUT');
+  try {
+    let res: Response;
+    try {
+      res = await fetch(url, { ...options, headers, credentials: 'include', signal: controller.signal });
+    } catch (error) {
+      // Keep the underlying message (for example "Failed to fetch") so it is not hidden from callers.
+      throw controller.signal.aborted ? timedOut() : new ApiV1Error(error instanceof Error ? error.message : 'NETWORK_ERROR', 0, 'NETWORK_ERROR');
+    }
+    if (res.status === 204) return {} as T;
+    const ct = res.headers.get('content-type') ?? '';
+    let body: any;
+    try {
+      body = ct.includes('application/json') ? await res.json() : await res.text();
+    } catch {
+      throw controller.signal.aborted ? timedOut() : new ApiV1Error('NETWORK_ERROR', res.status, 'NETWORK_ERROR');
+    }
+    if (!res.ok) {
+      const code = typeof body === 'object' ? body?.error : undefined;
+      throw new ApiV1Error(code ?? `HTTP ${res.status}`, res.status, code);
+    }
+    return body as T;
+  } finally {
+    clearTimeout(timer);
   }
-  return body as T;
 }
 
 // ── Silent refresh ─────────────────────────────────────────────────────────────
@@ -111,4 +132,7 @@ export const v1Client = {
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   postPublic: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}) }, false),
+  /** Keeps the request alive if the page is closing, so a logout can still reach the server. */
+  postPublicKeepalive: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}), keepalive: true }, false),
 };

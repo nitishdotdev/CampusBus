@@ -36,7 +36,8 @@ describe.skipIf(!PG_TEST_URL)('GPS ingestion: authorization', () => {
   it('a validly signed token for a nonexistent or disabled account is refused', async () => {
     const trip = await freshTrip(h);
     const ghost = await post(h, h.token({ id: id(), campusId: h.seed.campusA, role: 'DRIVER' }), { tripId: trip.id, events: [ev(h, 0)] });
-    expect(ghost.status).toBe(403);
+    // No session exists for an unknown account, so the token is treated as unauthenticated.
+    expect(ghost.status).toBe(401);
     await h.services.repos.users.updateStatus(h.seed.campusA, h.seed.driver1, 'DISABLED');
     const disabled = await post(h, driver1Token(), { tripId: trip.id, events: [ev(h, 0)] });
     expect(disabled.status).toBe(403);

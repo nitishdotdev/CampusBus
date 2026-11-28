@@ -78,17 +78,22 @@ export interface UserRepository {
   list(campusId: string, opts: { role?: Role; status?: UserStatus; page?: number; pageSize?: number }): Promise<Page<UserDTO>>;
   assignTransport(campusId: string, id: string, busId: string | null, routeId: string | null): Promise<boolean>;
 }
+/** Why a refresh token family stopped working. `null` means a normal rotation. */
+export type RevocationReason = 'LOGOUT' | 'REVOKED' | 'REUSE';
+
 export interface RefreshTokenRepository {
   /** Create a refresh token. familyId groups rotated tokens for theft detection. */
   create(t: { userId: string; campusId: string; tokenHash: string; familyId: string; expiresAt: Date; previousId?: string; expectedPasswordHash?: string }): Promise<string>;
-  find(tokenHash: string): Promise<{ id: string; userId: string; campusId: string; familyId: string; expiresAt: Date; revokedAt: Date | null; previousId: string | null } | null>;
+  find(tokenHash: string): Promise<{ id: string; userId: string; campusId: string; familyId: string; expiresAt: Date; revokedAt: Date | null; revokedReason?: RevocationReason | null; previousId: string | null } | null>;
   rotate?(tokenId: string, at: Date, successor: { userId: string; campusId: string; familyId: string; tokenHash: string; expiresAt: Date }): Promise<'rotated' | 'reused' | 'expired'>;
   /** Revoke one token (used = normal rotation). */
   revoke(id: string, at: Date): Promise<void>;
-  /** Revoke every live token in a family (theft detected). */
-  revokeFamily(familyId: string, at: Date): Promise<void>;
-  /** Revoke all tokens for a user (logout everywhere). */
-  revokeAll(userId: string, at: Date): Promise<void>;
+  /** Revoke every live token in a family (logout, or theft detected when reason is REUSE). */
+  revokeFamily(familyId: string, at: Date, reason?: RevocationReason): Promise<void>;
+  /** Revoke all tokens for a user (logout everywhere, password change). */
+  revokeAll(userId: string, at: Date, reason?: RevocationReason): Promise<void>;
+  /** True while the family still holds at least one unrevoked, unexpired token. */
+  isFamilyActive(familyId: string, at: Date): Promise<boolean>;
   /** Remove tokens that expired before cutoff. */
   purgeExpired(cutoff: Date): Promise<number>;
 }

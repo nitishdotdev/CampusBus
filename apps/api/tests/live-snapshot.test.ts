@@ -11,7 +11,7 @@ const ADMIN_ID = '4'.repeat(24);
 const SECRET = 'test-access-secret-test-access-secret-12345678';
 
 function token(p: Principal) {
-  return signAccessToken(p, SECRET);
+  return signAccessToken(p, SECRET, undefined, 'test-session');
 }
 
 function unusedDeps() {
@@ -37,6 +37,7 @@ describe('GET /api/v1/buses/:id/live', () => {
         },
       } as any,
       verifyToken: (t: string) => verifyAccessToken(t, SECRET),
+      isSessionActive: async () => true,
       allowedOrigins: [],
     });
 

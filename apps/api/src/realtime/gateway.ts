@@ -7,10 +7,14 @@ import type { LiveEmitter, Principal } from '../domain/types';
 import type { VerifiedPrincipal } from '../auth/tokens';
 
 const MAX_SUBSCRIPTIONS_PER_SOCKET = 20;
+/** How often open sockets are re-checked against their session. Bounds how long a logged-out socket stays connected. */
+const SESSION_RECHECK_MS = 60_000;
 export const busRoom = (campusId: string, busId: string) => `bus:${campusId}:${busId}`;
 
 export function createGateway(httpServer: HttpServer, deps: {
-  verifyToken: (token: string) => VerifiedPrincipal | null; live: LiveService; allowedOrigins: string[];
+  verifyToken: (token: string) => VerifiedPrincipal | null;
+  isSessionActive: (sessionId: string) => Promise<boolean>;
+  live: LiveService; allowedOrigins: string[];
 }) {
   const io = new Server(httpServer, {
     path: '/socket.io/',
@@ -22,9 +26,22 @@ export function createGateway(httpServer: HttpServer, deps: {
     const token = (socket.handshake.auth as { token?: unknown } | undefined)?.token;
     const p = typeof token === 'string' ? deps.verifyToken(token) : null;
     if (!p) return next(new Error('UNAUTHENTICATED'));
-    socket.data.principal = p;
-    next();
+    deps.isSessionActive(p.sessionId).then(active => {
+      if (!active) return next(new Error('SESSION_REVOKED'));
+      socket.data.principal = p;
+      next();
+    }, next);
   });
+
+  // Sockets opened before a logout keep their handshake, so they are re-checked on a timer.
+  const sessionSweep = setInterval(() => {
+    for (const socket of io.sockets.sockets.values()) {
+      const p = socket.data.principal as VerifiedPrincipal | undefined;
+      if (!p) continue;
+      deps.isSessionActive(p.sessionId).then(active => { if (!active) socket.disconnect(true); }, () => { /* retried next sweep */ });
+    }
+  }, SESSION_RECHECK_MS);
+  sessionSweep.unref();
 
   io.on('connection', (socket: Socket) => {
     const principal = socket.data.principal as VerifiedPrincipal;
@@ -58,5 +75,5 @@ export function createGateway(httpServer: HttpServer, deps: {
   const emitter: LiveEmitter = {
     emitLocation(campusId, busId, payload) { io.to(busRoom(campusId, busId)).emit('bus:location', payload); },
   };
-  return { io, emitter, close: () => new Promise<void>((r) => { io.close(() => r()); }) };
+  return { io, emitter, close: () => new Promise<void>((r) => { clearInterval(sessionSweep); io.close(() => r()); }) };
 }

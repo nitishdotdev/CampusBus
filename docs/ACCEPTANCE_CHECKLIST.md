@@ -15,7 +15,7 @@
 - [x] The live directory returned the existing RKGIT campus. The published coordinates fall within the mapped campus outline.
 - [ ] Confirm the existing production database target, TLS mode, schema, record inventory and any legacy data through Render and Neon access.
 - [ ] Verify `/healthz` is the explicit infrastructure health check on the existing Render service and monitor `/readyz` separately. Confirm Preview has its own Vercel API origin and review all checks on the follow-up PR.
-- [ ] Approve a production sender and validate real recovery email to an authorized inbox. Confirm a reset ends the previous refresh session. An already issued access token retains its normal expiry.
+- [ ] Approve a production sender and validate real recovery email to an authorized inbox. Confirm a reset ends the previous session. An already issued access token stops working as soon as its session is revoked, not at its normal expiry.
 - [ ] Sign in with authorized student, driver and admin accounts on the approved deployment. Check campus selection, data isolation, notifications, authenticated tracking and session restore. Confirm map tiles in the hosted browser.
 - [ ] Test GPS on a moving physical phone with location permission, interruption and reconnect. Verify Chrome 109 on the institution's supported devices after deployment.
 

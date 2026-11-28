@@ -11,7 +11,7 @@ const ADMIN_ID = '4'.repeat(24);
 const SECRET = 'test-access-secret-test-access-secret-12345678';
 
 function token(p: Principal) {
-  return signAccessToken(p, SECRET);
+  return signAccessToken(p, SECRET, undefined, 'test-session');
 }
 
 function makeApp() {
@@ -31,6 +31,7 @@ function makeApp() {
     routes: {},
     tripRepo: {},
     verifyToken: (t: string) => verifyAccessToken(t, SECRET),
+    isSessionActive: async () => true,
     allowedOrigins: [],
   } as any);
   return { app, ingestCalls };

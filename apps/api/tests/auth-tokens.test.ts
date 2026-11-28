@@ -7,11 +7,11 @@ const base = { userId: 'u1', campusId: 'c1', role: 'DRIVER' as const };
 
 describe('access tokens', () => {
   it('round-trips a principal', () => {
-    expect(verifyAccessToken(signAccessToken(base, S), S)).toMatchObject(base);
+    expect(verifyAccessToken(signAccessToken(base, S, undefined, 'sid-1'), S)).toMatchObject(base);
   });
   it('rejects a different secret, expiry, other algorithms, "none", wrong issuer/audience and bad claims', () => {
-    expect(verifyAccessToken(signAccessToken(base, S), S + 'x')).toBeNull();
-    expect(verifyAccessToken(signAccessToken(base, S, -10), S)).toBeNull();
+    expect(verifyAccessToken(signAccessToken(base, S, undefined, 'sid-1'), S + 'x')).toBeNull();
+    expect(verifyAccessToken(signAccessToken(base, S, -10, 'sid-1'), S)).toBeNull();
     const claims = { campusId: 'c1', role: 'DRIVER' };
     const opt = { subject: 'u1', issuer: 'campusmove', audience: 'campusmove-api', expiresIn: 60 } as const;
     expect(verifyAccessToken(jwt.sign(claims, S, { ...opt, algorithm: 'HS512' }), S)).toBeNull();
@@ -26,5 +26,17 @@ describe('access tokens', () => {
     expect(() => requireAccessSecret({} as any)).toThrow(/ACCESS_TOKEN_SECRET/);
     expect(() => requireAccessSecret({ ACCESS_TOKEN_SECRET: 'short', NODE_ENV: 'development' } as any)).toThrow();
     expect(requireAccessSecret({ ACCESS_TOKEN_SECRET: S } as any)).toBe(S);
+  });
+});
+
+describe('access token sessions (F2)', () => {
+  it('rejects an otherwise valid token that carries no session id', () => {
+    const legacy = jwt.sign({ campusId: 'c1', role: 'STUDENT' }, S, { algorithm: 'HS256', subject: 'u1', issuer: 'campusmove', audience: 'campusmove-api', expiresIn: 900 });
+    expect(verifyAccessToken(legacy, S)).toBeNull();
+  });
+
+  it('returns the session id from a token issued for a session', () => {
+    const verified = verifyAccessToken(signAccessToken({ userId: 'u1', campusId: 'c1', role: 'STUDENT' }, S, undefined, 'fam-1'), S);
+    expect(verified?.sessionId).toBe('fam-1');
   });
 });

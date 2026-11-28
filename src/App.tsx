@@ -1,5 +1,7 @@
-import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import React, { useEffect } from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { flushPendingLogoutV1 } from "./services/v1/auth";
+import { NotFoundPage } from "./pages/NotFoundPage";
 import { AppProvider } from "./store/AppContext";
 import { AppShell } from "./components/layout/AppShell";
 import { LandingPage } from "./pages/LandingPage";
@@ -30,6 +32,8 @@ import AdminSchedules from "./pages/admin/AdminSchedules";
 import AdminComplaints from "./pages/admin/AdminComplaints";
 
 export default function App() {
+  // Retry any logout that failed to reach the server in an earlier page load.
+  useEffect(() => { void flushPendingLogoutV1(); }, []);
   return (
     <AppProvider>
       <BrowserRouter>
@@ -65,7 +69,7 @@ export default function App() {
             <Route path="/admin/schedules" element={<AdminSchedules />} />
             <Route path="/admin/complaints" element={<AdminComplaints />} />
           </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </BrowserRouter>
     </AppProvider>

@@ -80,12 +80,46 @@ export async function registerV1(params: {
   }
 }
 
+// A logout that did not reach the server keeps its refresh token here until a later
+// attempt succeeds, so the session is revoked rather than left valid for 30 days.
+const PENDING_LOGOUT_KEY = 'campusbus_pending_logout';
+
+function readPendingLogout(): string | null {
+  return typeof window === 'undefined' ? null : window.sessionStorage.getItem(PENDING_LOGOUT_KEY);
+}
+
+function writePendingLogout(token: string | null) {
+  if (typeof window === 'undefined') return;
+  if (token) window.sessionStorage.setItem(PENDING_LOGOUT_KEY, token);
+  else window.sessionStorage.removeItem(PENDING_LOGOUT_KEY);
+}
+
+async function sendLogout(refreshToken: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await v1Client.postPublicKeepalive('/api/v1/auth/logout', { refreshToken });
+      return true;
+    } catch (err) {
+      // A definitive server answer (4xx) means there is nothing more to revoke.
+      if (err instanceof ApiV1Error && err.status >= 400 && err.status < 500) return true;
+    }
+  }
+  return false;
+}
+
 export async function logoutV1(): Promise<void> {
   const rt = v1Token.getRefresh();
   v1Token.clear();
-  try {
-    if (rt) await v1Client.postPublic('/api/v1/auth/logout', { refreshToken: rt });
-  } catch { /* best-effort */ }
+  if (!rt) return;
+  writePendingLogout(rt);
+  if (await sendLogout(rt)) writePendingLogout(null);
+}
+
+/** Retries a logout that never reached the server. Safe to call on every app start. */
+export async function flushPendingLogoutV1(): Promise<void> {
+  const rt = readPendingLogout();
+  if (!rt) return;
+  if (await sendLogout(rt) && readPendingLogout() === rt) writePendingLogout(null);
 }
 
 export function requestPasswordResetV1(campusId: string, email: string) {
@@ -136,6 +170,8 @@ function humanizeError(code: string): string {
     EMAIL_ALREADY_REGISTERED: 'An account with this email already exists.',
     LOGIN_RATE_LIMITED: 'Too many login attempts. Please wait and try again.',
     INVALID_REQUEST: 'Please check your input and try again.',
+    REQUEST_TIMEOUT: 'The server took too long to respond. Check your connection and try again.',
+    NETWORK_ERROR: 'Cannot reach the server. Check your connection and try again.',
   };
   return map[code] ?? code;
 }

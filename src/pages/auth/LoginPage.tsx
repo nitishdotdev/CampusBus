@@ -236,7 +236,7 @@ export const LoginPage: React.FC = () => {
                       </div>
                     ) : campusError || campuses.length === 0 ? (
                       <div className="w-full pl-9 pr-3 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">
-                        <p role="status">{campusError || 'No campuses have been set up yet. Contact your campus administrator.'}</p>
+                        <p role="status">{campusError || 'No campuses are available yet. Select Retry, or ask your campus administrator to finish setting up CampusBus.'}</p>
                         <button type="button" className="min-h-11 font-semibold underline" onClick={() => setCampusLoadAttempt(attempt => attempt + 1)}>
                           Retry campus directory
                         </button>

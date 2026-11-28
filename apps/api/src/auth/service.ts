@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { z } from 'zod';
 import { badRequest, DomainError, forbidden, notFound, tooMany } from '../domain/errors';
+import { publicValidationMessage } from '../domain/validationMessage';
 import type { CampusRepository, EmailSender, EmailTokenRepository, Principal, RefreshTokenRepository, Role, SessionInfo, UserRepository, UserStatus } from '../domain/types';
 import { hashPassword, UNKNOWN_ACCOUNT_HASH, verifyPassword } from './passwords';
 import { generateOTP, generateRefreshToken, hashRefreshToken, hashToken, requireAccessSecret, requireRefreshSecret, signAccessToken, type VerifiedPrincipal, verifyAccessToken } from './tokens';
@@ -110,7 +111,7 @@ export class AuthService {
   async createDriver(principal: Principal, body: unknown): Promise<SessionInfo> {
     if (principal.role !== 'ADMIN') throw forbidden();
     const parsed = createDriverSchema.safeParse(body);
-    if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
+    if (!parsed.success) throw badRequest('INVALID_REQUEST', publicValidationMessage(parsed.error));
     const { email, password, name, phone } = parsed.data;
     const hash = await hashPassword(password);
     const user = await this.d.users.create({
@@ -122,7 +123,7 @@ export class AuthService {
   // ─── Register ──────────────────────────────────────────────────────────────
   async register(body: unknown): Promise<{ user: SessionInfo }> {
     const parsed = registerSchema.safeParse(body);
-    if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
+    if (!parsed.success) throw badRequest('INVALID_REQUEST', publicValidationMessage(parsed.error));
     const { campusId, email, password, name, role } = parsed.data;
     const hash = await hashPassword(password);
     const user = await this.d.users.create({ campusId, email, passwordHash: hash, name, role, status: 'ACTIVE' });
@@ -135,7 +136,7 @@ export class AuthService {
   // ─── Login ─────────────────────────────────────────────────────────────────
   async login(body: unknown): Promise<{ tokens: { accessToken: string; expiresIn: number }; refreshToken: string; user: SessionInfo }> {
     const parsed = loginSchema.safeParse(body);
-    if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
+    if (!parsed.success) throw badRequest('INVALID_REQUEST', publicValidationMessage(parsed.error));
     const { campusId, email, password } = parsed.data;
 
     // Rate limit by (campusId, email) to prevent enumeration and brute-force.
@@ -156,8 +157,8 @@ export class AuthService {
       throw new DomainError(401, 'INVALID_CREDENTIALS');
     }
 
-    const { raw } = await this.issueRefreshToken(user.id, campusId, { expectedPasswordHash: verify.needsRehash ? verify.newHash : user.passwordHash });
-    const accessToken = signAccessToken({ userId: user.id, campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
+    const { raw, familyId } = await this.issueRefreshToken(user.id, campusId, { expectedPasswordHash: verify.needsRehash ? verify.newHash : user.passwordHash });
+    const accessToken = signAccessToken({ userId: user.id, campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds, familyId);
     return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw, user: toSession(user) };
   }
 
@@ -166,15 +167,17 @@ export class AuthService {
     const hash = hashRefreshToken(rawToken);
     const stored = await this.d.refreshTokens.find(hash);
     if (!stored) throw new DomainError(401, 'INVALID_REFRESH_TOKEN');
-    if (stored.revokedAt && !this.d.refreshTokens.rotate) {
-      // Reuse detected: revoke the whole family to neutralize any stolen token.
-      await this.d.refreshTokens.revokeFamily(stored.familyId, this.now());
+    if (stored.revokedAt) {
+      // A logged-out or account-revoked session is reported as such. It is not reuse.
+      if (stored.revokedReason === 'LOGOUT' || stored.revokedReason === 'REVOKED') throw new DomainError(401, 'REFRESH_TOKEN_REVOKED');
+      // Any other revoked token is a rotated one presented again: revoke the whole family.
+      await this.d.refreshTokens.revokeFamily(stored.familyId, this.now(), 'REUSE');
       throw new DomainError(401, 'REFRESH_TOKEN_REUSE');
     }
     if (stored.expiresAt < this.now()) throw new DomainError(401, 'REFRESH_TOKEN_EXPIRED');
 
     const user = await this.d.users.findById(stored.campusId, stored.userId);
-    if (!user || user.status !== 'ACTIVE') { await this.d.refreshTokens.revokeFamily(stored.familyId, this.now()); throw forbidden('ACCOUNT_NOT_ACTIVE'); }
+    if (!user || user.status !== 'ACTIVE') { await this.d.refreshTokens.revokeFamily(stored.familyId, this.now(), 'REVOKED'); throw forbidden('ACCOUNT_NOT_ACTIVE'); }
 
     let raw: string;
     if (this.d.refreshTokens.rotate) {
@@ -190,7 +193,7 @@ export class AuthService {
       await this.d.refreshTokens.revoke(stored.id, this.now());
       ({ raw } = await this.issueRefreshToken(user.id, stored.campusId, { familyId: stored.familyId, previousId: stored.id }));
     }
-    const accessToken = signAccessToken({ userId: user.id, campusId: stored.campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds);
+    const accessToken = signAccessToken({ userId: user.id, campusId: stored.campusId, role: user.role }, this.accessSecret, this.d.config.accessTtlSeconds, stored.familyId);
     return { tokens: { accessToken, expiresIn: this.d.config.accessTtlSeconds }, refreshToken: raw };
   }
 
@@ -198,11 +201,16 @@ export class AuthService {
   async logout(rawToken: string): Promise<void> {
     const hash = hashRefreshToken(rawToken);
     const stored = await this.d.refreshTokens.find(hash);
-    if (stored) await this.d.refreshTokens.revokeFamily(stored.familyId, this.now());
+    if (stored) await this.d.refreshTokens.revokeFamily(stored.familyId, this.now(), 'LOGOUT');
   }
 
   async logoutAll(principal: Principal): Promise<void> {
-    await this.d.refreshTokens.revokeAll(principal.userId, this.now());
+    await this.d.refreshTokens.revokeAll(principal.userId, this.now(), 'LOGOUT');
+  }
+
+  /** Whether an access token's session (refresh-token family) is still live. */
+  async isSessionActive(sessionId: string): Promise<boolean> {
+    return this.d.refreshTokens.isFamilyActive(sessionId, this.now());
   }
 
   // ─── Email verification ────────────────────────────────────────────────────
@@ -233,14 +241,16 @@ export class AuthService {
     const expiresAt = new Date(this.now().getTime() + this.d.config.resetTokenTtlMinutes * 60_000);
     await this.d.emailTokens.upsert({ userId: user.id, campusId: user.campusId, purpose: 'RESET_PASSWORD', tokenHash: this.resetHash(user, token), expiresAt });
     // Provider latency and outcomes must not determine the public response.
-    void sender.sendPasswordReset(user.email, user.name, token).catch(() => {
-      console.warn('[email] Password reset delivery failed. See the email provider dashboard.');
+    void sender.sendPasswordReset(user.email, user.name, token).catch((error: unknown) => {
+      // Log the failure class only: the address and the code must never reach logs.
+      const kind = error instanceof Error ? error.name : 'unknown';
+      console.warn(`[email] Password reset delivery failed (${kind}). The user may request a new code after 60 seconds.`);
     });
   }
 
   async confirmPasswordReset(campusId: string, email: string, otp: string, newPassword: string): Promise<void> {
     const pwResult = z.object({ password: passwordSchema }).safeParse({ password: newPassword });
-    if (!pwResult.success) throw badRequest('WEAK_PASSWORD', pwResult.error.issues[0]?.message);
+    if (!pwResult.success) throw badRequest('WEAK_PASSWORD', publicValidationMessage(pwResult.error));
     const address = email.toLowerCase();
     if (!this.resetAttempts.check(`${campusId.toLowerCase()}:${address}`)) throw tooMany('PASSWORD_RESET_RATE_LIMITED');
     const invalid = () => new DomainError(400, 'INVALID_OR_EXPIRED_TOKEN');
@@ -270,7 +280,7 @@ export class AuthService {
     if (!await this.d.users.updatePassword(principal.campusId, principal.userId, hash, record.passwordHash)) {
       throw new DomainError(409, 'PASSWORD_CHANGED');
     }
-    await this.d.refreshTokens.revokeAll(principal.userId, this.now());
+    await this.d.refreshTokens.revokeAll(principal.userId, this.now(), 'REVOKED');
   }
 
   async resetManagedPassword(principal: Principal, userId: string, newPassword: string): Promise<void> {
@@ -282,7 +292,7 @@ export class AuthService {
     if (!await this.d.users.updatePassword(principal.campusId, userId, hash)) {
       throw new DomainError(404, 'MANAGED_ACCOUNT_NOT_FOUND');
     }
-    await this.d.refreshTokens.revokeAll(userId, this.now());
+    await this.d.refreshTokens.revokeAll(userId, this.now(), 'REVOKED');
   }
 
   // ─── Admin bootstrap ───────────────────────────────────────────────────────
@@ -292,7 +302,7 @@ export class AuthService {
    */
   async bootstrapAdmin(campusId: string, email: string, password: string, name: string): Promise<SessionInfo> {
     const parsed = bootstrapAdminSchema.safeParse({ campusId, email, password, name });
-    if (!parsed.success) throw badRequest('INVALID_REQUEST', parsed.error.issues[0]?.message ?? 'validation');
+    if (!parsed.success) throw badRequest('INVALID_REQUEST', publicValidationMessage(parsed.error));
     if (this.d.campuses) {
       const campus = await this.d.campuses.findById(parsed.data.campusId);
       if (!campus) throw badRequest('CAMPUS_NOT_FOUND');
@@ -317,13 +327,13 @@ export class AuthService {
   }
 
   // ─── Private ───────────────────────────────────────────────────────────────
-  private async issueRefreshToken(userId: string, campusId: string, options: { familyId?: string; previousId?: string; expectedPasswordHash?: string }): Promise<{ raw: string; id: string }> {
+  private async issueRefreshToken(userId: string, campusId: string, options: { familyId?: string; previousId?: string; expectedPasswordHash?: string }): Promise<{ raw: string; id: string; familyId: string }> {
     const raw = generateRefreshToken();
     const hash = hashRefreshToken(raw);
     const family = options.familyId ?? crypto.randomUUID();
     const expiresAt = new Date(this.now().getTime() + this.d.config.refreshTtlDays * 86_400_000);
     const id = await this.d.refreshTokens.create({ userId, campusId, tokenHash: hash, familyId: family, expiresAt, previousId: options.previousId, expectedPasswordHash: options.expectedPasswordHash });
-    return { raw, id };
+    return { raw, id, familyId: family };
   }
 }
 
