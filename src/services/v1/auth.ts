@@ -23,14 +23,14 @@ export interface V1LoginResult {
 export function formatCampusFetchError(err: unknown): string {
   if (err instanceof ApiV1Error) {
     if (err.status === 404) {
-      return 'Campus directory route not found. The app is calling a missing V1 API path.';
+      return 'The campus directory is unavailable. Try again or contact your campus administrator.';
     }
     if (err.status === 0 || err.status >= 500) {
       return 'Cannot reach the campus directory. Check your connection and try again.';
     }
-    return `Cannot load campuses (${err.status}). Check the API and try again.`;
+    return 'The campus directory could not be loaded. Try again or contact your campus administrator.';
   }
-  return 'Cannot reach the campus directory. Check your connection or CORS configuration and try again.';
+  return 'Cannot load the campus directory. Check your connection and try again.';
 }
 
 // ── Campus list (public) ──────────────────────────────────────────────────────
@@ -39,7 +39,9 @@ export function updateCampusSettings(values: { name: string; dispatchPhone: stri
 }
 
 export async function listCampuses(): Promise<V1Campus[]> {
-  return v1Client.get<V1Campus[]>('/api/v1/campuses');
+  const campuses = await v1Client.get<V1Campus[]>('/api/v1/campuses');
+  if (!Array.isArray(campuses)) throw new ApiV1Error('Invalid campus directory response', 502);
+  return campuses;
 }
 
 // ── Auth ───────────────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import { createServices } from '../src/compose';
 import { DEFAULT_TRACKING, type TrackingConfig } from '../src/config/env';
 import { signAccessToken, verifyAccessToken } from '../src/auth/tokens';
 import { newId } from '../src/infra/postgres/ids';
-import { applyV1Schema, databaseReadiness } from '../src/infra/postgres/pool';
+import { applyV1Schema, campusProvisioningReadiness, databaseReadiness } from '../src/infra/postgres/pool';
 import { createPostgresRepositories, type Repositories } from '../src/infra/postgres/repositories';
 import { createApp } from '../src/http/app';
 import { createGateway } from '../src/realtime/gateway';
@@ -38,7 +38,7 @@ export interface Seed {
   studentR1: string; studentR2: string; studentBus1: string; studentNone: string;
 }
 
-export async function createHarness(overrides: Partial<TrackingConfig> = {}): Promise<Harness> {
+export async function createHarness(overrides: Partial<TrackingConfig> = {}, beforeSeed?: (app: Harness['app'], repos: Repositories) => Promise<void>): Promise<Harness> {
   if (!PG_TEST_URL) throw new Error('PG_TEST_URL is not set');
   const url = new URL(PG_TEST_URL);
   if (!url.pathname.endsWith('_test') || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
@@ -70,7 +70,6 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
     pool = new pg.Pool({ connectionString });
     await applyV1Schema(pool);
     const repos = createPostgresRepositories(pool);
-    const seed = await seedData(repos);
 
     let current = new Date(T0);
     const clock = { now: () => new Date(current), set: (d: Date) => { current = new Date(d); }, advance: (ms: number) => { current = new Date(current.getTime() + ms); } };
@@ -93,7 +92,10 @@ export async function createHarness(overrides: Partial<TrackingConfig> = {}): Pr
       users: repos.users, buses: repos.buses, routes: repos.routes, tripRepo: repos.trips,
       ...services.extraRepos,
       verifyToken, verifyActiveAccount: true, allowedOrigins: [], checkReadiness: databaseReadiness(pool),
+      checkCampusProvisioning: campusProvisioningReadiness(pool),
     });
+    await beforeSeed?.(app, repos);
+    const seed = await seedData(repos);
     const server = http.createServer(app);
     const gateway = createGateway(server, { verifyToken, live: services.live, allowedOrigins: [] });
     closeGateway = () => gateway.close();

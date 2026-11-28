@@ -30,6 +30,17 @@ export function databaseReadiness(pool: pg.Pool): () => Promise<void> {
   };
 }
 
+export function campusProvisioningReadiness(pool: pg.Pool): () => Promise<boolean> {
+  const query = { text: 'SELECT EXISTS (SELECT 1 FROM v1.campuses) AS provisioned', query_timeout: 1_000 };
+  let pending: Promise<boolean> | undefined;
+  return () => {
+    pending ??= pool.query<{ provisioned: boolean }>(query)
+      .then(result => result.rows[0].provisioned)
+      .finally(() => { pending = undefined; });
+    return pending;
+  };
+}
+
 export async function withTransaction<T>(pool: pg.Pool, execute: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   try {

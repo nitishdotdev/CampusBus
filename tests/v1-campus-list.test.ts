@@ -50,14 +50,19 @@ describe('listCampuses', () => {
     );
     await expect(listCampuses()).rejects.toThrow(/Failed to fetch/);
   });
+
+  it('reports a successful HTTP response with an invalid body as a directory failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>Unexpected page</html>')));
+    await expect(listCampuses()).rejects.toMatchObject({ status: 502 });
+  });
 });
 
 describe('formatCampusFetchError', () => {
-  it('distinguishes a missing route from connectivity/CORS and never calls either an empty campus list', () => {
+  it('provides actionable and distinct messages for an unavailable directory and a network failure', () => {
     const missing = formatCampusFetchError(new ApiV1Error('HTTP 404', 404));
     const network = formatCampusFetchError(new TypeError('Failed to fetch'));
-    expect(missing).toMatch(/not found|missing route/i);
-    expect(network).toMatch(/connection|cors|reach/i);
+    expect(missing).toMatch(/unavailable.*contact your campus administrator/i);
+    expect(network).toMatch(/check your connection and try again/i);
     expect(missing).not.toEqual(network);
     expect(missing).not.toMatch(/no campuses found/i);
     expect(network).not.toMatch(/no campuses found/i);

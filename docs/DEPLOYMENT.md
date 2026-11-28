@@ -21,7 +21,7 @@ The live frontend is `https://campus-bus-delta.vercel.app` and its bundle points
 | `SIMULATION_MODE` | Leave unset or set `off`. |
 | `EMAIL_FROM`, `RESEND_API_KEY` | Verified Resend sender and sending-only API key for the sender domain. Configure both through Render after approval. |
 
-Use the established Render service and existing database after [staging the migration](DATABASE.md). `/healthz` checks database connectivity and read access to the v1 campus table. It returns HTTP 503 when the probe fails. An empty campus table can still be healthy for infrastructure purposes, so separately check that `/api/v1/campuses` contains the intended campuses before releasing to users. Confirm the actual database and inventory before provisioning.
+Use the established Render service and existing database. `/healthz` checks database connectivity and read access to the v1 campus table. It returns HTTP 503 if the probe fails and HTTP 200 for an empty table. Keep `/healthz` as Render's infrastructure health check. `/readyz` is the separate operational check. It returns HTTP 503 with `NO_CAMPUSES` for an empty table and HTTP 200 with `{"status":"ready"}` once a campus exists.
 
 For password recovery, verify a sender domain with Resend, scope the API key to sending mail for that domain, and test delivery to an approved inbox. With no sender configured, sign-in explains that email recovery is unavailable and directs users to their campus administrator. The Render service uses in-process rate limits per account and IP. Before running multiple API instances, configure shared rate limits. Leave `EMAIL_VERIFICATION_REQUIRED` disabled until the separate registration verification flow is ready. Campus administrators can reset managed driver and student passwords.
 
@@ -31,16 +31,23 @@ Set framework to Vite, use `npm run build`, and publish `dist` on the verified f
 
 ## Initial provisioning
 
-The provisioning CLI can set up an empty database. Supply valid campus coordinates, an IANA time zone and a unique short code. Provide `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, and `BOOTSTRAP_ADMIN_PASSWORD` through an ignored environment file or a secret-managed runner.
+1. Verify the database host, database name, and Neon project and branch against the binding on the existing Render production service. Use the same approved connection and TLS settings in a trusted, secret-managed shell. Run the read-only inventory below. It reports the database name, negotiated TLS, and visible tables, columns, and row counts. Check `v1`, `public`, and other application schemas for legacy tables and migration metadata. CampusBus applies its v1 schema as idempotent SQL and does not maintain a separate v1 migration history table.
+2. Compare the public directory with the inventory. If RKGIT already exists, retain its ID and settings. Review any legacy records before attempting a separate import. If RKGIT is absent and the production target and existing v1 schema are confirmed, run the bootstrap below. `--existing-schema` performs provisioning against the installed schema. The short code is idempotent and the CLI leaves an existing record intact.
+3. If a first campus administrator is needed, run the same bootstrap from a single trusted operator session with authorized `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, and `BOOTSTRAP_ADMIN_PASSWORD` injected by the secret manager. The command preserves existing administrators. Treat the initial password as a temporary credential and distribute it through an approved channel. Keep `BOOTSTRAP_SECRET` unset for this CLI flow.
+
+RKGIT is Raj Kumar Goel Institute of Technology in Ghaziabad, Uttar Pradesh, India. The published coordinates `28.7009194, 77.4425612` are inside the mapped campus outline. Zoom 16 gives a campus-level view. The current campus schema stores `city`, map coordinates, zoom and timezone. [Institute contact and map](https://rkgit.edu.in/contactus) · [OpenStreetMap campus outline](https://www.openstreetmap.org/way/1409133131)
 
 ```sh
-npm run api:bootstrap -- --name="Campus name" --short-code=ABC \
-  --lat=28.46 --lng=77.03 --timezone=Asia/Kolkata
+NODE_ENV=production npx tsx scripts/inspect-postgres.ts
+NODE_ENV=production npm run api:bootstrap -- --existing-schema \
+  --name="Raj Kumar Goel Institute of Technology" --short-code=RKGIT --city=Ghaziabad \
+  --lat=28.7009194 --lng=77.4425612 --zoom=16 --timezone=Asia/Kolkata
+npm run smoke:production
 ```
 
 ## Release validation
 
-After approving and deploying both revisions, confirm the public API and browser CORS contract, sign in with an approved account for each role and verify a representative workflow. Record the rendered Vercel and Render deployment identifiers. Do not infer production readiness from a successful local build.
+After Render and Vercel have deployed, check `/healthz`, `/readyz` and `npm run smoke:production`. The smoke check validates the public campus list, RKGIT, and the production CORS origin. GitHub Actions runs it after successful production deployment events, hourly, and on manual dispatch. Sign in with an approved account for each role and verify a representative workflow. Record both deployment identifiers and physical-device GPS results.
 
 ## Rollback
 

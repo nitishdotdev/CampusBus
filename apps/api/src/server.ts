@@ -15,7 +15,7 @@ import { verifyAccessToken } from './auth/tokens';
 import { createServices } from './compose';
 import type { LiveEmitter } from './domain/types';
 import { createApp } from './http/app';
-import { applyV1Schema, databaseReadiness } from './infra/postgres/pool';
+import { applyV1Schema, campusProvisioningReadiness, databaseReadiness } from './infra/postgres/pool';
 import { createPostgresRepositories } from './infra/postgres/repositories';
 import { createGateway } from './realtime/gateway';
 import { resolveAllowedOrigins } from './config/cors';
@@ -72,6 +72,7 @@ async function main() {
     verifyToken: (t) => verifyAccessToken(t, accessSecret),
     verifyActiveAccount: true,
     checkReadiness: databaseReadiness(pool),
+    checkCampusProvisioning: campusProvisioningReadiness(pool),
     trustProxy: process.env.RENDER === 'true' ? 1 : undefined,
     allowedOrigins: ALLOWED_ORIGINS,
     bootstrapSecret: BOOTSTRAP_SECRET,

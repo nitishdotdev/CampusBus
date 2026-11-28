@@ -23,6 +23,7 @@ export interface AppDeps {
   bootstrapSecret?: string;
   verifyActiveAccount?: boolean;
   checkReadiness?: () => Promise<void>;
+  checkCampusProvisioning?: () => Promise<boolean>;
   trustProxy?: number;
   verifyToken: (token: string) => Principal | null; allowedOrigins: string[];
 }
@@ -45,6 +46,20 @@ export function createApp(deps: AppDeps) {
     try {
       await deps.checkReadiness?.();
       res.json({ status: 'ok' });
+    } catch {
+      res.status(503).json({ status: 'unavailable' });
+    }
+  });
+  app.get('/readyz', async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!deps.checkCampusProvisioning) {
+        res.status(503).json({ status: 'unavailable' });
+      } else if (await deps.checkCampusProvisioning()) {
+        res.json({ status: 'ready' });
+      } else {
+        res.status(503).json({ status: 'unavailable', reason: 'NO_CAMPUSES' });
+      }
     } catch {
       res.status(503).json({ status: 'unavailable' });
     }
