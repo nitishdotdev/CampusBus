@@ -38,6 +38,20 @@ npm run api:bootstrap -- --name="Campus name" --short-code=ABC \
   --lat=28.46 --lng=77.03 --timezone=Asia/Kolkata
 ```
 
+### Optional first-admin provisioning at startup
+
+When an existing campus needs its first administrator and a trusted CLI runner is unavailable, set the following through the hosting provider's secret manager:
+
+- `BOOTSTRAP_ADMIN_ENABLED=true`
+- `CAMPUS_SHORT_CODE` (the existing campus short code)
+- `BOOTSTRAP_ADMIN_NAME`
+- `BOOTSTRAP_ADMIN_EMAIL`
+- `BOOTSTRAP_ADMIN_PASSWORD` (new strong password, never in source or logs)
+
+Leave `BOOTSTRAP_SECRET` unset. Confirm the target database before enabling the flag. Startup uses the existing authentication service, does not create campuses, and serializes first-admin creation per campus. An existing admin is never overwritten; invalid configuration fails startup. Keep registration email verification disabled until its separate flow is ready, as noted above.
+
+After deployment, check logs for the non-sensitive bootstrap result, verify the account and sign in. Disable the flag, remove the bootstrap password and other provisioning settings, then redeploy and confirm sign-in still works. Disable the flag if startup fails while investigating. No new schema migration is required.
+
 ## Release validation
 
 After approving and deploying both revisions, confirm the public API and browser CORS contract, sign in with an approved account for each role and verify a representative workflow. Record the rendered Vercel and Render deployment identifiers. Do not infer production readiness from a successful local build.

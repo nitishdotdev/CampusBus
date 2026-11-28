@@ -46,11 +46,21 @@ export class PgUserRepository implements UserRepository {
   }
   async create(u: Parameters<UserRepository['create']>[0]) {
     try {
-      const r = await this.p.query(
-        `INSERT INTO v1.users (id, campus_id, email, password_hash, name, role, status, phone)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [newId(), u.campusId, u.email.toLowerCase(), u.passwordHash, u.name, u.role, u.status, u.phone ?? null],
-      );
+      const sql = `INSERT INTO v1.users (id, campus_id, email, password_hash, name, role, status, phone)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`;
+      const values = [newId(), u.campusId, u.email.toLowerCase(), u.passwordHash, u.name, u.role, u.status, u.phone ?? null];
+      const r = u.role === 'ADMIN'
+        ? await withTransaction(this.p, async client => {
+            // Serialize first-admin creation across startup, CLI and HTTP bootstrap.
+            await client.query('SELECT pg_advisory_xact_lock(476203, hashtext($1))', [u.campusId]);
+            const existing = await client.query(
+              "SELECT 1 FROM v1.users WHERE campus_id = $1 AND role = 'ADMIN' LIMIT 1",
+              [u.campusId],
+            );
+            if (existing.rowCount) throw new DomainError(409, 'ADMIN_ALREADY_EXISTS');
+            return client.query(sql, values);
+          })
+        : await this.p.query(sql, values);
       return toUser(r.rows[0]);
     } catch (e) {
       if (isUniqueViolation(e)) throw new DomainError(409, 'EMAIL_ALREADY_REGISTERED');
