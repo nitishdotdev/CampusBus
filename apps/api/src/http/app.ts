@@ -273,16 +273,24 @@ export function createApp(deps: AppDeps) {
     const { page, pageSize } = pageQuery.parse(req.query);
     const { campusId, userId } = req.principal;
     const [fleet, user] = await Promise.all([deps.buses.list(campusId, { page, pageSize }), deps.users.findById(campusId, userId)]);
-    res.json({ ...fleet, items: fleet.items.map(bus => ({
-      ...bus, canTrack: Boolean(user && canViewBus(req.principal, user, bus)),
-      driverName: req.principal.role === 'ADMIN' || bus.driverId === userId ? bus.driverName : undefined,
-      plateNumber: req.principal.role === 'ADMIN' || bus.driverId === userId ? bus.plateNumber : undefined,
-    })) });
+    res.json({ ...fleet, items: fleet.items.map(bus => {
+      const canTrack = Boolean(user && canViewBus(req.principal, user, bus));
+      return {
+        ...bus, canTrack,
+        // The persisted position is released only to principals allowed to observe the bus (same rule as the socket feed).
+        lastLocation: canTrack ? bus.lastLocation ?? null : null,
+        driverName: req.principal.role === 'ADMIN' || bus.driverId === userId ? bus.driverName : undefined,
+        plateNumber: req.principal.role === 'ADMIN' || bus.driverId === userId ? bus.plateNumber : undefined,
+      };
+    }) });
   }));
   busRouter.get('/:id', auth, wrap(async (req, res) => {
-    const bus = await deps.buses.findById(req.principal.campusId, req.params['id']!);
+    const { campusId, userId } = req.principal;
+    const bus = await deps.buses.findById(campusId, req.params['id']!);
     if (!bus) throw new DomainError(404, 'BUS_NOT_FOUND');
-    res.json(bus);
+    const user = await deps.users.findById(campusId, userId);
+    const canTrack = Boolean(user && canViewBus(req.principal, user, bus));
+    res.json({ ...bus, lastLocation: canTrack ? bus.lastLocation ?? null : null });
   }));
   busRouter.post('/', auth, requireRole('ADMIN'), wrap(async (req, res) => {
     const body = busCreate.parse(req.body);

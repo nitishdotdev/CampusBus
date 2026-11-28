@@ -10,9 +10,18 @@ export interface TelemetryEvent {
   capturedAt: string;
 }
 
+export type LiveReason = 'TRIP_NOT_ACTIVE' | 'ACCURACY_ABOVE_LIVE_LIMIT' | 'NOT_FRESH' | 'SUPERSEDED_BY_NEWER';
+
 export interface TelemetryResult {
   tripId: string;
-  results: { eventId: string | null; status: 'accepted' | 'duplicate' | 'rejected'; reason?: string }[];
+  results: {
+    eventId: string | null;
+    status: 'accepted' | 'duplicate' | 'rejected';
+    /** Server's authoritative verdict for accepted readings: shown live to students and admins, or stored for history only. */
+    liveStatus?: 'LIVE' | 'HISTORY_ONLY';
+    liveReason?: LiveReason;
+    reason?: string;
+  }[];
 }
 
 export const telemetryV1 = {

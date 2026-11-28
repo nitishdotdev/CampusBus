@@ -9,6 +9,8 @@ interface LocationFix {
   accuracyM: number | null; speedMps: number | null;
   headingDeg: number | null; capturedAt: string; receivedAt: string;
   mode: 'REAL' | 'SIMULATED';
+  /** Stop progression as of this fix. Present on live updates; absent on snapshots that predate it. */
+  progress?: { nextStopId: string | null; completedStopIds: string[] };
 }
 export type TrackingFreshness = 'LIVE' | 'STALE' | 'DRIVER_OFFLINE' | 'TRIP_ENDED' | 'UNAVAILABLE';
 export interface BusLocationPayload extends Omit<LocationFix, 'lat' | 'lng'> {

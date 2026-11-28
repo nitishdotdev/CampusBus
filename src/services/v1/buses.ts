@@ -9,6 +9,11 @@ export interface V1Bus {
   canTrack?: boolean;
   currentOccupancy?: number | null;
   activeTrip?: { id: string; routeId: string; mode: 'REAL' | 'SIMULATED'; freshness: TrackingFreshness; nextStopId?: string; completedStopIds?: string[] } | null;
+  /** Latest persisted position on the active trip. Null when none exists or the caller may not observe the bus. */
+  lastLocation?: {
+    tripId: string; lat: number; lng: number; accuracyM: number | null; headingDeg: number | null; speedMps: number | null;
+    capturedAt: string; receivedAt: string; freshness: TrackingFreshness;
+  } | null;
 }
 interface Page<T> { items: T[]; total: number; page: number; pageSize: number }
 

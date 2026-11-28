@@ -1,6 +1,7 @@
 import type { GPSStatus, NetworkStatus, LocationPoint, QueuedLocationUpdate } from '../types';
 import { offlineQueueService } from './offlineQueue';
 import { telemetryV1 } from './v1/telemetry';
+import { applySyncVerdicts, type AcceptedFix, type ReadingVerdict, type SyncResultLike } from './gpsQuality';
 
 export interface LocationServiceState {
   gpsStatus: GPSStatus;
@@ -12,7 +13,14 @@ export interface LocationServiceState {
   queuedCount: number;
   errorMessage: string | null;
   isSimulatedOffline: boolean;
+  /** Last reading the server confirmed as live. Unreliable readings never replace it. */
+  lastAcceptedLive: AcceptedFix | null;
+  /** Server verdict for the newest reading that has been synced. */
+  lastVerdict: ReadingVerdict | null;
+  /** Session counts of rejected readings, keyed by server reason code. */
+  rejectionCounts: Record<string, number>;
 }
+
 
 const toEvent = (item: QueuedLocationUpdate) => ({
   eventId: item.id, lat: item.lat, lng: item.lng, accuracyM: item.accuracy,
@@ -33,6 +41,7 @@ class LocationService {
     networkStatus: navigator.onLine ? 'NETWORK_ONLINE' : 'NETWORK_OFFLINE',
     isTracking: false, isSimulated: false, lastLocation: null, lastSyncTime: null,
     queuedCount: 0, errorMessage: null, isSimulatedOffline: false,
+    lastAcceptedLive: null, lastVerdict: null, rejectionCounts: {},
   };
 
   constructor() {
@@ -122,6 +131,8 @@ class LocationService {
     this.state.lastLocation = null;
     this.state.lastSyncTime = null;
     this.state.errorMessage = null;
+    this.state.lastAcceptedLive = null;
+    this.state.lastVerdict = null;
     this.notify();
   }
 
@@ -145,6 +156,7 @@ class LocationService {
       this.state.networkStatus = 'SYNCING';
       this.notify();
       const result = await telemetryV1.sendBatch(tripId, batch.map(toEvent));
+      this.recordVerdicts(result.results, batch);
       const matched = new Set(result.results.flatMap(item => item.eventId ? [item.eventId] : []));
       await offlineQueueService.remove(batch.filter(item => matched.has(item.id)).map(item => item.id));
       if (this.driverId !== driverId) return;
@@ -162,6 +174,16 @@ class LocationService {
       this.syncing = false;
       this.notify();
     }
+  }
+
+  /** Applies the server's per-reading verdicts to the driver-visible state. */
+  private recordVerdicts(results: SyncResultLike[], batch: QueuedLocationUpdate[]) {
+    const next = applySyncVerdicts(this.state, results, batch.map(item => ({
+      id: item.id, lat: item.lat, lng: item.lng, accuracy: item.accuracy, timestamp: item.timestamp,
+    })));
+    this.state.lastAcceptedLive = next.lastAcceptedLive;
+    this.state.lastVerdict = next.lastVerdict;
+    this.state.rejectionCounts = next.rejectionCounts;
   }
 
   private networkChanged() {

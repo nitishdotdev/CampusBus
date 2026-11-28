@@ -7,11 +7,24 @@ import type {
 } from '../types';
 import { haversineMeters } from './geo';
 import { buildBatchSchema, buildEventSchema, reasonFromZod } from './validation';
+import type { StopProgress } from '../types';
+
+/**
+ * Why a reading was or was not shown live. Lets the driver app explain the server's decision instead of guessing
+ * from device-side thresholds. Live readings carry no reason.
+ */
+export type LiveReason =
+  | 'TRIP_NOT_ACTIVE'
+  | 'ACCURACY_ABOVE_LIVE_LIMIT'
+  | 'NOT_FRESH'
+  | 'SUPERSEDED_BY_NEWER';
 
 export interface EventResult {
   eventId: string | null;
   status: 'accepted' | 'duplicate' | 'rejected';
   appliedToLive?: boolean;
+  liveStatus?: 'LIVE' | 'HISTORY_ONLY';
+  liveReason?: LiveReason;
   reason?: string;
 }
 export interface IngestResult { tripId: string; results: EventResult[] }
@@ -103,7 +116,11 @@ export class TelemetryIngestService {
       const lateSync = !isActive;
       const fresh = receivedAt.getTime() - p.t <= cfg.liveMaxAgeMs;
       const accurate = ev.accuracyM === undefined || ev.accuracyM <= cfg.liveMaxAccuracyM;
-      const liveEligible = isActive && fresh && accurate;
+      const liveBlockReason: LiveReason | null = !isActive ? 'TRIP_NOT_ACTIVE'
+        : !accurate ? 'ACCURACY_ABOVE_LIVE_LIMIT'
+        : !fresh ? 'NOT_FRESH'
+        : null;
+      const liveEligible = liveBlockReason === null;
 
       const rec: TelemetryRecord = {
         campusId: principal.campusId, tripId: trip.id, busId: trip.busId, driverId: principal.userId, eventId: ev.eventId,
@@ -117,23 +134,48 @@ export class TelemetryIngestService {
       }
 
       let applied = false;
+      let progress: StopProgress | undefined;
       if (liveEligible) {
-        applied = await this.d.live.applyIfNewer({
+        const outcome = await this.d.live.applyIfNewer({
           campusId: rec.campusId, busId: rec.busId, tripId: rec.tripId, location: rec.location, accuracyM: rec.accuracyM,
           speedMps: rec.speedMps, speedSource: rec.speedSource, headingDeg: rec.headingDeg,
           capturedAt: rec.capturedAt, receivedAt: rec.receivedAt, mode: rec.mode,
         });
+        applied = outcome.applied;
+        progress = outcome.progress;
         if (applied) {
           this.d.emitter.emitLocation(rec.campusId, rec.busId, {
             busId: rec.busId, tripId: rec.tripId, lat: rec.location.lat, lng: rec.location.lng,
             accuracyM: rec.accuracyM, speedMps: rec.speedMps, speedSource: rec.speedSource, headingDeg: rec.headingDeg,
             capturedAt: rec.capturedAt.toISOString(), receivedAt: rec.receivedAt.toISOString(), mode: rec.mode, freshness: 'LIVE',
+            // Stop progression changes only with a live update, so it is broadcast with the same event.
+            progress,
           });
         }
       }
-      results[p.index] = { eventId: ev.eventId, status: 'accepted', appliedToLive: applied };
+      results[p.index] = applied
+        ? { eventId: ev.eventId, status: 'accepted', appliedToLive: true, liveStatus: 'LIVE' }
+        : { eventId: ev.eventId, status: 'accepted', appliedToLive: false, liveStatus: 'HISTORY_ONLY', liveReason: liveBlockReason ?? 'SUPERSEDED_BY_NEWER' };
     }
+    logBatchDiagnostics(trip.id, results);
     return { tripId: trip.id, results };
+  }
+}
+
+/**
+ * One line per batch that had rejections or history-only readings. Counts and reason codes only: no coordinates,
+ * device identifiers or user identifiers.
+ */
+function logBatchDiagnostics(tripId: string, results: EventResult[]): void {
+  const counts: Record<string, number> = {};
+  let live = 0;
+  for (const r of results) {
+    if (r.status === 'rejected') counts[`rejected:${r.reason ?? 'UNKNOWN'}`] = (counts[`rejected:${r.reason ?? 'UNKNOWN'}`] ?? 0) + 1;
+    if (r.liveStatus === 'LIVE') live += 1;
+    if (r.liveStatus === 'HISTORY_ONLY') counts[`historyOnly:${r.liveReason}`] = (counts[`historyOnly:${r.liveReason}`] ?? 0) + 1;
+  }
+  if (Object.keys(counts).length) {
+    console.info(`[telemetry] trip=${tripId} events=${results.length} live=${live} ${JSON.stringify(counts)}`);
   }
 }
 
