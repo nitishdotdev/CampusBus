@@ -14,8 +14,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist dist-api",
     "lint": "tsc --noEmit && tsc -p apps/api --noEmit",
-    "test": "vitest run",
-    "smoke:production": "tsx scripts/production-smoke.ts"
+    "test": "vitest run"
   },
   "dependencies": {
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",

@@ -1,26 +1,40 @@
-name: Production campus smoke
+name: Production campus smoke test
 
 on:
   deployment_status:
-  workflow_dispatch:
   schedule:
     - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: Render API origin (no path)
+        required: true
+        default: https://campusmove-nahp.onrender.com
+      origin:
+        description: Frontend origin that must be allowed by CORS
+        required: true
+        default: https://campus-bus-delta.vercel.app
+      expect_short_code:
+        description: Campus short code that must be listed
+        required: false
+        default: RKGIT
 
 permissions:
   contents: read
 
 jobs:
-  campus-directory:
+  smoke:
     if: github.event_name != 'deployment_status' || (github.event.deployment_status.state == 'success' && github.event.deployment.production_environment)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: refs/heads/main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run smoke:production
+      - name: Verify liveness, readiness, campus list and CORS
+        env:
+          SMOKE_API_BASE: ${{ inputs.api_url || 'https://campusmove-nahp.onrender.com' }}
+          SMOKE_ORIGIN: ${{ inputs.origin || 'https://campus-bus-delta.vercel.app' }}
+          SMOKE_EXPECT_SHORT_CODE: ${{ inputs.expect_short_code || 'RKGIT' }}
+        run: node scripts/smoke-campuses.mjs

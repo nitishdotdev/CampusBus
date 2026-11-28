@@ -6,7 +6,7 @@ import { accountStatus, assignment, busCreate, busPatch, driverAssignment, empty
 import { buildCorsOptions } from '../config/cors';
 import { bootstrapAdminSchema, passwordSchema, type AuthService } from '../auth/service';
 import { canViewBus } from '../domain/access';
-import { DomainError } from '../domain/errors';
+import { CampusNotProvisionedError, DomainError } from '../domain/errors';
 import type { LiveService } from '../domain/live';
 import type { TelemetryIngestService } from '../domain/telemetry/ingest';
 import type { TripService } from '../domain/trips';
@@ -23,7 +23,7 @@ export interface AppDeps {
   bootstrapSecret?: string;
   verifyActiveAccount?: boolean;
   checkReadiness?: () => Promise<void>;
-  checkCampusProvisioning?: () => Promise<boolean>;
+  checkCampusProvisioning?: () => Promise<void>;
   trustProxy?: number;
   verifyToken: (token: string) => Principal | null; allowedOrigins: string[];
 }
@@ -41,6 +41,7 @@ export function createApp(deps: AppDeps) {
   app.use(express.json({ limit: '64kb' }));
 
   // ─── Health ────────────────────────────────────────────────────────────────
+  // Liveness: process up and database reachable. Does not depend on campus data.
   app.get('/healthz', async (_req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -50,18 +51,26 @@ export function createApp(deps: AppDeps) {
       res.status(503).json({ status: 'unavailable' });
     }
   });
+
+  // Operational readiness: liveness plus at least one provisioned campus.
+  // Returns 503 NO_CAMPUS_PROVISIONED when bootstrap has not run against this database.
   app.get('/readyz', async (_req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      if (!deps.checkCampusProvisioning) {
-        res.status(503).json({ status: 'unavailable' });
-      } else if (await deps.checkCampusProvisioning()) {
-        res.json({ status: 'ready' });
-      } else {
-        res.status(503).json({ status: 'unavailable', reason: 'NO_CAMPUSES' });
-      }
+      await deps.checkReadiness?.();
     } catch {
       res.status(503).json({ status: 'unavailable' });
+      return;
+    }
+    try {
+      await deps.checkCampusProvisioning?.();
+      res.json({ status: 'ready', campuses: 'provisioned' });
+    } catch (error) {
+      if (error instanceof CampusNotProvisionedError) {
+        res.status(503).json({ status: 'not_ready', reason: 'NO_CAMPUS_PROVISIONED' });
+      } else {
+        res.status(503).json({ status: 'unavailable' });
+      }
     }
   });
 

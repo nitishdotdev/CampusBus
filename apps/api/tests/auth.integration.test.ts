@@ -15,17 +15,22 @@ describe.skipIf(!PG_TEST_URL)('Auth integration (single harness)', () => {
     api().post('/api/v1/auth/login').send({ campusId: campus(), email, password: pw });
   let globalTok = '';
 
-  it('reports ready, returns a bounded 503 when the schema probe stalls and recovers', async () => {
+  it('keeps liveness independent of campus data, and readiness returns a bounded 503 while the campus table is locked', async () => {
     const healthy = await api().get('/healthz');
     expect(healthy.status).toBe(200);
     expect(healthy.body).toEqual({ status: 'ok' });
     expect(healthy.headers['cache-control']).toBe('no-store');
+    expect((await api().get('/readyz')).status).toBe(200);
     const client = await h.pool.connect();
     try {
       await client.query('BEGIN');
       await client.query('LOCK TABLE v1.campuses IN ACCESS EXCLUSIVE MODE');
-      const unhealthy = await Promise.all([api().get('/healthz'), api().get('/healthz')]);
-      for (const response of unhealthy) {
+      // Liveness does not touch v1.campuses, so it stays green even while the table is locked.
+      const live = await api().get('/healthz');
+      expect(live.status).toBe(200);
+      // Readiness reads v1.campuses under a bounded timeout and reports unavailable, not "no campus".
+      const unready = await Promise.all([api().get('/readyz'), api().get('/readyz')]);
+      for (const response of unready) {
         expect(response.status).toBe(503);
         expect(response.body).toEqual({ status: 'unavailable' });
       }
@@ -33,6 +38,7 @@ describe.skipIf(!PG_TEST_URL)('Auth integration (single harness)', () => {
       await client.query('ROLLBACK');
       client.release();
     }
+    expect((await api().get('/readyz')).status).toBe(200);
     expect((await api().get('/healthz')).status).toBe(200);
   });
 
