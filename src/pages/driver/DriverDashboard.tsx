@@ -1,3 +1,4 @@
+import { confirmTripChange, needsTripConfirmation, type TripChange } from '../../services/tripReconciliation';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../../store/AppContext';
 import { tripService } from '../../services/tripService';
@@ -59,6 +60,8 @@ export const DriverDashboard: React.FC = () => {
 
   const [tripError, setTripError] = useState<string | null>(null);
   const [tripBusy, setTripBusy] = useState(false);
+  const [uncertainTrip, setUncertainTrip] = useState<TripChange | null>(null);
+  const tripControlsLocked = tripBusy || uncertainTrip !== null;
   const assignedBus = buses.find(bus => bus.id === activeTrip?.busId) ??
     buses.find(bus => bus.currentDriverId === currentUser?.id);
   const assignedRoute = routes.find(route => route.id === (activeTrip?.routeId ?? assignedBus?.currentRouteId));
@@ -92,44 +95,72 @@ export const DriverDashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [activeTrip]);
 
-  const handleStartTrip = async () => {
-    if (!assignedBus || !assignedRoute || !currentUser || tripBusy) return;
+  const applyConfirmedTrip = async (change: TripChange, trip: V1Trip) => {
+    setUncertainTrip(null);
+    setTripError(null);
+    if (change.kind === 'starting') {
+      const sameTrip = tripService.getActiveTrip()?.id === trip.id;
+      tripService.adoptV1Trip(trip);
+      if (!sameTrip) locationService.startTracking(trip.id, trip.busId, trip.driverId);
+    } else {
+      if (tripService.getActiveTrip()?.id === trip.id) tripService.clearActiveTrip();
+      void locationService.attemptSyncQueuedLocations();
+      if (trip.status === 'COMPLETED') setTripSummary(trip);
+    }
+    await refreshData();
+  };
+
+  const reconcileTrip = async (change: TripChange) => {
+    try {
+      const trip = change.kind === 'starting'
+        ? (await tripsV1.list(1, 1, 'ACTIVE')).items[0]
+        : (await tripsV1.get(change.tripId)).trip;
+      const confirmed = confirmTripChange(change, trip);
+      if (confirmed) {
+        await applyConfirmedTrip(change, confirmed);
+        return;
+      }
+    } catch { /* retain uncertainty until an authoritative response is available */ }
+    setUncertainTrip(change);
+  };
+
+  const submitTripChange = async (change: TripChange) => {
     setTripBusy(true);
-    setShowStartTripModal(false);
     setTripError(null);
     try {
-      const { trip } = await tripsV1.start(assignedBus.id);
-      tripService.adoptV1Trip(trip);
-      locationService.startTracking(trip.id, assignedBus.id, currentUser.id);
-      await refreshData();
+      const { trip } = change.kind === 'starting' ? await tripsV1.start(change.busId) : await tripsV1.end(change.tripId);
+      await applyConfirmedTrip(change, trip);
     } catch (error) {
-      setTripError(error instanceof Error && error.message === 'BUS_OR_DRIVER_HAS_ACTIVE_TRIP'
-        ? 'This driver or bus already has an active trip.' : 'Could not start the trip. Check the assignment and connection.');
+      if (needsTripConfirmation(error)) await reconcileTrip(change);
+      else setTripError(change.kind === 'starting'
+        ? 'Could not start the trip. Check your vehicle assignment and try again.'
+        : 'Could not end the trip. Check the trip status and try again.');
     } finally {
       setTripBusy(false);
     }
   };
 
-  const handleEndTrip = async () => {
-    if (!activeTrip || tripBusy) return;
+  const handleStartTrip = () => {
+    if (!assignedBus || !assignedRoute || !currentUser || tripControlsLocked) return;
+    setShowStartTripModal(false);
+    void submitTripChange({ kind: 'starting', busId: assignedBus.id, driverId: currentUser.id });
+  };
+
+  const handleEndTrip = () => {
+    if (!activeTrip || tripControlsLocked) return;
     setShowEndTripConfirm(false);
+    void submitTripChange({ kind: 'ending', tripId: activeTrip.id });
+  };
+
+  const retryTripCheck = async () => {
+    if (!uncertainTrip || tripBusy) return;
     setTripBusy(true);
-    setTripError(null);
-    try {
-      const { trip } = await tripsV1.end(activeTrip.id);
-      tripService.clearActiveTrip();
-      void locationService.attemptSyncQueuedLocations();
-      setTripSummary(trip);
-      await refreshData();
-    } catch {
-      setTripError('Could not end the trip. Refresh to check the current trip status.');
-    } finally {
-      setTripBusy(false);
-    }
+    try { await reconcileTrip(uncertainTrip); }
+    finally { setTripBusy(false); }
   };
 
   const handleOccupancyChange = async (delta: number) => {
-    if (!activeTrip || tripBusy) return;
+    if (!activeTrip || tripControlsLocked) return;
     setTripBusy(true);
     setTripError(null);
     try {
@@ -256,6 +287,17 @@ export const DriverDashboard: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
+      {uncertainTrip && (
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <p>{uncertainTrip.kind === 'starting' ? 'Trip start could not be confirmed.' : 'Trip end could not be confirmed.'}</p>
+          <button type="button" disabled={tripBusy} onClick={() => void retryTripCheck()} className="min-h-11 font-semibold underline">
+            Check trip status
+          </button>
+          <button type="button" disabled={tripBusy} onClick={() => void submitTripChange(uncertainTrip)} className="ml-4 min-h-11 font-semibold underline">
+            {uncertainTrip.kind === 'starting' ? 'Retry trip start' : 'Retry trip end'}
+          </button>
+        </div>
+      )}
       {tripError && (
         <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs text-rose-800 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -313,7 +355,7 @@ export const DriverDashboard: React.FC = () => {
             </div>
 
             <button
-              id="start-trip-button" disabled={tripBusy || assignedBus.operationalStatus !== 'ACTIVE'}
+              id="start-trip-button" disabled={tripControlsLocked || assignedBus.operationalStatus !== 'ACTIVE'}
               onClick={() => setShowStartTripModal(true)}
               className="w-full sm:w-80 py-4 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer"
             >
@@ -342,7 +384,7 @@ export const DriverDashboard: React.FC = () => {
 
             {/* End Trip Button */}
             <button
-              id="end-trip-button" disabled={tripBusy}
+              id="end-trip-button" disabled={tripControlsLocked}
               onClick={() => setShowEndTripConfirm(true)}
               className="w-full min-h-[52px] py-3.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-bold text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
             >
@@ -613,7 +655,7 @@ export const DriverDashboard: React.FC = () => {
         <div className="grid grid-cols-4 gap-2 pt-2">
           <button
             id="occupancy-minus-5"
-            disabled={!activeTrip || tripBusy || occupancy <= 0}
+            disabled={!activeTrip || tripControlsLocked || occupancy <= 0}
             onClick={() => handleOccupancyChange(-5)}
             className="h-14 sm:h-16 min-h-[56px] bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 shadow-xs flex items-center justify-center"
           >
@@ -621,7 +663,7 @@ export const DriverDashboard: React.FC = () => {
           </button>
           <button
             id="occupancy-minus-1"
-            disabled={!activeTrip || tripBusy || occupancy <= 0}
+            disabled={!activeTrip || tripControlsLocked || occupancy <= 0}
             onClick={() => handleOccupancyChange(-1)}
             className="h-14 sm:h-16 min-h-[56px] bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-1 shadow-xs"
           >
@@ -629,7 +671,7 @@ export const DriverDashboard: React.FC = () => {
           </button>
           <button
             id="occupancy-plus-1"
-            disabled={!activeTrip || tripBusy || occupancy >= capacity}
+            disabled={!activeTrip || tripControlsLocked || occupancy >= capacity}
             onClick={() => handleOccupancyChange(1)}
             className="h-14 sm:h-16 min-h-[56px] bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-1 shadow-xs"
           >
@@ -637,7 +679,7 @@ export const DriverDashboard: React.FC = () => {
           </button>
           <button
             id="occupancy-plus-5"
-            disabled={!activeTrip || tripBusy || occupancy >= capacity}
+            disabled={!activeTrip || tripControlsLocked || occupancy >= capacity}
             onClick={() => handleOccupancyChange(5)}
             className="h-14 sm:h-16 min-h-[56px] bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 font-black text-base rounded-2xl transition-all cursor-pointer disabled:opacity-40 shadow-xs flex items-center justify-center"
           >

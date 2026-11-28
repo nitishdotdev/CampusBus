@@ -13,8 +13,10 @@ import { QueuedLocationUpdate } from '../types';
 import { QUARANTINE_MAX_PER_DEVICE, QUARANTINE_RETENTION_MS } from './telemetrySyncPolicy';
 
 const DB_NAME = 'smart_campus_bus_offline_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'telemetry_queue';
+const DRIVER_TIMESTAMP = 'driver_timestamp';
+const driverRange = (id: string) => IDBKeyRange.bound([id], [id, []], false, true);
 const QUARANTINE_STORE = 'telemetry_quarantine';
 const LEGACY_STORAGE_KEY = 'smart_campus_bus_location_queue';
 
@@ -52,6 +54,8 @@ class OfflineQueueService {
             const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
             store.createIndex('timestamp', 'timestamp', { unique: false });
           }
+          const queue = req.transaction!.objectStore(STORE_NAME);
+          if (!queue.indexNames.contains(DRIVER_TIMESTAMP)) queue.createIndex(DRIVER_TIMESTAMP, ['driverId', 'timestamp']);
           if (!db.objectStoreNames.contains(QUARANTINE_STORE)) {
             const quarantine = db.createObjectStore(QUARANTINE_STORE, { keyPath: 'id' });
             quarantine.createIndex('driverId', 'driverId', { unique: false });
@@ -139,12 +143,12 @@ class OfflineQueueService {
       const persisted = await new Promise<QueuedLocationUpdate[]>((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readonly');
         const results: QueuedLocationUpdate[] = [];
-        const req = tx.objectStore(STORE_NAME).index('timestamp').openCursor(null, 'next');
+        const req = tx.objectStore(STORE_NAME).index(DRIVER_TIMESTAMP).openCursor(driverRange(driverId));
         req.onsuccess = (e) => {
           const cursor = (e.target as IDBRequest<IDBCursorWithValue | null>).result;
           if (!cursor || results.length >= limit) { resolve(results); return; }
           const value = cursor.value as QueuedLocationUpdate;
-          if (value.driverId === driverId && !excludeTripIds.has(value.tripId)) results.push(value);
+          if (!excludeTripIds.has(value.tripId)) results.push(value);
           cursor.continue();
         };
         req.onerror = () => reject(req.error);
@@ -163,18 +167,9 @@ class OfflineQueueService {
   public async countQueued(driverId: string): Promise<number> {
     try {
       const db = await this.initIndexedDb();
-      return await new Promise<number>((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        let count = this.memoryFallback.filter(item => item.driverId === driverId).length;
-        const req = tx.objectStore(STORE_NAME).index('timestamp').openCursor();
-        req.onsuccess = (e) => {
-          const cursor = (e.target as IDBRequest<IDBCursorWithValue | null>).result;
-          if (!cursor) { resolve(count); return; }
-          if ((cursor.value as QueuedLocationUpdate).driverId === driverId) count += 1;
-          cursor.continue();
-        };
-        req.onerror = () => reject(req.error);
-      });
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const persisted = await reqPromise(tx.objectStore(STORE_NAME).index(DRIVER_TIMESTAMP).count(driverRange(driverId)));
+      return persisted + this.memoryFallback.filter(item => item.driverId === driverId).length;
     } catch {
       return this.memoryFallback.filter(item => item.driverId === driverId).length;
     }
@@ -216,8 +211,7 @@ class OfflineQueueService {
           quarantine.put(record);
           moved.add(id);
         };
-        // Object-store cursor: IDBCursor.delete() is not available on an index cursor.
-        const req = queue.openCursor();
+        const req = queue.index(DRIVER_TIMESTAMP).openCursor(driverRange(driverId));
         req.onsuccess = (e) => {
           const cursor = (e.target as IDBRequest<IDBCursorWithValue | null>).result;
           if (!cursor) {

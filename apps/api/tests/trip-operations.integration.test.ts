@@ -45,6 +45,11 @@ describe.skipIf(!PG_TEST_URL)('Trip occupancy and ordered GPS progression', () =
     await fix(ev(h, -1_000, 28.4605, 77.0266, { accuracyM: 8, speedMps: 0 }));
     const ended = await client.post(`/api/v1/trips/${trip.id}/end`).set('Authorization', token).send({});
     expect(ended.body.trip).toMatchObject({ status: 'COMPLETED', nextStopId: null, currentOccupancy: 1, completedStopIds: [first, second], totalLocationsLogged: 6 });
+    const detail = `/api/v1/trips/${trip.id}`;
+    expect((await client.get(detail).set('Authorization', token)).body.trip.status).toBe('COMPLETED');
+    expect((await client.get(detail).set('Authorization', `Bearer ${foreign}`)).status).toBe(404);
+    const otherDriver = h.token({ id: h.seed.driver2, campusId: campusA, role: 'DRIVER' });
+    expect((await client.get(detail).set('Authorization', `Bearer ${otherDriver}`)).status).toBe(404);
     expect((await occupancy(1)).status).toBe(404);
     expect((await h.services.repos.buses.findById(campusA, bus1))?.activeTrip).toBeNull();
   });

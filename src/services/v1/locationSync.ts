@@ -1,4 +1,6 @@
 import type { Bus, LocationPoint } from '../../types';
+import { activeTrackingFreshness, trackingAge } from '../../../shared/trackingFreshness';
+export { LIVE_MAX_AGE_MS, OFFLINE_AFTER_MS } from '../../../shared/trackingFreshness';
 
 /**
  * Pure rules for which bus position the dashboards show. Every source (REST snapshot, socket live event,
@@ -6,8 +8,6 @@ import type { Bus, LocationPoint } from '../../types';
  * time is authoritative: an older REST response that lands after a newer socket event can never move a bus
  * backwards, and a late socket message cannot either. Nothing here generates coordinates.
  */
-export const LIVE_MAX_AGE_MS = 20_000;
-export const OFFLINE_AFTER_MS = 120_000;
 
 /** A live socket fix, tagged with its trip so a fix from an earlier trip is never shown on the current one. */
 export type SocketFix = LocationPoint & {
@@ -42,10 +42,10 @@ export function resolveBusPosition(bus: Bus, socketFix: SocketFix | undefined, c
   const receivedAt = usingSocket ? liveSocket.receivedAt : bus.lastSyncTimestamp;
   const captured = toMillis(fix.timestamp);
   const received = toMillis(receivedAt);
-  const positionTime = Math.min(captured, Number.isNaN(received) ? captured : received);
-  const age = clock - positionTime;
-  const fresh = age <= LIVE_MAX_AGE_MS;
-  const offline = age > OFFLINE_AFTER_MS;
+  if (!bus.activeTripId || !Number.isFinite(captured)) return bus;
+  const freshness = activeTrackingFreshness(trackingAge(clock, captured, received));
+  const fresh = freshness === 'LIVE';
+  const offline = freshness === 'DRIVER_OFFLINE';
 
   return {
     ...bus,
@@ -59,7 +59,7 @@ export function resolveBusPosition(bus: Bus, socketFix: SocketFix | undefined, c
     heading: fix.heading ?? undefined,
     speedKmh: fresh && fix.speed != null ? Math.round(fix.speed * 3.6) : undefined,
     gpsStatus: offline ? 'GPS_UNAVAILABLE' : fresh ? 'GPS_ACTIVE' : 'LOCATION_STALE',
-    trackingStatus: offline ? 'DRIVER_OFFLINE' : fresh ? 'LIVE' : 'STALE',
+    trackingStatus: freshness,
     networkStatus: fresh ? 'NETWORK_ONLINE' : 'NETWORK_OFFLINE',
     lastSyncTimestamp: receivedAt,
   };
