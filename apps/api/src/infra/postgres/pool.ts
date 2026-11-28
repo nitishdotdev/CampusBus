@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
+import { CampusNotProvisionedError } from '../../domain/errors';
 import { buildPgConnection } from './tls';
 
 export async function createPostgresPool(env: NodeJS.ProcessEnv = process.env): Promise<pg.Pool> {
@@ -20,13 +21,26 @@ export async function createPostgresPool(env: NodeJS.ProcessEnv = process.env): 
   return pool;
 }
 
+// Liveness: the database answers. Deliberately independent of campus data so an
+// unprovisioned campus never makes the infrastructure health check fail.
 // Pool checkout has its own deadline on the server pool. Share concurrent probes.
 export function databaseReadiness(pool: pg.Pool): () => Promise<void> {
-  const query = { text: 'SELECT 1 FROM v1.campuses LIMIT 1', query_timeout: 1_000 };
+  const query = { text: 'SELECT 1', query_timeout: 1_000 };
   let pending: Promise<void> | undefined;
   return () => {
     pending ??= pool.query(query).then(() => {}).finally(() => { pending = undefined; });
     return pending;
+  };
+}
+
+// Operational readiness: at least one campus row exists in v1.campuses. Fails with
+// CampusNotProvisionedError when the table is empty, so a missing bootstrap is visible
+// through /readyz instead of looking like a healthy service with an empty login screen.
+export function campusProvisioningReadiness(pool: pg.Pool): () => Promise<void> {
+  const query = { text: 'SELECT EXISTS (SELECT 1 FROM v1.campuses) AS provisioned', query_timeout: 1_000 };
+  return async () => {
+    const { rows } = await pool.query<{ provisioned: boolean }>(query);
+    if (!rows[0]?.provisioned) throw new CampusNotProvisionedError();
   };
 }
 
