@@ -31,6 +31,29 @@ describe('evaluateStop', () => {
     expect(second.changed).toBe(true);
   });
 
+  it('a waiting bus with GPS noise (apparent 3 m/s, 8 m accuracy) still arrives after 6 s, so the stop cannot stall', () => {
+    let state = pending();
+    let d = evaluateStop(state, fix(0, { speedMps: 3, accuracyM: 8 }), RADIUS);
+    state = { ...state, firstFixAt: d.firstFixAt };
+    for (const t of [2000, 4000, 6000]) {
+      d = evaluateStop(state, fix(t, { speedMps: 3, accuracyM: 8 }), RADIUS);
+      state = { ...state, firstFixAt: d.firstFixAt, arrivedAt: d.arrivedAt };
+    }
+    expect(d.arrivedAt?.getTime()).toBe(T + 6000);
+  });
+
+  it('a bus creeping at 3 m/s with poor accuracy (40 m) never arrives', () => {
+    const first = evaluateStop(pending(), fix(0, { speedMps: 3, accuracyM: 40 }), RADIUS);
+    const later = evaluateStop(pending({ firstFixAt: first.firstFixAt }), fix(10_000, { speedMps: 3, accuracyM: 40 }), RADIUS);
+    expect(later.arrivedAt).toBeNull();
+  });
+
+  it('a bus rolling at 4 m/s through the geofence never arrives, however long it stays in the radius', () => {
+    const first = evaluateStop(pending(), fix(0, { speedMps: 4, accuracyM: 8 }), RADIUS);
+    const later = evaluateStop(pending({ firstFixAt: first.firstFixAt }), fix(20_000, { speedMps: 4, accuracyM: 8 }), RADIUS);
+    expect(later.arrivedAt).toBeNull();
+  });
+
   it('never infers arrival when speed is unknown, however long the dwell', () => {
     const first = evaluateStop(pending(), fix(0, { speedMps: null }), RADIUS);
     const second = evaluateStop(pending({ firstFixAt: first.firstFixAt }), fix(60_000, { speedMps: null }), RADIUS);
