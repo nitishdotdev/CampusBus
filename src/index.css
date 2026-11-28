@@ -63,7 +63,7 @@ body {
 }
 
 @layer components {
-  .campus-surface { background: #f3f5fa; color: #151f36; }
+  .campus-surface { background: #f8fafc; color: #151f36; }
   .campus-heading { color: #151f36; }
   .campus-panel { @apply rounded-2xl border border-slate-200 bg-white; }
   .campus-action {

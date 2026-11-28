@@ -218,7 +218,7 @@ export const AdminAlerts: React.FC = () => {
                       Bus {alert.busNumber} • {alert.routeName} • Driver {alert.driverName}
                     </p>
                   </div>
-                  <div className="text-right text-[11px] text-slate-400 shrink-0">
+                  <div className="text-right text-[11px] text-slate-600 shrink-0">
                     {new Date(alert.timestamp).toLocaleTimeString()}
                   </div>
                 </div>
