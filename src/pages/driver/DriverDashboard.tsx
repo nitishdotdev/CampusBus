@@ -1,8 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../../store/AppContext';
 import { tripService } from '../../services/tripService';
 import { tripsV1, type V1Trip } from '../../services/v1/trips';
 import { alertsV1 } from '../../services/v1/notifications';
+import { ApiV1Error } from '../../services/v1/client';
+import {
+  canStartEmergencySubmission, emergencyCopy, failureMessageForCreate, reconcileUncertainEmergency,
+  shouldRetryWithoutTrip, stateFromAlertRecord, type EmergencyAttempt, type EmergencyState,
+} from '../../services/emergencyPolicy';
 import { locationService } from '../../services/locationService';
 import { verdictText } from '../../services/gpsQuality';
 import { GPSStatusBadge, NetworkStatusBadge } from '../../components/common/StatusBadges';
@@ -33,6 +38,12 @@ import {
 import { MapView } from '../../components/map/MapView';
 import { EmptyState } from '../../components/common/States';
 
+/** Emergency status refresh while the server still reports OPEN. */
+const EMERGENCY_STATUS_POLL_MS = 10_000;
+/** Reconciliation attempts after an uncertain submission, and the wait between them. */
+const RECONCILE_ROUNDS = 6;
+const RECONCILE_DELAY_MS = 5_000;
+
 export const DriverDashboard: React.FC = () => {
   const {
     currentUser,
@@ -57,7 +68,10 @@ export const DriverDashboard: React.FC = () => {
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [showGpsHelpModal, setShowGpsHelpModal] = useState(false);
   const [emergencyReason, setEmergencyReason] = useState('Mechanical breakdown / safe curb stop');
-  const [emergencySent, setEmergencySent] = useState(false);
+  const [emergency, setEmergency] = useState<EmergencyState>({ kind: 'IDLE' });
+  /** Guards against a second submission from a double tap before React re-renders. */
+  const emergencyInFlight = useRef(false);
+  /** Alert IDs the driver already had, so an uncertain submission can be matched to the new alert. */
   const [tripSummary, setTripSummary] = useState<V1Trip | null>(null);
 
   // Time elapsed in active trip
@@ -129,33 +143,91 @@ export const DriverDashboard: React.FC = () => {
     }
   };
 
-  const handleSendEmergency = async () => {
-    if (!assignedBus || tripBusy) return;
-    setTripBusy(true);
-    setTripError(null);
-    try {
-      const fix = locationState.lastLocation;
-      await alertsV1.raise({
-        busId: assignedBus.id,
-        tripId: activeTrip?.id,
-        message: emergencyReason,
-        location: fix && locationState.gpsStatus === 'GPS_ACTIVE' ? { lat: fix.lat, lng: fix.lng } : undefined,
-      });
-      setEmergencySent(true);
-    } catch {
-      setTripError(currentCollege.dispatchPhone
-        ? `Could not send the alert. Call campus dispatch at ${currentCollege.dispatchPhone} if you need immediate help.`
-        : 'Could not send the alert. Contact campus dispatch by phone if you need immediate help.');
-    } finally {
-      setShowEmergencyModal(false);
-      setTripBusy(false);
+  // Poll the exact alert until it is resolved.
+  const watchedAlertId = emergency.kind === 'SENT' && emergency.status !== 'RESOLVED' ? emergency.alertId : null;
+  useEffect(() => {
+    if (!watchedAlertId) return;
+    let pending = false;
+    const timer = window.setInterval(async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const match = await alertsV1.get(watchedAlertId);
+        setEmergency(prev => prev.kind === 'SENT' && prev.alertId === watchedAlertId ? stateFromAlertRecord(match) : prev);
+      } catch { /* keep the last confirmed status */ }
+      finally { pending = false; }
+    }, EMERGENCY_STATUS_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [watchedAlertId]);
+
+  const reconcileEmergency = useCallback(async (attempt: EmergencyAttempt) => {
+    if (!currentUser) return;
+    for (let round = 0; round < RECONCILE_ROUNDS; round += 1) {
+      try {
+        const alert = await alertsV1.get(attempt.requestId);
+        const result = reconcileUncertainEmergency(attempt, alert, currentUser.id);
+        if (result.kind === 'FOUND') {
+          setEmergency(prev => (prev.kind === 'UNCERTAIN' && prev.attempt === attempt ? result.state : prev));
+          return;
+        }
+      } catch { /* stays unconfirmed until the server answers */ }
+      await new Promise(resolve => window.setTimeout(resolve, RECONCILE_DELAY_MS));
     }
+  }, [currentUser]);
+
+  /**
+   * Sends an emergency alert. Independent of trip mutations: no shared busy flag, so a pending trip request never
+   * blocks it. A definitive server error is FAILED. A timeout or no response is UNCERTAIN and is reconciled with the
+   * server before anything is claimed.
+   */
+  const submitEmergency = async (attempt: EmergencyAttempt, retry: boolean) => {
+    if (emergencyInFlight.current) return;
+    emergencyInFlight.current = true;
+    setEmergency({ kind: 'SUBMITTING' });
+    const { tripId, ...payload } = attempt;
+    try {
+      let created;
+      try {
+        created = await alertsV1.raise({ ...payload, tripId });
+      } catch (error) {
+        // The trip may have ended between the tap and the request. A bus-level alert is still valid.
+        if (error instanceof ApiV1Error && shouldRetryWithoutTrip(error, Boolean(tripId))) {
+          created = await alertsV1.raise(payload);
+        } else {
+          throw error;
+        }
+      }
+      setEmergency(stateFromAlertRecord(created));
+    } catch (error) {
+      // Only a 4xx answer is definitive. A 5xx may follow a stored alert, so it is treated as uncertain.
+      const definitive = !retry && error instanceof ApiV1Error && error.status >= 400 && error.status < 500;
+      if (definitive) {
+        setEmergency({ kind: 'FAILED', message: failureMessageForCreate(error as ApiV1Error, currentCollege.dispatchPhone) });
+      } else {
+        // No response or timeout: the server may already have stored the alert. Do not claim either outcome.
+        setEmergency({ kind: 'UNCERTAIN', attempt });
+        void reconcileEmergency(attempt);
+      }
+    } finally {
+      emergencyInFlight.current = false;
+    }
+  };
+
+  const handleSendEmergency = () => {
+    if (!assignedBus || !currentUser || !canStartEmergencySubmission(emergency)) return;
+    setShowEmergencyModal(false);
+    const fix = locationState.lastLocation;
+    const location = fix && locationState.gpsStatus === 'GPS_ACTIVE' ? { lat: fix.lat, lng: fix.lng } : undefined;
+    const requestId = Array.from(crypto.getRandomValues(new Uint8Array(12)), byte => byte.toString(16).padStart(2, '0')).join('');
+    void submitEmergency({ requestId, busId: assignedBus.id, message: emergencyReason, tripId: activeTrip?.id, location }, false);
   };
 
   const retryGps = () => {
     if (activeTrip && currentUser) locationService.startTracking(activeTrip.id, activeTrip.busId, currentUser.id);
     setShowGpsHelpModal(false);
   };
+
+  const emergencyNotice = emergencyCopy(emergency, currentCollege.dispatchPhone);
 
   if (isLoadingData) return <p role="status" className="p-4 text-sm text-slate-600">Loading your assignment…</p>;
 
@@ -416,12 +488,20 @@ export const DriverDashboard: React.FC = () => {
                 <div className="text-[11px] text-slate-500 mt-1.5">
                   {locationState.queuedCount > 0 ? (
                     <span className="text-amber-700 font-semibold">
-                      {locationState.queuedCount} location pings queued offline
+                      {locationState.queuedCount} location pings waiting to send
                     </span>
                   ) : (
-                    <span className="text-emerald-700">No location readings queued</span>
+                    <span className="text-emerald-700">No location readings waiting</span>
                   )}
                 </div>
+                {locationState.syncMessage && (
+                  <p role="status" className="mt-1.5 text-xs text-amber-900">{locationState.syncMessage}</p>
+                )}
+                {locationState.quarantinedCount > 0 && (
+                  <p role="status" className="mt-1.5 text-xs text-rose-800">
+                    {locationState.quarantinedCount} location readings from a trip the server could not accept are kept on this device for up to 7 days.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -584,6 +664,7 @@ export const DriverDashboard: React.FC = () => {
           <button
             id="driver-emergency-button"
             onClick={() => setShowEmergencyModal(true)}
+            disabled={!canStartEmergencySubmission(emergency)}
             className="w-full sm:w-auto min-h-[50px] px-5 py-3 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-black text-xs sm:text-sm rounded-xl shadow-xs cursor-pointer flex items-center justify-center gap-2 shrink-0"
           >
             <AlertTriangle className="w-4 h-4" />
@@ -591,13 +672,23 @@ export const DriverDashboard: React.FC = () => {
           </button>
         </div>
 
-        {emergencySent && (
-          <div className="mt-3 p-3 bg-white rounded-xl border border-rose-300 text-xs text-rose-800 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>
-              Emergency alert acknowledged by campus operations. Safety team alerted at{' '}
-              {new Date().toLocaleTimeString()}.
-            </span>
+        {emergencyNotice && (
+          <div role="status" aria-live="polite" className="mt-3 p-3 bg-white rounded-xl border border-rose-300 text-xs text-rose-800 flex flex-wrap items-center gap-2">
+            <CheckCircle2 className={`w-4 h-4 shrink-0 ${emergencyNotice.tone === 'success' ? 'text-emerald-600' : emergencyNotice.tone === 'error' ? 'text-rose-700' : 'text-amber-700'}`} aria-hidden="true" />
+            <span className="font-semibold">{emergencyNotice.title}</span>
+            <span className="basis-full">{emergencyNotice.detail}</span>
+            {emergency.kind === 'UNCERTAIN' && (
+              <>
+              <button type="button" onClick={() => void reconcileEmergency(emergency.attempt)}
+                className="min-h-11 px-3 text-xs font-semibold text-blue-700 underline">
+                Check status
+              </button>
+              <button type="button" onClick={() => void submitEmergency(emergency.attempt, true)}
+                className="min-h-11 px-3 text-xs font-semibold text-blue-700 underline">
+                Retry same alert
+              </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -682,11 +773,11 @@ export const DriverDashboard: React.FC = () => {
               Cancel
             </button>
             <button
-              id="confirm-emergency-btn" disabled={tripBusy}
+              id="confirm-emergency-btn" disabled={!canStartEmergencySubmission(emergency)}
               onClick={handleSendEmergency}
               className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg cursor-pointer shadow-xs"
             >
-              Broadcast Emergency Signal
+              Send emergency alert
             </button>
           </div>
         </div>

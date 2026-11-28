@@ -63,7 +63,7 @@ export class TelemetryIngestService {
     const { tripId, events } = parsed.data;
 
     // 3. Rate limit by authenticated driver, counted in events (an offline batch costs its size).
-    if (!this.limiter.tryConsume(principal.userId, events.length)) throw tooMany();
+    if (!this.limiter.tryConsume(principal.userId, events.length)) throw tooMany('RATE_LIMITED', this.limiter.retryAfterSeconds(principal.userId));
 
     // 4. Trip/vehicle authorization. Unknown trip and someone else's trip are indistinguishable (no id probing).
     const trip = await this.d.trips.findById(principal.campusId, tripId);

@@ -50,6 +50,21 @@ Position age = now minus the **earlier** of `capturedAt` and `receivedAt` (a dev
 
 The thresholds assume the 3 s foreground target (`FRESHNESS_THRESHOLDS` in `freshness.ts`).
 
+## Driver device sync (client)
+- Readings are queued in IndexedDB per driver and trip. A sync pass sends each trip's readings in capture order, at most 50 per request, and removes a reading only after the server has answered for it.
+- A failure is classified by API error code, not HTTP status alone (`src/services/telemetrySyncPolicy.ts`):
+  - **Device-wide** (network, timeout, server error, rate limit, authentication, account restriction): sync pauses or backs off for the whole device. Readings are kept. Rate limits honour `Retry-After` when the server sends it.
+  - **Trip-specific and permanent** (`TRIP_NOT_ACTIVE` beyond the late-sync window, `VEHICLE_ASSIGNMENT_REVOKED`, `TRIP_NOT_FOUND`): that trip's readings move to the quarantine store. Other trips keep syncing.
+  - **Invalid envelope or unrecognised response**: keep the batch and retry after capped per-trip backoff. Other trips can proceed.
+- A trip that is backing off is skipped by the next pass, so it cannot delay the others.
+- A timeout is an uncertain outcome. The same batch is resent later with the same event IDs; the server treats repeats as duplicates.
+- Quarantined readings are kept for at most 7 days and at most 2,000 per device, then pruned. They are never sent again automatically and are reported to the driver as not delivered.
+- The server remains the authority for what is shown live. Device accuracy and device clock do not decide acceptance.
+
+## Emergency alert visibility
+- A driver can list only the emergency alerts they raised (`GET /api/v1/alerts` scopes DRIVER callers to `raised_by`). Administrators list every alert in their campus.
+- Alert status comes from the server: `OPEN` (created, awaiting acknowledgement), `ACKNOWLEDGED`, `RESOLVED`. The driver screen shows acknowledgement only for a server-reported `ACKNOWLEDGED` or `RESOLVED`.
+
 ## Trips, late sync and retention
 - At most one ACTIVE trip per bus and per driver (unique sparse keys present only while active), enforced atomically; starting and ending are single-document operations.
 - Ended trips: events captured **inside the trip window** are accepted as history-only for 6 hours after the trip ended (so a driver's offline queue is not lost); anything else gets `409 TRIP_NOT_ACTIVE` or `AFTER_TRIP_END`. This is a deliberate deviation from "reject everything for ended trips".
@@ -62,3 +77,12 @@ The thresholds assume the 3 s foreground target (`FRESHNESS_THRESHOLDS` in `fres
 4. Stop arrival uses one geofence radius for every stop (`GEOFENCE_RADIUS_METERS`, default 50 m); there is no per-stop radius column yet. A bus must be stopped (known speed at or below 2 m/s) on accurate fixes (65 m or better) for at least 2 s inside the radius to be recorded as arrived. Stops are advanced strictly in sequence; a skipped stop is never inferred.
 5. No token issuance, login, refresh, or user management in `apps/api` yet; tests mint tokens directly.
 6. Live snapshots on socket subscribe and REST responses do not yet include stop progression; it is delivered with each live location update and on the REST bus list.
+7. The queue count uses a cursor until a driver index can be introduced.
+
+### Offline database deployment and recovery
+
+Deploy the alert API before the browser bundle so the server accepts the optional client request ID. Accepted alerts reuse that ID as their server record ID. Drivers can look up only their own alerts. A failed lookup after a timeout leaves the alert unconfirmed. Retrying reuses the same ID.
+
+IndexedDB upgrades in place from version 1 to 2. Older tabs can block the upgrade until closed. In that case the current tab keeps new readings in memory, and retries opening IndexedDB. Closing that tab before recovery can lose memory-only readings. The existing disk queue stays intact. Quarantine stores rejection metadata without coordinates, in the same transaction as removal from the send queue, and enforces a device cap of 2,000. Expired entries are pruned on a subsequent storage operation. Sign-out or account switching purges that driver's quarantine after any active sync settles, preserving unsent readings for that driver.
+
+An older bundle that explicitly opens version 1 gets IndexedDB `VersionError` after the upgrade. Fix forward, or use a rollback browser build that keeps the version-2 queue adapter and preserves both stores. Keep the scoped alert API in place. Verify recovery with a copied browser profile containing unsent readings before promoting a rollback. Deleting the database or reverting directly to the unmodified version-1 client can strand unsent readings.

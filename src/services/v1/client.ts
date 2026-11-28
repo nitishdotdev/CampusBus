@@ -6,6 +6,7 @@
  */
 
 import { readViteV1Env, resolveV1ApiBase } from './apiBase';
+import { parseRetryAfterMs } from './retryAfter';
 
 const getApiBase = (): string => resolveV1ApiBase(readViteV1Env((import.meta as any).env));
 
@@ -13,9 +14,12 @@ const getApiBase = (): string => resolveV1ApiBase(readViteV1Env((import.meta as 
 export const REQUEST_TIMEOUT_MS = 15_000;
 
 export class ApiV1Error extends Error {
-  constructor(message: string, public status: number, public code?: string) {
+  /** Server-requested wait before retrying (from a Retry-After header), in milliseconds. */
+  public retryAfterMs?: number;
+  constructor(message: string, public status: number, public code?: string, retryAfterMs?: number) {
     super(message);
     this.name = 'ApiV1Error';
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -75,7 +79,7 @@ async function rawRequest<T>(
     }
     if (!res.ok) {
       const code = typeof body === 'object' ? body?.error : undefined;
-      throw new ApiV1Error(code ?? `HTTP ${res.status}`, res.status, code);
+      throw new ApiV1Error(code ?? `HTTP ${res.status}`, res.status, code, parseRetryAfterMs(res.headers.get('retry-after')));
     }
     return body as T;
   } finally {

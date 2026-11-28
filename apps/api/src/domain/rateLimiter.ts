@@ -3,6 +3,11 @@ export class EventRateLimiter {
   private windows = new Map<string, { start: number; count: number }>();
   constructor(private limit: number, private windowMs: number, private now: () => number = Date.now) {}
 
+  retryAfterSeconds(key: string): number {
+    const window = this.windows.get(key);
+    return Math.max(1, Math.ceil((window ? window.start + this.windowMs - this.now() : this.windowMs) / 1000));
+  }
+
   /** Returns true if `n` more events fit in the current window (and records them). */
   tryConsume(key: string, n = 1): boolean {
     const t = this.now();

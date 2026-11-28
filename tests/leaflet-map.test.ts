@@ -20,9 +20,9 @@ describe('Leaflet OSM map and live GPS path', () => {
   });
 
   it('scopes queued GPS fixes to the authenticated driver and the original trip', () => {
-    expect(locationService).toMatch(/getAll\(50, driverId\)/);
-    expect(locationService).toMatch(/item.tripId === tripId/);
-    expect(locationService).toMatch(/telemetryV1.sendBatch/);
+    expect(locationService).toMatch(/runSyncPass\(\{\s*driverId,/);
+    expect(locationService).toMatch(/transport: telemetryV1/);
+    expect(locationService).toMatch(/isCurrent: \(\) => this.driverEpoch === epoch/);
     expect(telemetry).toMatch(/\/api\/v1\/telemetry/);
   });
 

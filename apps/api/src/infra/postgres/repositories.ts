@@ -794,24 +794,35 @@ const toAlert = (d: any): EmergencyAlertDTO => ({
 
 export class PgEmergencyAlertRepository implements EmergencyAlertRepository {
   constructor(private p: pg.Pool) {}
-  async list(campusId: string, opts: { status?: AlertStatus; page?: number; pageSize?: number }) {
+  async list(campusId: string, opts: { status?: AlertStatus; raisedBy?: string; page?: number; pageSize?: number }) {
     const { page, pageSize, skip } = pageOpts(opts);
     const params: unknown[] = [campusId];
     let where = 'campus_id = $1';
     if (opts.status) { params.push(opts.status); where += ` AND status = $${params.length}`; }
+    if (opts.raisedBy) { params.push(opts.raisedBy); where += ` AND raised_by = $${params.length}`; }
     const [docs, total] = await Promise.all([
       this.p.query(`SELECT * FROM v1.emergency_alerts WHERE ${where} ORDER BY created_at DESC OFFSET $${params.length + 1} LIMIT $${params.length + 2}`, [...params, skip, pageSize]),
       this.p.query(`SELECT COUNT(*)::int AS n FROM v1.emergency_alerts WHERE ${where}`, params),
     ]);
     return { items: docs.rows.map(toAlert), total: total.rows[0].n, page, pageSize };
   }
-  async create(a: Omit<EmergencyAlertDTO, 'id' | 'createdAt'>) {
+  async findById(campusId: string, id: string, raisedBy?: string) {
+    const { rows: [row] } = await this.p.query(
+      'SELECT * FROM v1.emergency_alerts WHERE campus_id = $1 AND id = $2 AND ($3::varchar IS NULL OR raised_by = $3)',
+      [campusId, id, raisedBy ?? null],
+    );
+    return row ? toAlert(row) : null;
+  }
+  async create(a: Omit<EmergencyAlertDTO, 'id' | 'createdAt'>, requestId?: string) {
     const r = await this.p.query(
       `INSERT INTO v1.emergency_alerts (id, campus_id, bus_id, trip_id, raised_by, status, message, lat, lng)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [newId(), a.campusId, a.busId, a.tripId ?? null, a.raisedBy, a.status, a.message ?? null, a.location?.lat ?? null, a.location?.lng ?? null],
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING RETURNING *`,
+      [requestId ?? newId(), a.campusId, a.busId, a.tripId ?? null, a.raisedBy, a.status, a.message ?? null, a.location?.lat ?? null, a.location?.lng ?? null],
     );
-    return toAlert(r.rows[0]);
+    if (r.rows[0]) return toAlert(r.rows[0]);
+    const replay = requestId && await this.findById(a.campusId, requestId, a.raisedBy);
+    if (!replay || replay.busId !== a.busId || replay.message !== (a.message ?? null)) throw new DomainError(409, 'ALERT_REQUEST_CONFLICT');
+    return replay;
   }
   async acknowledge(campusId: string, id: string, byUserId: string, at: Date) {
     if (!isValidId(id)) return null;
