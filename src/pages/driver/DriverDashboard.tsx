@@ -4,6 +4,7 @@ import { tripService } from '../../services/tripService';
 import { tripsV1, type V1Trip } from '../../services/v1/trips';
 import { alertsV1 } from '../../services/v1/notifications';
 import { locationService } from '../../services/locationService';
+import { verdictText } from '../../services/gpsQuality';
 import { GPSStatusBadge, NetworkStatusBadge } from '../../components/common/StatusBadges';
 
 import { Modal, ConfirmDialog } from '../../components/common/Modals';
@@ -375,6 +376,28 @@ export const DriverDashboard: React.FC = () => {
                   {locationState.lastLocation
                     ? `${locationState.lastLocation.lat.toFixed(5)}, ${locationState.lastLocation.lng.toFixed(5)}`
                     : 'Awaiting first coordinates...'}
+                </div>
+                <div className="mt-2 space-y-1 text-xs" aria-live="polite">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">Server status</span>
+                    {locationState.lastVerdict ? (() => {
+                      const verdict = verdictText(locationState.lastVerdict);
+                      const tone = verdict.tone === 'ok' ? 'text-emerald-700' : verdict.tone === 'error' ? 'text-red-700' : 'text-amber-800';
+                      return <span className={`font-semibold ${tone}`}>{verdict.label}</span>;
+                    })() : <span className="font-semibold text-slate-600">Waiting for server confirmation</span>}
+                  </div>
+                  {locationState.lastVerdict && <p className="text-slate-500">{verdictText(locationState.lastVerdict).detail}</p>}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">Last accepted live</span>
+                    <span className="font-mono text-slate-700">
+                      {locationState.lastAcceptedLive ? `${new Date(locationState.lastAcceptedLive.timestamp).toLocaleTimeString()}` : 'None yet'}
+                    </span>
+                  </div>
+                  {Object.keys(locationState.rejectionCounts).length > 0 && (
+                    <p className="text-slate-500">
+                      Rejected this session: {Object.entries(locationState.rejectionCounts).map(([reason, count]) => `${count} x ${reason.toLowerCase().replace(/_/g, ' ')}`).join(', ')}
+                    </p>
+                  )}
                 </div>
                 {locationState.errorMessage && <p role="status" className="mt-2 text-xs text-amber-900">{locationState.errorMessage}</p>}
                 {locationState.gpsStatus !== 'GPS_ACTIVE' && (

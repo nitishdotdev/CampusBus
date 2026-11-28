@@ -26,12 +26,19 @@ export interface UserDTO {
   emailVerifiedAt: Date | null; assignedBusId?: string | null; assignedRouteId?: string | null;
   phone?: string | null;
 }
+/** Latest persisted position of a bus on its current active trip (the same authoritative row the socket feed reads). */
+export interface LastLocationDTO {
+  tripId: string; lat: number; lng: number; accuracyM: number | null; headingDeg: number | null; speedMps: number | null;
+  capturedAt: string; receivedAt: string; freshness: Freshness;
+}
 export interface BusDTO {
   id: string; campusId: string; number: string; capacity: number;
   status: 'ACTIVE' | 'MAINTENANCE' | 'OFFLINE'; driverId?: string | null; routeId?: string | null;
   model?: string | null; plateNumber?: string | null; driverName?: string | null;
   currentOccupancy?: number | null;
   activeTrip?: { id: string; routeId: string; mode: TripMode; freshness: Freshness; nextStopId?: string; completedStopIds?: string[] } | null;
+  /** Null when the bus has no position on its active trip, or when the caller may not observe the bus (set by the HTTP layer). */
+  lastLocation?: LastLocationDTO | null;
 }
 export interface RouteDTO {
   id: string; campusId: string; code: string; name: string; color: string;
@@ -133,8 +140,11 @@ export interface TripRepository {
   end(campusId: string, id: string, endedAt: Date, status?: 'COMPLETED' | 'CANCELLED'): Promise<TripDTO | null>;
   list(campusId: string, opts: { driverId?: string; busId?: string; status?: TripStatus; page?: number; pageSize?: number }): Promise<Page<TripDTO>>;
 }
+/** Stop progression of a trip after a location update: the next stop to reach and the stops already arrived at. */
+export interface StopProgress { nextStopId: string | null; completedStopIds: string[] }
+export interface LiveApplyResult { applied: boolean; progress?: StopProgress }
 export interface VehicleLocationRepository {
-  applyIfNewer(loc: VehicleLocationDTO): Promise<boolean>;
+  applyIfNewer(loc: VehicleLocationDTO): Promise<LiveApplyResult>;
   getByBus(campusId: string, busId: string): Promise<VehicleLocationDTO | null>;
   listByCampus(campusId: string): Promise<VehicleLocationDTO[]>;
 }

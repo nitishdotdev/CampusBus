@@ -42,3 +42,22 @@ body {
 .landing-fade-up-delay {
   animation: landing-fade-up 600ms ease-out 120ms both;
 }
+
+/* Bus markers: the icon element is kept between GPS fixes, so its transform eases to each new accepted position. */
+.bus-marker-wrapper {
+  transition: transform 2.5s linear;
+}
+.leaflet-zoom-anim .bus-marker-wrapper {
+  transition: none;
+}
+.bus-marker.is-offline {
+  opacity: 0.55;
+}
+.bus-marker.is-selected > div:last-child {
+  filter: drop-shadow(0 0 3px rgb(59 130 246));
+}
+@media (prefers-reduced-motion: reduce) {
+  .bus-marker-wrapper {
+    transition: none;
+  }
+}

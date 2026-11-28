@@ -39,6 +39,12 @@ export const MapView: React.FC<MapViewProps> = ({
   const stopMarkersRef = useRef<Record<string, L.Marker>>({});
   const driverMarkerRef = useRef<L.Marker | null>(null);
   const driverAccuracyCircleRef = useRef<L.Circle | null>(null);
+  const busAccuracyRef = useRef<Record<string, L.Circle>>({});
+  const busesByIdRef = useRef<Map<string, Bus>>(new Map());
+  const onSelectBusRef = useRef(onSelectBus);
+  const [followBus, setFollowBus] = useState(true);
+  const followRef = useRef(true);
+  useEffect(() => { followRef.current = followBus; }, [followBus]);
   const userHasPannedRef = useRef<boolean>(false);
   const lastSelectedTargetRef = useRef<string | undefined>(undefined);
 
@@ -244,102 +250,134 @@ export const MapView: React.FC<MapViewProps> = ({
     const map = mapInstanceRef.current;
     if (!map) return;
 
+    onSelectBusRef.current = onSelectBus;
+    busesByIdRef.current = new Map(buses.map((b) => [b.id, b]));
     const currentBusIds = new Set(buses.map((b) => b.id));
 
-    // Remove obsolete markers
-    Object.keys(busMarkersRef.current).forEach((id) => {
-      if (!currentBusIds.has(id)) {
+    const dropBus = (id: string) => {
+      if (busMarkersRef.current[id]) {
         map.removeLayer(busMarkersRef.current[id]);
         delete busMarkersRef.current[id];
       }
-    });
+      if (busAccuracyRef.current[id]) {
+        map.removeLayer(busAccuracyRef.current[id]);
+        delete busAccuracyRef.current[id];
+      }
+    };
+    Object.keys(busMarkersRef.current).forEach((id) => { if (!currentBusIds.has(id)) dropBus(id); });
+    Object.keys(busAccuracyRef.current).forEach((id) => { if (!currentBusIds.has(id)) dropBus(id); });
 
     buses.forEach((bus) => {
-      // Do not display offline or maintenance vehicles on active map
+      // Offline and maintenance vehicles are not drawn on the live map.
       if (bus.status === 'OFFLINE' || bus.status === 'MAINTENANCE') {
-        if (busMarkersRef.current[bus.id]) {
-          map.removeLayer(busMarkersRef.current[bus.id]);
-          delete busMarkersRef.current[bus.id];
-        }
+        dropBus(bus.id);
         return;
       }
 
       const lat = bus.lastLocation?.lat;
       const lng = bus.lastLocation?.lng;
-
-      // Guard against null, missing, NaN, or out-of-range coordinates.
-      // NEVER show a bus at a fabricated coordinate simply to populate the map.
+      // Never show a bus at a fabricated coordinate: missing, non-finite or out-of-range positions get no marker.
       if (
-        typeof lat !== 'number' ||
-        typeof lng !== 'number' ||
-        !Number.isFinite(lat) ||
-        !Number.isFinite(lng) ||
-        lat < -90 ||
-        lat > 90 ||
-        lng < -180 ||
-        lng > 180
+        typeof lat !== 'number' || typeof lng !== 'number' ||
+        !Number.isFinite(lat) || !Number.isFinite(lng) ||
+        lat < -90 || lat > 90 || lng < -180 || lng > 180
       ) {
-        if (busMarkersRef.current[bus.id]) {
-          map.removeLayer(busMarkersRef.current[bus.id]);
-          delete busMarkersRef.current[bus.id];
-        }
+        dropBus(bus.id);
         return;
       }
 
       const isSelected = selectedBusId === bus.id;
-      const heading = Number.isFinite(bus.heading) ? (bus.heading as number) : 0;
       const route = routes.find((r) => r.id === bus.currentRouteId);
       const routeColor = route ? route.color : '#2563EB';
-      const statusColor = bus.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-amber-500';
+      const offline = bus.trackingStatus === 'DRIVER_OFFLINE';
+      const hasHeading = typeof bus.heading === 'number' && Number.isFinite(bus.heading);
+      const dotClass = bus.trackingStatus === 'LIVE' ? 'bg-emerald-500' : bus.trackingStatus === 'STALE' ? 'bg-amber-500' : 'bg-slate-400';
+      const statusWord = bus.isSimulated ? 'Simulated'
+        : bus.trackingStatus === 'LIVE' ? 'Live'
+        : bus.trackingStatus === 'STALE' ? 'Stale'
+        : bus.trackingStatus === 'DRIVER_OFFLINE' ? 'Offline'
+        : 'Last reported';
+      const updatedText = bus.lastLocation?.timestamp ? ` · updated ${new Date(bus.lastLocation.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : '';
+      const speed = bus.speedKmh != null ? ` · ${bus.speedKmh} km/h` : '';
+      const tooltipText = `${bus.busNumber} · ${statusWord}${speed}${updatedText}`;
 
-      const busIconHtml = `
-        <div class="relative flex flex-col items-center cursor-pointer transition-transform">
-          <div class="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-md mb-0.5 ${
-            isSelected ? 'ring-2 ring-blue-500 ring-offset-1 scale-110' : ''
-          }" style="background-color: ${routeColor};">
-            <span class="w-1.5 h-1.5 rounded-full ${statusColor}"></span>
-            <span data-bus-number></span>
-          </div>
-          <div class="w-7 h-7 rounded-full bg-white shadow-lg border-2 border-slate-800 flex items-center justify-center ${
-            isSelected ? 'scale-115 ring-2 ring-blue-400' : ''
-          }">
-            <div style="transform: rotate(${heading}deg);" class="transition-transform duration-300">
-              <svg class="w-4 h-4 text-blue-600 fill-current" viewBox="0 0 24 24">
-                <polygon points="12,2 22,22 12,17 2,22" />
+      let marker = busMarkersRef.current[bus.id];
+      if (!marker) {
+        const iconContent = document.createElement('div');
+        iconContent.innerHTML = `
+          <div class="bus-marker flex flex-col items-center cursor-pointer">
+            <div class="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-md mb-0.5" data-route-pill>
+              <span class="w-1.5 h-1.5 rounded-full" data-status-dot></span>
+              <span data-bus-number></span>
+            </div>
+            <div class="relative w-8 h-8">
+              <div class="absolute inset-0" data-heading style="display: none;">
+                <svg class="absolute left-1/2 -top-1.5 -translate-x-1/2 w-3 h-3 text-slate-900 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+                  <polygon points="12,0 22,20 12,15 2,20" />
+                </svg>
+              </div>
+              <svg class="absolute inset-0 w-8 h-8" viewBox="0 0 32 32" aria-hidden="true">
+                <rect x="5" y="4" width="22" height="24" rx="5" fill="#ffffff" stroke="#0f172a" stroke-width="2" />
+                <rect x="8" y="7" width="16" height="7" rx="1.5" fill="#0f172a" fill-opacity="0.85" />
+                <circle cx="10.5" cy="24" r="2" fill="#0f172a" />
+                <circle cx="21.5" cy="24" r="2" fill="#0f172a" />
               </svg>
             </div>
-          </div>
-        </div>
-      `;
-
-      const iconContent = document.createElement('div');
-      iconContent.innerHTML = busIconHtml;
-      iconContent.querySelector('[data-bus-number]')!.textContent = bus.busNumber;
-      const customIcon = L.divIcon({
-        className: 'bus-marker-wrapper',
-        html: iconContent,
-        iconSize: [52, 50],
-        iconAnchor: [26, 42],
-      });
-
-      if (busMarkersRef.current[bus.id]) {
-        busMarkersRef.current[bus.id].setLatLng([lat, lng]).setIcon(customIcon);
-      } else {
-        const marker = L.marker([lat, lng], { icon: customIcon, title: bus.busNumber, alt: bus.busNumber, zIndexOffset: 200, keyboard: Boolean(onSelectBus) }).addTo(map);
-        marker.on('click', () => {
-          if (onSelectBus) onSelectBus(bus);
+          </div>`;
+        const icon = L.divIcon({
+          className: 'bus-marker-wrapper',
+          html: iconContent,
+          iconSize: [56, 56],
+          iconAnchor: [28, 38],
         });
+        marker = L.marker([lat, lng], { icon, title: bus.busNumber, alt: bus.busNumber, zIndexOffset: 200, keyboard: Boolean(onSelectBus) }).addTo(map);
+        marker.on('click', () => {
+          const current = busesByIdRef.current.get(bus.id);
+          if (current) onSelectBusRef.current?.(current);
+        });
+        marker.bindTooltip(tooltipText, { direction: 'top', offset: [0, -20] });
         busMarkersRef.current[bus.id] = marker;
+      } else {
+        // Only the position moves: the icon element is kept, so its CSS transform transition can animate between fixes.
+        marker.setLatLng([lat, lng]);
+        marker.setTooltipContent(tooltipText);
       }
 
-      const label = document.createElement('div');
-      label.className = 'p-1 text-xs font-bold text-slate-900';
-      const speed = bus.speedKmh != null ? ` · ${bus.speedKmh} km/h` : '';
-      const tracking = bus.isSimulated ? 'Simulated' : bus.trackingStatus === 'LIVE' ? 'Live' : 'Last reported';
-      label.textContent = `${bus.busNumber} · ${tracking}${speed}`;
-      busMarkersRef.current[bus.id].getElement()?.setAttribute('aria-label', bus.busNumber);
-      busMarkersRef.current[bus.id].getElement()?.setAttribute('role', onSelectBus ? 'button' : 'img');
-      busMarkersRef.current[bus.id].bindTooltip(label, { direction: 'top', offset: [0, -20] });
+      // Update in place: no icon rebuild, so transitions are not interrupted.
+      const el = marker.getElement();
+      if (el) {
+        const busRoot = el.querySelector<HTMLElement>('.bus-marker');
+        busRoot?.classList.toggle('is-selected', isSelected);
+        busRoot?.classList.toggle('is-offline', offline);
+        const pill = el.querySelector<HTMLElement>('[data-route-pill]');
+        if (pill) pill.style.backgroundColor = routeColor;
+        const dot = el.querySelector<HTMLElement>('[data-status-dot]');
+        if (dot) dot.className = `w-1.5 h-1.5 rounded-full ${dotClass}`;
+        const number = el.querySelector<HTMLElement>('[data-bus-number]');
+        if (number && number.textContent !== bus.busNumber) number.textContent = bus.busNumber;
+        const heading = el.querySelector<HTMLElement>('[data-heading]');
+        if (heading) {
+          heading.style.display = hasHeading ? '' : 'none';
+          heading.style.transform = hasHeading ? `rotate(${bus.heading}deg)` : '';
+        }
+        el.setAttribute('aria-label', `${bus.busNumber}, ${statusWord}`);
+        el.setAttribute('role', onSelectBus ? 'button' : 'img');
+      }
+
+      // Accuracy circle: the GPS error radius the device reported, drawn only when that value is genuine.
+      const accuracy = bus.lastLocation?.accuracy;
+      if (typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0 && !offline) {
+        if (busAccuracyRef.current[bus.id]) {
+          busAccuracyRef.current[bus.id].setLatLng([lat, lng]).setRadius(accuracy);
+        } else {
+          busAccuracyRef.current[bus.id] = L.circle([lat, lng], {
+            radius: accuracy, color: routeColor, weight: 1, fillColor: routeColor, fillOpacity: 0.12, interactive: false,
+          }).addTo(map);
+        }
+      } else if (busAccuracyRef.current[bus.id]) {
+        map.removeLayer(busAccuracyRef.current[bus.id]);
+        delete busAccuracyRef.current[bus.id];
+      }
     });
   }, [buses, routes, selectedBusId, onSelectBus]);
 
@@ -353,12 +391,13 @@ export const MapView: React.FC<MapViewProps> = ({
       Number.isFinite(driverLocation.lat) &&
       Number.isFinite(driverLocation.lng)
     ) {
-      const { lat, lng, heading = 0, accuracy } = driverLocation;
+      const { lat, lng, heading, accuracy } = driverLocation;
+      const hasDriverHeading = typeof heading === 'number' && Number.isFinite(heading);
 
       const driverIconHtml = `
         <div class="relative flex items-center justify-center">
           <div class="w-4 h-4 rounded-full bg-blue-600 border-2 border-white shadow-lg ring-4 ring-blue-500/40"></div>
-          <div style="transform: rotate(${heading}deg);" class="absolute -top-1 w-2 h-2 text-blue-600">
+          <div style="${hasDriverHeading ? `transform: rotate(${heading}deg);` : 'display: none;'}" class="absolute -top-1 w-2 h-2 text-blue-600">
             <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12,2 22,22 12,17 2,22"/></svg>
           </div>
         </div>
@@ -427,6 +466,8 @@ export const MapView: React.FC<MapViewProps> = ({
       // User is actively exploring the map: do not auto-snap away
       return;
     }
+    // With follow turned off, only an explicit new selection moves the map.
+    if (!hasTargetChanged && !followRef.current) return;
 
     if (selectedBusId) {
       const bus = buses.find((b) => b.id === selectedBusId);
@@ -437,7 +478,8 @@ export const MapView: React.FC<MapViewProps> = ({
         Number.isFinite(bus.lastLocation.lat) &&
         Number.isFinite(bus.lastLocation.lng)
       ) {
-        map.flyTo([bus.lastLocation.lat, bus.lastLocation.lng], 16, { duration: 0.8 });
+        if (hasTargetChanged) map.flyTo([bus.lastLocation.lat, bus.lastLocation.lng], 16, { duration: 0.8 });
+        else map.panTo([bus.lastLocation.lat, bus.lastLocation.lng], { animate: true, duration: 0.8 });
       }
     } else if (selectedRouteId) {
       const route = routes.find((r) => r.id === selectedRouteId);
@@ -450,7 +492,26 @@ export const MapView: React.FC<MapViewProps> = ({
         }
       }
     }
-  }, [selectedBusId, selectedRouteId, buses, routes]);
+  }, [selectedBusId, selectedRouteId, buses, routes, followBus]);
+
+  const recenter = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    userHasPannedRef.current = false;
+    const isValid = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+    const selected = selectedBusId ? buses.find((b) => b.id === selectedBusId) : undefined;
+    const lat = selected?.lastLocation?.lat;
+    const lng = selected?.lastLocation?.lng;
+    if (isValid(lat) && isValid(lng)) {
+      setFollowBus(true);
+      map.flyTo([lat, lng], 16, { duration: 0.8 });
+      return;
+    }
+    const points = buses
+      .filter((b) => isValid(b.lastLocation?.lat) && isValid(b.lastLocation?.lng))
+      .map((b) => L.latLng(b.lastLocation!.lat, b.lastLocation!.lng));
+    if (points.length > 0) map.fitBounds(L.latLngBounds(points), { padding: [40, 40] });
+  };
 
   return (
     <div
@@ -465,6 +526,34 @@ export const MapView: React.FC<MapViewProps> = ({
           <span>Background map unavailable</span>
         </div>
       )}
+
+      <div className="absolute bottom-3 right-3 z-10 flex flex-col items-end gap-2">
+        <button
+          type="button"
+          onClick={recenter}
+          className="min-h-11 px-3 rounded-xl bg-white border border-slate-200 shadow-sm text-xs font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-600"
+        >
+          Recenter
+        </button>
+        {selectedBusId && (
+          <button
+            type="button"
+            aria-pressed={followBus}
+            onClick={() => setFollowBus((v) => !v)}
+            className={`min-h-11 px-3 rounded-xl border shadow-sm text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-600 ${
+              followBus ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            {followBus ? 'Following bus' : 'Follow bus'}
+          </button>
+        )}
+      </div>
+
+      <div className="absolute bottom-3 left-3 z-10 bg-white/95 rounded-xl border border-slate-200 shadow-xs px-2.5 py-2 text-[10px] text-slate-700 flex flex-col gap-1">
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden="true" />Live</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />Stale: no update for 20 s</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-400" aria-hidden="true" />Offline: no update for 2 min</span>
+      </div>
 
       {/* Campus Transit Network Info Overlay */}
       <div className="absolute top-3 left-3 z-10 bg-white/95 backdrop-blur-xs p-2.5 rounded-xl border border-slate-200 shadow-xs flex flex-col gap-1.5 text-[11px] text-slate-700 max-w-[210px]">

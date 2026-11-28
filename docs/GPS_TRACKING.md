@@ -1,6 +1,6 @@
 # GPS tracking (apps/api)
 
-Implemented and tested in `apps/api`. It is **not yet wired to the legacy app or the React frontend**; nothing here is live.
+Implemented and tested in `apps/api`. It is the production pipeline (`render.yaml` deploys `apps/api`) and is wired to the React frontend through the v1 API and Socket.IO.
 
 ## Pipeline
 ```
@@ -32,6 +32,8 @@ students/admins: GET /api/v1/buses/:id/live (snapshot + freshness) and socket su
 - Rate limit: 120 events per driver per minute by default (a batch costs its size), `429 RATE_LIMITED`. In-process only.
 
 ## Latest position vs history
+
+REST bus responses (`GET /api/v1/buses`, `GET /api/v1/buses/:id`) include `lastLocation`, the persisted position on the current active trip, released only to principals who may observe the bus. Socket fixes and REST snapshots are merged on the client by capture time, so the newer fix always wins.
 - `telemetry`: append-only history, every accepted event.
 - `vehicleLocations`: one document per bus. Written with a conditional atomic update that succeeds only when the new `capturedAt` is strictly newer. An event may go live only if all hold: trip is ACTIVE, received within 30 s of capture, accuracy 200 m or better. Older, low-accuracy, queued, duplicate and ended-trip events are history only and are never broadcast.
 
@@ -57,6 +59,6 @@ The thresholds assume the 3 s foreground target (`FRESHNESS_THRESHOLDS` in `fres
 1. Subscriptions are authorised when requested. If an account is disabled or reassigned afterwards, existing subscribers keep receiving until they disconnect or their token expires (15 minutes by default).
 2. The rate limiter is per process; several API instances need a shared store.
 3. Insert-then-apply is not transactional. A crash between the two leaves history without a live update; the next event repairs it.
-4. No geofence beyond coordinate validity.
+4. Stop arrival uses one geofence radius for every stop (`GEOFENCE_RADIUS_METERS`, default 50 m); there is no per-stop radius column yet. A bus must be stopped (known speed at or below 2 m/s) on accurate fixes (65 m or better) for at least 2 s inside the radius to be recorded as arrived. Stops are advanced strictly in sequence; a skipped stop is never inferred.
 5. No token issuance, login, refresh, or user management in `apps/api` yet; tests mint tokens directly.
-6. The browser queue (IndexedDB), driver UI and map are not connected to this API.
+6. Live snapshots on socket subscribe and REST responses do not yet include stop progression; it is delivered with each live location update and on the REST bus list.

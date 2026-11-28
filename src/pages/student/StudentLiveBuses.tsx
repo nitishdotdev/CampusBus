@@ -142,7 +142,7 @@ export const StudentLiveBuses: React.FC = () => {
                   </div>
                   <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                     <div className="text-[11px] font-semibold text-slate-500 uppercase flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> Arrival ETA
+                      <Clock className="w-3 h-3" /> Estimated arrival (straight-line)
                     </div>
                     <div className="mt-1">
                       <ETAIndicator

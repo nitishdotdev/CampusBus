@@ -31,13 +31,20 @@ describe.skipIf(!PG_TEST_URL)('Trip occupancy and ordered GPS progression', () =
       expect(sent.status).toBe(200);
       expect(sent.body.results[0].status).toBe('accepted');
     };
-    await fix(ev(h, -15_000, 28.4605, 77.0266, { accuracyM: 8 }));
+    await fix(ev(h, -15_000, 28.4605, 77.0266, { accuracyM: 8, speedMps: 0 }));
     expect((await h.services.repos.trips.findById(campusA, trip.id))?.completedStopIds).toEqual([]);
-    await fix(ev(h, -8_000, 28.4595, 77.0266, { accuracyM: 8 }));
+    // The bus waits at the first stop: two stationary fixes, 2 s apart, record the arrival.
+    await fix(ev(h, -12_000, 28.4595, 77.0266, { accuracyM: 8, speedMps: 0 }));
+    await fix(ev(h, -10_000, 28.4595, 77.0266, { accuracyM: 8, speedMps: 0 }));
     expect((await h.services.repos.buses.findById(campusA, bus1))?.activeTrip).toMatchObject({ nextStopId: second, completedStopIds: [first] });
-    await fix(ev(h, -1_000, 28.4605, 77.0266, { accuracyM: 8 }));
+    // It drives to the second stop at speed: passing the stop does not count as arrival.
+    await fix(ev(h, -6_000, 28.4605, 77.0266, { accuracyM: 8, speedMps: 14 }));
+    expect((await h.services.repos.trips.findById(campusA, trip.id))?.completedStopIds).toEqual([first]);
+    // Then it stops there, and the second arrival completes the route.
+    await fix(ev(h, -3_000, 28.4605, 77.0266, { accuracyM: 8, speedMps: 0 }));
+    await fix(ev(h, -1_000, 28.4605, 77.0266, { accuracyM: 8, speedMps: 0 }));
     const ended = await client.post(`/api/v1/trips/${trip.id}/end`).set('Authorization', token).send({});
-    expect(ended.body.trip).toMatchObject({ status: 'COMPLETED', nextStopId: null, currentOccupancy: 1, completedStopIds: [first, second], totalLocationsLogged: 3 });
+    expect(ended.body.trip).toMatchObject({ status: 'COMPLETED', nextStopId: null, currentOccupancy: 1, completedStopIds: [first, second], totalLocationsLogged: 6 });
     expect((await occupancy(1)).status).toBe(404);
     expect((await h.services.repos.buses.findById(campusA, bus1))?.activeTrip).toBeNull();
   });

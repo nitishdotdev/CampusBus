@@ -33,7 +33,15 @@ export function v1BusToUi(b: V1Bus, activeTripBusIds?: Set<string>): Bus {
     gpsStatus: freshness === 'LIVE' ? 'GPS_ACTIVE' : freshness === 'STALE' ? 'LOCATION_STALE' : 'GPS_UNAVAILABLE',
     networkStatus: freshness === 'LIVE' ? 'NETWORK_ONLINE' : 'NETWORK_OFFLINE',
     etaConfidence: 'OFFLINE',
-    lastSyncTimestamp: '',
+    // Persisted position from the REST snapshot. Heading stays undefined when the device did not report one (no fabricated direction).
+    lastLocation: b.lastLocation ? {
+      lat: b.lastLocation.lat, lng: b.lastLocation.lng,
+      accuracy: b.lastLocation.accuracyM ?? undefined,
+      speed: b.lastLocation.speedMps, heading: b.lastLocation.headingDeg,
+      timestamp: b.lastLocation.capturedAt,
+    } : undefined,
+    heading: b.lastLocation?.headingDeg ?? undefined,
+    lastSyncTimestamp: b.lastLocation?.receivedAt ?? '',
     isSimulated: b.activeTrip?.mode === 'SIMULATED',
   };
 }

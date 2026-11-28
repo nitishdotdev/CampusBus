@@ -13,6 +13,7 @@ import type {
   UserDTO, UserRepository, VehicleLocationDTO, VehicleLocationRepository,
 } from '../../domain/types';
 import { isUniqueViolation, isValidId, newId } from './ids';
+import type { LiveApplyResult } from '../../domain/types';
 
 function pageOpts(o: { page?: number; pageSize?: number }) {
   const pageSize = Math.min(100, Math.max(1, Math.floor(o.pageSize ?? 25)));
@@ -229,22 +230,33 @@ export class PgEmailTokenRepository implements EmailTokenRepository {
   }
 }
 
-const toBus = (d: any): BusDTO => ({
-  model: d.model ?? null, plateNumber: d.plate_number ?? null, driverName: d.driver_name ?? null,
-  currentOccupancy: d.current_occupancy ?? null,
-  activeTrip: d.active_trip_id ? {
-    id: d.active_trip_id, routeId: d.active_trip_route_id, mode: d.active_trip_mode,
-    nextStopId: d.next_stop_id ?? undefined, completedStopIds: d.completed_stop_ids,
-    freshness: computeFreshness(new Date(), d.captured_at ? {
-      tripId: d.location_trip_id, capturedAt: d.captured_at, receivedAt: d.received_at,
-    } : null, { id: d.active_trip_id }).state,
-  } : null,
-  id: d.id, campusId: d.campus_id, number: d.number, capacity: d.capacity, status: d.status,
-  driverId: d.driver_id ?? null, routeId: d.route_id ?? null,
-});
+const toBus = (d: any): BusDTO => {
+  const freshness = computeFreshness(new Date(), d.captured_at ? {
+    tripId: d.location_trip_id, capturedAt: d.captured_at, receivedAt: d.received_at,
+  } : null, d.active_trip_id ? { id: d.active_trip_id } : null).state;
+  // The projection joins the location only when it belongs to the active trip, so this is the current trip's position.
+  const lastLocation = d.active_trip_id && d.loc_lat != null && d.loc_lng != null ? {
+    tripId: d.location_trip_id, lat: Number(d.loc_lat), lng: Number(d.loc_lng),
+    accuracyM: d.loc_accuracy_m ?? null, headingDeg: d.loc_heading_deg ?? null, speedMps: d.loc_speed_mps ?? null,
+    capturedAt: new Date(d.captured_at).toISOString(), receivedAt: new Date(d.received_at).toISOString(), freshness,
+  } : null;
+  return {
+    model: d.model ?? null, plateNumber: d.plate_number ?? null, driverName: d.driver_name ?? null,
+    currentOccupancy: d.current_occupancy ?? null,
+    activeTrip: d.active_trip_id ? {
+      id: d.active_trip_id, routeId: d.active_trip_route_id, mode: d.active_trip_mode,
+      nextStopId: d.next_stop_id ?? undefined, completedStopIds: d.completed_stop_ids,
+      freshness,
+    } : null,
+    lastLocation,
+    id: d.id, campusId: d.campus_id, number: d.number, capacity: d.capacity, status: d.status,
+    driverId: d.driver_id ?? null, routeId: d.route_id ?? null,
+  };
+};
 
 const busProjection = `SELECT b.*, t.id AS active_trip_id, t.route_id AS active_trip_route_id, t.mode AS active_trip_mode,
   t.current_occupancy, u.name AS driver_name, loc.trip_id AS location_trip_id, loc.captured_at, loc.received_at,
+  loc.lat AS loc_lat, loc.lng AS loc_lng, loc.accuracy_m AS loc_accuracy_m, loc.speed_mps AS loc_speed_mps, loc.heading_deg AS loc_heading_deg,
   (SELECT stop_id FROM v1.trip_stops WHERE trip_id = t.id AND arrived_at IS NULL ORDER BY stop_order LIMIT 1) AS next_stop_id,
   ARRAY(SELECT stop_id FROM v1.trip_stops WHERE trip_id = t.id AND arrived_at IS NOT NULL ORDER BY stop_order) AS completed_stop_ids
   FROM v1.buses b
@@ -597,13 +609,13 @@ const toLoc = (d: any): VehicleLocationDTO => ({
 
 export class PgVehicleLocationRepository implements VehicleLocationRepository {
   constructor(private p: pg.Pool) {}
-  async applyIfNewer(loc: VehicleLocationDTO) {
+  async applyIfNewer(loc: VehicleLocationDTO): Promise<LiveApplyResult> {
     return withTransaction(this.p, async client => {
       const active = await client.query(
         "SELECT id FROM v1.trips WHERE id = $1 AND campus_id = $2 AND bus_id = $3 AND status = 'ACTIVE' FOR UPDATE",
         [loc.tripId, loc.campusId, loc.busId],
       );
-      if (!active.rowCount) return false;
+      if (!active.rowCount) return { applied: false };
       const r = await client.query(
       `INSERT INTO v1.vehicle_locations
          (bus_id, campus_id, trip_id, lat, lng, accuracy_m, speed_mps, speed_source, heading_deg, captured_at, received_at, mode)
@@ -616,9 +628,9 @@ export class PgVehicleLocationRepository implements VehicleLocationRepository {
        RETURNING bus_id`,
       [loc.busId, loc.campusId, loc.tripId, loc.location.lat, loc.location.lng, loc.accuracyM, loc.speedMps, loc.speedSource, loc.headingDeg, loc.capturedAt, loc.receivedAt, loc.mode],
     );
-      if (!r.rowCount) return false;
-      await recordStopArrival(client, loc);
-      return true;
+      if (!r.rowCount) return { applied: false };
+      const progress = await recordStopArrival(client, loc);
+      return { applied: true, progress };
     });
   }
   async getByBus(campusId: string, busId: string) {
