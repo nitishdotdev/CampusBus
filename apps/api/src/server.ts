@@ -21,6 +21,7 @@ import { createGateway } from './realtime/gateway';
 import { resolveAllowedOrigins } from './config/cors';
 import { buildPgConnection } from './infra/postgres/tls';
 import { createEmailSender } from './infra/email/resend';
+import { bootstrapAdminOnStartup } from './bootstrap/startupAdmin';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) { console.error('FATAL: DATABASE_URL is required'); process.exit(1); }
@@ -59,6 +60,9 @@ async function main() {
     email,
     { env: process.env },
   );
+
+  const bootstrap = await bootstrapAdminOnStartup(process.env, repos.campuses, services.auth);
+  if (bootstrap !== 'disabled') console.info(`[bootstrap] administrator ${bootstrap}`);
 
   const app = createApp({
     ingest:    services.ingest,
