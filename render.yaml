@@ -10,7 +10,7 @@ services:
     # Run the compiled bundle
     startCommand: npm run api:start
 
-    # Render marks the service healthy when this returns 200
+    # Infrastructure health. Monitor /readyz separately for campus provisioning.
     healthCheckPath: /healthz
 
     envVars:

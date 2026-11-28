@@ -37,6 +37,7 @@ export const LoginPage: React.FC = () => {
   const [campuses, setCampuses] = useState<V1Campus[]>([]);
   const [campusLoading, setCampusLoading] = useState(false);
   const [campusError, setCampusError] = useState('');
+  const [campusLoadAttempt, setCampusLoadAttempt] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -65,19 +66,24 @@ export const LoginPage: React.FC = () => {
   }, [navigate]);
 
   useEffect(() => {
+    let current = true;
     setCampusLoading(true);
     setCampusError('');
     listCampuses()
       .then((list) => {
+        if (!current) return;
         setCampuses(list);
-        if (list.length === 1) setCampusId(list[0].id);
+        setCampusId(selected => list.length === 1 ? list[0].id : list.some(campus => campus.id === selected) ? selected : '');
       })
       .catch((err) => {
+        if (!current) return;
         setCampuses([]);
+        setCampusId('');
         setCampusError(formatCampusFetchError(err));
       })
-      .finally(() => setCampusLoading(false));
-  }, []);
+      .finally(() => { if (current) setCampusLoading(false); });
+    return () => { current = false; };
+  }, [campusLoadAttempt]);
 
   const registerRole = 'STUDENT' as const;
 
@@ -228,13 +234,12 @@ export const LoginPage: React.FC = () => {
                       <div className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-400">
                         Loading campuses…
                       </div>
-                    ) : campusError ? (
+                    ) : campusError || campuses.length === 0 ? (
                       <div className="w-full pl-9 pr-3 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">
-                        {campusError}
-                      </div>
-                    ) : campuses.length === 0 ? (
-                      <div className="w-full pl-9 pr-3 py-2.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-600">
-                        No campuses found — contact your administrator.
+                        <p role="status">{campusError || 'No campuses have been set up yet. Contact your campus administrator.'}</p>
+                        <button type="button" className="min-h-11 font-semibold underline" onClick={() => setCampusLoadAttempt(attempt => attempt + 1)}>
+                          Retry campus directory
+                        </button>
                       </div>
                     ) : (
                       <select

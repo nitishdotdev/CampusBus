@@ -5,7 +5,7 @@
  *   npm run api:bootstrap -- --name="Apex State University" --short-code=ASU --lat=34.0537 --lng=-118.257
  *
  * Optional first admin:
- *   --admin-email=admin@campus.edu --admin-password=ChangeMe123! --admin-name="Campus Admin"
+ *   BOOTSTRAP_ADMIN_PASSWORD via secret injection, plus --admin-email and --admin-name
  *
  * Required env: DATABASE_URL
  */
@@ -39,12 +39,18 @@ async function main() {
   const zoom = Number(flag('zoom', 'CAMPUS_ZOOM', '15'));
   const timezone = flag('timezone', 'CAMPUS_TIMEZONE', 'UTC');
   const adminEmail = flag('admin-email', 'BOOTSTRAP_ADMIN_EMAIL');
-  const adminPassword = flag('admin-password', 'BOOTSTRAP_ADMIN_PASSWORD');
+  if (process.argv.some(arg => arg === '--admin-password' || arg.startsWith('--admin-password='))) {
+    throw new Error('Supply BOOTSTRAP_ADMIN_PASSWORD through the secret-managed environment.');
+  }
+  const adminPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD ?? '';
   const adminName = flag('admin-name', 'BOOTSTRAP_ADMIN_NAME', 'Campus Admin');
 
   if (!name || !shortCode || !Number.isFinite(lat) || !Number.isFinite(lng)) {
     console.error('Usage: npm run api:bootstrap -- --name="Campus" --short-code=ABC --lat=34.05 --lng=-118.25');
     process.exit(1);
+  }
+  if (Boolean(adminEmail) !== Boolean(adminPassword)) {
+    throw new Error('Supply both BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD to create the first admin.');
   }
 
   const pgConn = buildPgConnection(process.env, DATABASE_URL);
@@ -56,7 +62,7 @@ async function main() {
   });
 
   try {
-    await applyV1Schema(pool);
+    if (!process.argv.includes('--existing-schema')) await applyV1Schema(pool);
     const repos = createPostgresRepositories(pool);
     const result = await provisionCampus(repos.campuses, {
       name, shortCode, city, lat, lng, zoom, timezone,

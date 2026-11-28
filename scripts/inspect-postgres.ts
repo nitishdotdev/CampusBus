@@ -1,43 +1,46 @@
-// READ-ONLY inspection of the existing PostgreSQL database.
-// Prints table row counts, user counts by role and date ranges only.
-// It never selects emails, names, passwords, coordinates or any other row content.
-//
-// Usage:  DATABASE_URL=postgres://... npx tsx scripts/inspect-postgres.ts
-import { Pool } from 'pg';
-
-const TABLES = ['colleges', 'users', 'routes', 'stops', 'buses', 'trips', 'locations',
-  'notifications', 'emergency_alerts', 'schedules', 'complaints'];
+// Read-only inventory. Reports schema metadata and aggregate counts only.
+import { createPostgresPool } from '../apps/api/src/infra/postgres/pool';
 
 async function main() {
-  const url = process.env.DATABASE_URL;
-  if (!url || !/^postgres(ql)?:\/\//.test(url)) {
-    console.error('Set DATABASE_URL to a PostgreSQL connection string.');
-    process.exit(2);
-  }
-  const pool = new Pool({ connectionString: url, ssl: url.includes('localhost') ? undefined : { rejectUnauthorized: false },
-    max: 1, options: '-c default_transaction_read_only=on' });
-  const client = await pool.connect();
+  const pool = await createPostgresPool();
   try {
-    await client.query('BEGIN READ ONLY');
-    console.log('table                 rows');
-    for (const t of TABLES) {
-      const exists = (await client.query('SELECT to_regclass($1) AS r', [`public.${t}`])).rows[0].r;
-      if (!exists) { console.log(`${t.padEnd(20)}  (missing)`); continue; }
-      const { rows } = await client.query(`SELECT COUNT(*)::int AS n FROM ${t}`);
-      console.log(`${t.padEnd(20)}  ${rows[0].n}`);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN READ ONLY');
+      await client.query("SET LOCAL statement_timeout = '5s'");
+      const identity = await client.query(`
+        SELECT current_database() AS database,
+          current_setting('server_version') AS server_version,
+          ssl, version AS tls_version
+        FROM pg_stat_ssl WHERE pid = pg_backend_pid()
+      `);
+      console.log('Connection', identity.rows[0]);
+      const tables = await client.query<{ schema: string; name: string; qualified_name: string; columns: string[] }>(`
+        SELECT n.nspname AS schema, c.relname AS name, format('%I.%I', n.nspname, c.relname) AS qualified_name,
+          ARRAY(SELECT a.attname::text FROM pg_attribute a
+            WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum) AS columns
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition
+          AND n.nspname NOT IN ('information_schema', 'pg_catalog')
+          AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'
+          AND has_table_privilege(c.oid, 'SELECT')
+        ORDER BY n.nspname, c.relname
+      `);
+      for (const table of tables.rows) {
+        // The catalog quotes both identifiers with PostgreSQL's %I formatter.
+        const { rows: [{ count }] } = await client.query(`SELECT count(*) FROM ${table.qualified_name}`);
+        console.log(JSON.stringify({ schema: table.schema, table: table.name, count, columns: table.columns }));
+      }
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
     }
-    const roles = await client.query('SELECT role, COUNT(*)::int AS n FROM users GROUP BY role ORDER BY role');
-    console.log('\nusers by role:', Object.fromEntries(roles.rows.map((r) => [r.role, r.n])));
-    for (const [t, col] of [['users', 'created_at'], ['trips', 'start_time'], ['locations', 'timestamp']] as const) {
-      try {
-        const { rows } = await client.query(`SELECT MIN(${col}) AS first, MAX(${col}) AS last FROM ${t}`);
-        console.log(`${t}.${col} range:`, rows[0].first, '->', rows[0].last);
-      } catch { /* column may differ; skip */ }
-    }
-    await client.query('ROLLBACK');
   } finally {
-    client.release();
     await pool.end();
   }
 }
-main().catch((e) => { console.error('Inspection failed:', e.message); process.exit(1); });
+
+main().catch((error: { code?: string }) => {
+  console.error('Database inspection failed', error?.code ?? 'CHECK_CONNECTION_OR_TLS_SETTINGS');
+  process.exitCode = 1;
+});

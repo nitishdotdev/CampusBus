@@ -1,6 +1,9 @@
 name: Production campus smoke test
 
 on:
+  deployment_status:
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       api_url:
@@ -21,6 +24,7 @@ permissions:
 
 jobs:
   smoke:
+    if: github.event_name != 'deployment_status' || (github.event.deployment_status.state == 'success' && github.event.deployment.production_environment)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -29,8 +33,8 @@ jobs:
         with:
           node-version: 22
       - name: Verify liveness, readiness, campus list and CORS
-        run: >-
-          node scripts/smoke-campuses.mjs
-          --api "${{ inputs.api_url }}"
-          --origin "${{ inputs.origin }}"
-          --expect-short-code "${{ inputs.expect_short_code }}"
+        env:
+          SMOKE_API_BASE: ${{ inputs.api_url || 'https://campusmove-nahp.onrender.com' }}
+          SMOKE_ORIGIN: ${{ inputs.origin || 'https://campus-bus-delta.vercel.app' }}
+          SMOKE_EXPECT_SHORT_CODE: ${{ inputs.expect_short_code || 'RKGIT' }}
+        run: node scripts/smoke-campuses.mjs

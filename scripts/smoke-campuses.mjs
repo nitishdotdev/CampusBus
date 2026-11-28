@@ -60,6 +60,12 @@ try {
 
 // 3. Public campus list, with CORS from the frontend origin
 let campuses = [];
+function validTimezone(value) {
+  if (typeof value !== 'string' || !value) return false;
+  try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; }
+  catch { return false; }
+}
+
 try {
   const r = await get('/api/v1/campuses', { Origin: origin });
   const contentType = r.headers.get('content-type') ?? '';
@@ -70,11 +76,15 @@ try {
   else {
     campuses = r.body;
     const shapeOk = campuses.every((c) =>
-      typeof c.id === 'string' && /^[a-f0-9]{24}$/i.test(c.id) &&
-      typeof c.name === 'string' && c.name.length > 0 &&
-      typeof c.shortCode === 'string' && c.shortCode.length > 0 &&
-      typeof c.lat === 'number' && typeof c.lng === 'number' &&
-      typeof c.timezone === 'string' && typeof c.zoom === 'number');
+      typeof c?.id === 'string' && /^[a-f0-9]{24}$/i.test(c.id) &&
+      typeof c.name === 'string' && c.name.trim().length >= 2 &&
+      typeof c.shortCode === 'string' && c.shortCode.trim().length >= 2 && c.shortCode.length <= 16 &&
+      typeof c.city === 'string' &&
+      typeof c.lat === 'number' && Math.abs(c.lat) <= 90 &&
+      typeof c.lng === 'number' && Math.abs(c.lng) <= 180 &&
+      Number.isInteger(c.zoom) && c.zoom >= 1 && c.zoom <= 20 && validTimezone(c.timezone)) &&
+      new Set(campuses.map(c => c.id)).size === campuses.length &&
+      new Set(campuses.map(c => c.shortCode.toUpperCase())).size === campuses.length;
     if (shapeOk) pass(`GET /api/v1/campuses -> 200, ${campuses.length} campus record(s) with valid shape`);
     else fail('GET /api/v1/campuses records do not match the V1Campus schema');
   }
@@ -87,7 +97,7 @@ try {
 
 // 4. Expected campus present
 if (expectShortCode) {
-  if (campuses.some((c) => c.shortCode === expectShortCode)) pass(`campus ${expectShortCode} is listed`);
+  if (campuses.some((c) => c?.shortCode === expectShortCode)) pass(`campus ${expectShortCode} is listed`);
   else fail(`campus ${expectShortCode} is NOT listed`);
 }
 

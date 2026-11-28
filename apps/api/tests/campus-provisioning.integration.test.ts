@@ -123,4 +123,14 @@ describe.skipIf(!PG_TEST_URL)('campus provisioning against PostgreSQL', () => {
     const list = await repos.campuses.list();
     expect(list.map((c) => c.shortCode).sort()).toEqual(['ASU', 'RKGIT']);
   });
+
+  it('concurrent bootstrap attempts return the same new campus', async () => {
+    const campus = { ...ASU, shortCode: 'CONCURRENT' };
+    const results = await Promise.all([
+      provisionCampus(repos.campuses, campus),
+      provisionCampus(repos.campuses, { ...campus, shortCode: 'concurrent' }),
+    ]);
+    expect(results.filter(result => result.created)).toHaveLength(1);
+    expect(results[0].campus.id).toBe(results[1].campus.id);
+  });
 });

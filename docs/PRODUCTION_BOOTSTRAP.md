@@ -17,22 +17,20 @@ CampusBus serves login campuses from `v1.campuses`. A new or restored database h
 Before any write, confirm that the Render service `campusmove-api` uses the intended production database:
 
 1. In Render, open the service's Environment settings and confirm `DATABASE_URL` points at the production database. Do not copy the value into logs or chat.
-2. Run the inventory query (read-only) against that database:
+2. Confirm the Neon project, branch and database against that binding. Run the read-only inventory with the trusted connection and TLS settings from the secret store:
 
-   ```sql
-   SELECT id, name, short_code, city, lat, lng, zoom, timezone FROM v1.campuses ORDER BY name;
-   SELECT count(*) AS users FROM v1.users;
+   ```sh
+   NODE_ENV=production npx tsx scripts/inspect-postgres.ts
    ```
 
-3. Record the row counts. Do not copy personal records into tickets.
+3. Review `v1`, `public`, and any other application schemas for existing records, legacy tables, and migration metadata. The inventory reports visible table names, counts, and columns without reading individual records into logs. CampusBus applies idempotent v1 SQL and has no separate v1 migration history table.
 
 ## 2. Provision a campus (idempotent)
 
 The CLI keys on `--short-code`. If a campus with that code already exists, it reports `already exists` and changes nothing.
 
 ```sh
-DATABASE_URL=<production connection string from the secret store> \
-npm run api:bootstrap -- \
+NODE_ENV=production npm run api:bootstrap -- --existing-schema \
   --name="Raj Kumar Goel Institute of Technology" \
   --short-code=RKGIT \
   --city="Ghaziabad" \
@@ -41,7 +39,7 @@ npm run api:bootstrap -- \
   --timezone=Asia/Kolkata
 ```
 
-Coordinates are the Google Places pin for the institute. Confirm them on the map before provisioning. Add a first administrator only with the secret-managed variables `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME` and `BOOTSTRAP_ADMIN_PASSWORD`. Do not pass a password on the command line. The administrator step is skipped when the campus already has an administrator.
+The published point is inside the mapped campus outline in Ghaziabad, Uttar Pradesh, India. Zoom 16 shows the campus. `--existing-schema` leaves schema application to the existing deployment workflow. Add a first administrator from a single trusted operator session using the secret-managed variables `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME` and `BOOTSTRAP_ADMIN_PASSWORD`. The administrator step is skipped when the campus already has an administrator. [Institute contact and map](https://rkgit.edu.in/contactus) · [OpenStreetMap campus outline](https://www.openstreetmap.org/way/1409133131)
 
 Do not set `BOOTSTRAP_SECRET` on Render. It enables the HTTP bootstrap route and is not needed for the CLI.
 
@@ -54,7 +52,7 @@ node scripts/smoke-campuses.mjs \
   --expect-short-code RKGIT
 ```
 
-The script checks `/healthz`, `/readyz`, the campus list shape, the CORS headers for the frontend origin, and that the expected short code is listed. The same check runs from the **Production campus smoke test** workflow (`workflow_dispatch`).
+The script checks `/healthz`, `/readyz`, the campus list shape, the CORS headers for the frontend origin, and that the expected short code is listed. The **Production campus smoke test** workflow runs after successful production deployment events, hourly, and on manual dispatch.
 
 Then sign in once per role with an approved account (student, driver, admin) and confirm the campus appears on the login screen.
 
